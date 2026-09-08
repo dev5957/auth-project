@@ -12,7 +12,13 @@ API REST JSON (Node.js + Express) pour l’authentification des utilisateurs.
 
 ## État actuel
 
-Serveur Express minimal avec une route de santé `GET /health`, chargement des variables d’environnement via `dotenv`, et un pool de connexions PostgreSQL prêt à l’emploi. Aucune table, aucune authentification et aucune autre fonctionnalité applicative pour le moment.
+Serveur Express minimal avec une route de santé `GET /health`, chargement des variables d’environnement via `dotenv`, et un pool de connexions PostgreSQL prêt à l’emploi. Le schéma principal des utilisateurs est défini en SQL, mais n’est pas encore appliqué. Aucune authentification applicative pour le moment.
+
+## Schéma utilisateurs
+
+Le fichier `sql/001_create_users.sql` définit la table principale `users` (inscription locale, Google et Apple).
+
+Ce script doit être exécuté **manuellement dans Neon** lors de l’étape prévue à cet effet. Il n’est pas lancé par le serveur. Aucune information secrète ne doit être ajoutée au dépôt.
 
 ## PostgreSQL
 
