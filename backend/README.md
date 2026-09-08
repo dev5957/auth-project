@@ -12,8 +12,33 @@ API REST JSON (Node.js + Express) pour l’authentification des utilisateurs.
 
 ## État actuel
 
-Ce dossier contient uniquement la structure initiale du projet Node.js. Aucune route, aucune dépendance applicative et aucun serveur n’ont encore été ajoutés.
+Serveur Express minimal avec une route de santé `GET /health`. Aucune authentification, aucune base de données et aucune autre dépendance applicative pour le moment.
 
-## Démarrage (plus tard)
+## Démarrage
 
-Les commandes d’installation, de configuration PostgreSQL et de lancement du serveur seront documentées ici une fois le backend initialisé.
+```bash
+cd backend
+npm install
+npm start
+```
+
+Le serveur écoute sur le port défini par la variable d’environnement `PORT`, ou **3000** par défaut.
+
+```bash
+PORT=4000 npm start
+```
+
+## Tester
+
+```bash
+curl http://localhost:3000/health
+```
+
+Réponse attendue :
+
+```json
+{
+  "status": "ok",
+  "message": "API is running"
+}
+```
