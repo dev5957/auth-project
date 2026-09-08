@@ -12,7 +12,28 @@ API REST JSON (Node.js + Express) pour l’authentification des utilisateurs.
 
 ## État actuel
 
-Serveur Express minimal avec une route de santé `GET /health`. Aucune authentification, aucune base de données et aucune autre dépendance applicative pour le moment.
+Serveur Express minimal avec une route de santé `GET /health` et chargement des variables d’environnement via `dotenv`. Aucune authentification, aucune base de données et aucune autre fonctionnalité applicative pour le moment.
+
+## Variables d’environnement
+
+La configuration du backend passe par des variables d’environnement (port d’écoute, URL PostgreSQL, secret JWT). Elles sont chargées au démarrage depuis un fichier `.env` local, grâce à `dotenv`.
+
+| Variable        | Rôle                                      | Obligatoire aujourd’hui |
+|-----------------|-------------------------------------------|-------------------------|
+| `PORT`          | Port HTTP du serveur (défaut : `3000`)    | Non                     |
+| `DATABASE_URL`  | Connexion PostgreSQL (prévue plus tard)   | Non                     |
+| `JWT_SECRET`    | Secret de signature des jetons JWT        | Non                     |
+
+Le fichier `.env` ne doit **jamais** être commité : il est ignoré par Git. Le fichier `.env.example` sert de modèle, sans valeurs secrètes.
+
+### Créer un fichier `.env` local
+
+```bash
+cd backend
+cp .env.example .env
+```
+
+Adapte ensuite `.env` si besoin (par exemple `PORT=4000`). `DATABASE_URL` et `JWT_SECRET` peuvent rester vides pour cette étape.
 
 ## Démarrage
 
@@ -22,7 +43,7 @@ npm install
 npm start
 ```
 
-Le serveur écoute sur le port défini par la variable d’environnement `PORT`, ou **3000** par défaut.
+Le serveur écoute sur le port défini par `PORT` dans `.env` (ou dans l’environnement), ou **3000** par défaut.
 
 ```bash
 PORT=4000 npm start
