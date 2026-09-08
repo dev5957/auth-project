@@ -12,13 +12,19 @@ API REST JSON (Node.js + Express) pour l’authentification des utilisateurs.
 
 ## État actuel
 
-Serveur Express minimal avec une route de santé `GET /health`, chargement des variables d’environnement via `dotenv`, et un pool de connexions PostgreSQL prêt à l’emploi. Le schéma principal des utilisateurs est défini en SQL, mais n’est pas encore appliqué. Aucune authentification applicative pour le moment.
+Serveur Express minimal avec une route de santé `GET /health`, chargement des variables d’environnement via `dotenv`, et un pool de connexions PostgreSQL prêt à l’emploi. Les schémas SQL `users` et `phone_verifications` sont définis, mais ne sont pas encore appliqués. Aucune authentification applicative pour le moment.
 
 ## Schéma utilisateurs
 
 Le fichier `sql/001_create_users.sql` définit la table principale `users` (inscription locale, Google et Apple).
 
 Ce script doit être exécuté **manuellement dans Neon** lors de l’étape prévue à cet effet. Il n’est pas lancé par le serveur. Aucune information secrète ne doit être ajoutée au dépôt.
+
+## Vérifications SMS
+
+Le fichier `sql/002_create_phone_verifications.sql` définit la table temporaire `phone_verifications`.
+
+Un compte **n’est pas créé** dans `users` tant que le code SMS n’a pas été validé. Cette table stocke une demande d’inscription temporaire (jeton aléatoire, numéro, hash du code, expiration), sans `user_id` et sans code SMS en clair. Le script doit être exécuté manuellement dans Neon à l’étape prévue. Aucun secret ni donnée réelle ne doit être ajouté au dépôt.
 
 ## PostgreSQL
 
