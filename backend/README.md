@@ -12,7 +12,13 @@ API REST JSON (Node.js + Express) pour l’authentification des utilisateurs.
 
 ## État actuel
 
-Serveur Express minimal avec une route de santé `GET /health` et chargement des variables d’environnement via `dotenv`. Aucune authentification, aucune base de données et aucune autre fonctionnalité applicative pour le moment.
+Serveur Express minimal avec une route de santé `GET /health`, chargement des variables d’environnement via `dotenv`, et un pool de connexions PostgreSQL prêt à l’emploi. Aucune table, aucune authentification et aucune autre fonctionnalité applicative pour le moment.
+
+## PostgreSQL
+
+Le backend utilise PostgreSQL. La connexion est gérée par un pool (`pg.Pool`) dans `src/db.js`.
+
+La chaîne de connexion vient **uniquement** de la variable d’environnement `DATABASE_URL`. Elle doit être fournie par l’environnement d’exécution (hébergeur, secrets du déploiement, ou un fichier `.env` local non versionné). Aucun identifiant, mot de passe ni URL de base de données ne doit être ajouté au dépôt Git.
 
 ## Variables d’environnement
 
@@ -21,7 +27,7 @@ La configuration du backend passe par des variables d’environnement (port d’
 | Variable        | Rôle                                      | Obligatoire aujourd’hui |
 |-----------------|-------------------------------------------|-------------------------|
 | `PORT`          | Port HTTP du serveur (défaut : `3000`)    | Non                     |
-| `DATABASE_URL`  | Connexion PostgreSQL (prévue plus tard)   | Non                     |
+| `DATABASE_URL`  | Chaîne de connexion PostgreSQL            | Oui pour la base        |
 | `JWT_SECRET`    | Secret de signature des jetons JWT        | Non                     |
 
 Le fichier `.env` ne doit **jamais** être commité : il est ignoré par Git. Le fichier `.env.example` sert de modèle, sans valeurs secrètes.
