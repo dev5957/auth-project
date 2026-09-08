@@ -69,3 +69,12 @@ Réponse attendue :
   "message": "API is running"
 }
 ```
+
+### Vérifier la connexion PostgreSQL
+
+Le test réel utilise le pool de `src/db.js` et exécute `SELECT 1`. Il nécessite `DATABASE_URL` **déjà fournie par l’environnement** (variable d’environnement du processus, secret d’hébergement, etc.). Ne commitez jamais cette valeur.
+
+```bash
+cd backend
+npm run test:db
+```
