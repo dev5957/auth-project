@@ -196,3 +196,12 @@ Le test réel utilise le pool de `src/db.js` et exécute `SELECT 1`. Il nécessi
 cd backend
 npm run test:db
 ```
+
+### Vérifier le schéma PostgreSQL
+
+`npm run test:schema` interroge uniquement les métadonnées (`information_schema`) pour confirmer la présence des tables `users`, `phone_verifications` et `refresh_tokens`, ainsi que leurs colonnes principales. Aucune donnée n’est modifiée. `DATABASE_URL` doit être fournie par l’environnement.
+
+```bash
+cd backend
+npm run test:schema
+```
