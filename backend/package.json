@@ -11,6 +11,7 @@
     "test:refresh-lifecycle": "node src/check-refresh-lifecycle.js",
     "test:password-policy": "node src/check-password-policy.js",
     "test:normalization": "node src/check-normalization.js",
+    "test:auth-me": "node src/check-auth-me.js",
     "purge:refresh-tokens": "node src/purge-refresh-tokens.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

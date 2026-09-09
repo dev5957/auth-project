@@ -57,9 +57,20 @@ async function refresh(req, res, next) {
   }
 }
 
+function me(req, res) {
+  res.status(200).json({
+    user: {
+      userId: req.user.userId,
+      login: req.user.login,
+      auth_provider: req.user.auth_provider,
+    },
+  });
+}
+
 module.exports = {
   startRegister,
   verifyPhone,
   login,
   refresh,
+  me,
 };

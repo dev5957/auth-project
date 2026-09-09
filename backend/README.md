@@ -12,7 +12,7 @@ API REST JSON (Node.js + Express) pour l’authentification des utilisateurs.
 
 ## État actuel
 
-Serveur Express avec `GET /health`, inscription locale (`POST /auth/register/start`, `POST /auth/register/verify-phone`), connexion locale `POST /auth/login` et renouvellement `POST /auth/refresh`. Après un login réussi, le backend émet un JWT (15 minutes) et un refresh token (90 jours, stocké uniquement hashé). `POST /auth/refresh` fait tourner le refresh token dans une transaction. Un compte n’est créé dans `users` qu’après validation du code SMS.
+Serveur Express avec `GET /health`, inscription locale (`POST /auth/register/start`, `POST /auth/register/verify-phone`), connexion locale `POST /auth/login`, renouvellement `POST /auth/refresh` et profil JWT `GET /auth/me`. Après un login réussi, le backend émet un JWT (15 minutes) et un refresh token (90 jours, stocké uniquement hashé). `POST /auth/refresh` fait tourner le refresh token dans une transaction. Un compte n’est créé dans `users` qu’après validation du code SMS.
 
 ## Schéma utilisateurs
 
@@ -251,6 +251,51 @@ Token invalide, expiré ou révoqué :
 
 La présentation d’un refresh token déjà révoqué révoque aussi les autres jetons actifs du même utilisateur, sans le dire au client.
 
+### Route protégée : profil JWT
+
+Les routes protégées exigent le header :
+
+```http
+Authorization: Bearer <access_token>
+```
+
+Le middleware `requireAuth` (`src/middleware/authMiddleware.js`) vérifie le JWT avec `JWT_SECRET`, **HS256 uniquement**, et l’expiration `exp`. En cas de header absent, format invalide, token vide, signature incorrecte, algorithme refusé ou jeton expiré, la réponse est toujours :
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+HTTP **401**. Aucun détail JWT, aucun token et aucun secret ne sont renvoyés ni logués.
+
+`GET /auth/me` est la première route protégée. Elle lit uniquement le payload du access token (`userId`, `login`, `auth_provider`). Pas de requête SQL, pas de nouvel login.
+
+```bash
+curl -sS http://localhost:3000/auth/me \
+  -H 'Authorization: Bearer replace-with-access-token'
+```
+
+Succès attendu :
+
+```json
+{
+  "user": {
+    "userId": 1,
+    "login": "alex",
+    "auth_provider": "local"
+  }
+}
+```
+
+Sans token, ou avec un token invalide :
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
 ### Vérifier la connexion PostgreSQL
 
 Le test réel utilise le pool de `src/db.js` et exécute `SELECT 1`. Il nécessite `DATABASE_URL` **déjà fournie par l’environnement** (variable d’environnement du processus, secret d’hébergement, etc.). Ne commitez jamais cette valeur.
@@ -281,4 +326,11 @@ npm run test:refresh-reuse
 ```bash
 cd backend
 npm run test:normalization
+```
+
+### Vérifier le middleware JWT et GET /auth/me
+
+```bash
+cd backend
+npm run test:auth-me
 ```

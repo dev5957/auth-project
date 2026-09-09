@@ -21,7 +21,7 @@ function generateAccessToken(user) {
       auth_provider: user.auth_provider,
     },
     secret,
-    { expiresIn }
+    { expiresIn, algorithm: 'HS256' }
   );
 }
 
