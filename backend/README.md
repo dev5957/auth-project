@@ -30,6 +30,12 @@ La migration `sql/003_add_registration_data_to_phone_verifications.sql` ajoute `
 
 Ces scripts doivent être exécutés manuellement dans Neon à l’étape prévue. Aucun secret ni donnée réelle ne doit être ajouté au dépôt.
 
+## Refresh tokens (préparation)
+
+Le fichier `sql/004_create_refresh_tokens.sql` définit la table `refresh_tokens`. Elle servira plus tard aux sessions mobiles : un refresh token (longue durée, révocable, stocké uniquement sous forme de `token_hash`) permettra d’obtenir un nouvel access token.
+
+Un **JWT** (access token) est un jeton court, souvent auto-contenu, envoyé à chaque requête API. Un **refresh token** est un secret persisté côté serveur, lié à un utilisateur, avec expiration et révocation. Cette étape **ne crée aucun JWT, aucun refresh token réel, aucune route et aucun mécanisme d’authentification**. Seul le schéma SQL est préparé. Le login local (`POST /auth/login`) reste inchangé.
+
 ## PostgreSQL
 
 Le backend utilise PostgreSQL. La connexion est gérée par un pool (`pg.Pool`) dans `src/db.js`.
