@@ -19,7 +19,7 @@ function validateRefreshPayload(body) {
   return payload.refresh_token.trim();
 }
 
-async function refreshAuthTokens(body) {
+async function refreshAuthTokens(body, db = pool) {
   const refreshToken = validateRefreshPayload(body);
 
   if (!process.env.JWT_SECRET) {
@@ -31,7 +31,8 @@ async function refreshAuthTokens(body) {
   }
 
   const tokenHash = hashRefreshToken(refreshToken);
-  const client = await pool.connect();
+  const client = await db.connect();
+  let committed = false;
 
   try {
     await client.query('BEGIN');
@@ -45,11 +46,24 @@ async function refreshAuthTokens(body) {
     );
 
     const row = found.rows[0];
-    if (
-      !row ||
-      row.revoked_at ||
-      new Date(row.expires_at).getTime() <= Date.now()
-    ) {
+    if (!row) {
+      throw new AppError(401, INVALID_REFRESH_TOKEN);
+    }
+
+    if (row.revoked_at) {
+      await client.query(
+        `UPDATE refresh_tokens
+         SET revoked_at = NOW()
+         WHERE user_id = $1 AND revoked_at IS NULL`,
+        [row.user_id]
+      );
+      await client.query('COMMIT');
+      committed = true;
+      console.error('Security event: refresh_token_reuse', { userId: row.user_id });
+      throw new AppError(401, INVALID_REFRESH_TOKEN);
+    }
+
+    if (new Date(row.expires_at).getTime() <= Date.now()) {
       throw new AppError(401, INVALID_REFRESH_TOKEN);
     }
 
@@ -84,6 +98,7 @@ async function refreshAuthTokens(body) {
     );
 
     await client.query('COMMIT');
+    committed = true;
 
     return {
       access_token,
@@ -96,10 +111,12 @@ async function refreshAuthTokens(body) {
       },
     };
   } catch (err) {
-    try {
-      await client.query('ROLLBACK');
-    } catch (_) {
-      // Preserve the original error.
+    if (!committed) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (_) {
+        // Preserve the original error.
+      }
     }
     throw err;
   } finally {

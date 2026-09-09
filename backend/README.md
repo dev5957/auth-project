@@ -34,7 +34,7 @@ Ces scripts doivent être exécutés manuellement dans Neon à l’étape prévu
 
 Le fichier `sql/004_create_refresh_tokens.sql` définit la table `refresh_tokens`. Après un `POST /auth/login` réussi, un refresh token opaque (90 jours) est renvoyé au client ; **seul son hash** (`token_hash`) est stocké en base, avec `user_id` et `expires_at`. Le jeton en clair n’est jamais persisté.
 
-Un **JWT** (access token) est un jeton court (15 minutes, `JWT_EXPIRES_IN=15m`) signé avec `JWT_SECRET`, contenant `userId`, `login` et `auth_provider`. Il sert à authentifier les requêtes API. Un **refresh token** est un secret longue durée, lié à un utilisateur, révocable. `POST /auth/refresh` échange un refresh token valide contre un nouvel access token et un nouveau refresh token (rotation : l’ancien est révoqué via `revoked_at`).
+Un **JWT** (access token) est un jeton court (15 minutes, `JWT_EXPIRES_IN=15m`) signé avec `JWT_SECRET`, contenant `userId`, `login` et `auth_provider`. Il sert à authentifier les requêtes API. Un **refresh token** est un secret longue durée, lié à un utilisateur, révocable. `POST /auth/refresh` échange un refresh token valide contre un nouvel access token et un nouveau refresh token (rotation : l’ancien est révoqué via `revoked_at`). Si un refresh token **déjà révoqué** est présenté, tous les refresh tokens actifs de l’utilisateur sont révoqués (réutilisation possible). La réponse client reste `401 Invalid refresh token`.
 
 ## PostgreSQL
 
@@ -233,6 +233,8 @@ Token invalide, expiré ou révoqué :
 }
 ```
 
+La présentation d’un refresh token déjà révoqué révoque aussi les autres jetons actifs du même utilisateur, sans le dire au client.
+
 ### Vérifier la connexion PostgreSQL
 
 Le test réel utilise le pool de `src/db.js` et exécute `SELECT 1`. Il nécessite `DATABASE_URL` **déjà fournie par l’environnement** (variable d’environnement du processus, secret d’hébergement, etc.). Ne commitez jamais cette valeur.
@@ -249,4 +251,11 @@ npm run test:db
 ```bash
 cd backend
 npm run test:schema
+```
+
+### Vérifier la rotation et la réutilisation des refresh tokens
+
+```bash
+cd backend
+npm run test:refresh-reuse
 ```
