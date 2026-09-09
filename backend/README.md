@@ -103,7 +103,17 @@ Réponse attendue :
 
 `POST /auth/register/start` valide les champs, vérifie qu’email / login / téléphone ne sont pas déjà dans `users`, hash le mot de passe avec bcrypt, puis enregistre une demande dans `phone_verifications` (jeton, hash du code SMS, `registration_data`). Aucune ligne n’est insérée dans `users`. Aucun SMS réel n’est envoyé pour le moment. Le code SMS n’est logué **que si** `DEV_LOG_SMS_CODE=true` est défini explicitement (désactivé par défaut, y compris si `NODE_ENV` n’est pas `production`).
 
-Mot de passe (politique centralisée, `src/validators/passwordValidator.js`) : **8 à 72 caractères**, pas vide, pas seulement des espaces. Pas d’obligation de majuscule ni de caractère spécial. Au-delà de 72 caractères, l’inscription est refusée (**400**) et bcrypt n’est pas appelé. L’email est normalisé (`trim` + minuscules), le login et le téléphone sont trimés (longueurs max 64 et 32).
+Mot de passe (politique centralisée, `src/validators/passwordValidator.js`) : **8 à 72 caractères**, pas vide, pas seulement des espaces. Pas d’obligation de majuscule ni de caractère spécial. Au-delà de 72 caractères, l’inscription est refusée (**400**) et bcrypt n’est pas appelé.
+
+Identifiants (fonctions centralisées, `src/validators/authFields.js`), appliquées avant recherche de doublon, insertion `phone_verifications` et lookup login :
+
+- **email** : `trim` + minuscules, format email inchangé, vide refusé, max 254. `"  Test.User@Example.COM "` → `"test.user@example.com"`.
+- **login** : `trim` + minuscules, max 64. `"  Test_User  "` → `"test_user"`. Le stockage et la recherche utilisent la même forme ; `"TEST_USER"` retrouve un compte créé en `"test_user"`. Avant cette étape le login était sensible à la casse. Les lignes historiques encore en casse mixte **ne sont pas réécrites** (pas de migration SQL) et ne matcheraient plus un lookup minuscule.
+- **téléphone** (normalisation légère seulement) : `trim`, puis suppression des espaces, tirets et parenthèses. `"+33 6 12-34-56-78"` → `"+33612345678"`. Pas de conversion d’indicatif, pas de pays par défaut, **pas de validation E.164 stricte** (étape ultérieure, avant un vrai fournisseur SMS). Max 32 après nettoyage.
+
+`POST /auth/register/verify-phone` re-normalise email / login / téléphone lus depuis `registration_data` avant les contrôles d’unicité et l’insertion dans `users`.
+
+Contraintes SQL actuelles (`sql/001_create_users.sql`) : `UNIQUE(email)`, `UNIQUE(login)` (comparaison PostgreSQL sensible à la casse). **`phone_number` n’a pas de contrainte UNIQUE** (contrôle applicatif seulement). Cette étape n’ajoute aucune contrainte UNIQUE.
 
 Un rate limiting **en mémoire, par IP**, s’applique à `POST /auth/register/start` (5 / 15 min), `POST /auth/register/verify-phone` (10 / 15 min), `POST /auth/login` (10 / 15 min) et `POST /auth/refresh` (30 / 15 min). Dépassement : HTTP **429** et en-tête `Retry-After`. Ce limiteur n’est pas adapté à plusieurs instances de production.
 
@@ -168,7 +178,7 @@ Succès attendu :
 
 ### Connexion locale
 
-`POST /auth/login` reçoit `login` et `password`. L’utilisateur est recherché uniquement par `login`. Le mot de passe reçu est comparé à `password_hash` avec `bcrypt.compare`. Le téléphone doit être vérifié (`phone_verified = true`).
+`POST /auth/login` reçoit `login` et `password`. L’utilisateur est recherché uniquement par `login` (valeur trimée et mise en minuscules, comme au stockage). Le mot de passe reçu est comparé à `password_hash` avec `bcrypt.compare`. Le téléphone doit être vérifié (`phone_verified = true`).
 
 En cas de succès, le backend retourne un **access token JWT** (15 minutes) et un **refresh token** (90 jours). Seul le hash du refresh token est enregistré dans `refresh_tokens`. Le JWT n’est pas stocké en base. En cas de login ou mot de passe incorrect, la réponse est générique (`Invalid credentials`) pour ne pas indiquer si le login existe.
 
@@ -264,4 +274,11 @@ npm run test:schema
 ```bash
 cd backend
 npm run test:refresh-reuse
+```
+
+### Vérifier la normalisation email / login / téléphone
+
+```bash
+cd backend
+npm run test:normalization
 ```

@@ -211,17 +211,17 @@ async function verifyPhoneAndCreateUser(body) {
       throw new AppError(400, 'Registration data is missing');
     }
 
-    const email = data.email;
+    if (!data.birth_date || !data.password_hash) {
+      throw new AppError(400, 'Registration data is incomplete');
+    }
+
+    const email = normalizeEmail(data.email);
+    const login = normalizeLogin(data.login);
+    const phone_number = normalizePhoneNumber(data.phone_number);
     const birth_date = data.birth_date;
-    const phone_number = data.phone_number;
-    const login = data.login;
     const password_hash = data.password_hash;
     const first_name = data.first_name ?? null;
     const last_name = data.last_name ?? null;
-
-    if (!email || !birth_date || !phone_number || !login || !password_hash) {
-      throw new AppError(400, 'Registration data is incomplete');
-    }
 
     const taken = await client.query(
       `SELECT
