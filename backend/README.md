@@ -12,7 +12,7 @@ API REST JSON (Node.js + Express) pour l’authentification des utilisateurs.
 
 ## État actuel
 
-Serveur Express avec `GET /health`, `POST /auth/register/start` et `POST /auth/register/verify-phone`. Un compte n’est créé dans `users` qu’après validation du code SMS. Les schémas SQL sont définis mais doivent encore être appliqués manuellement dans Neon.
+Serveur Express avec `GET /health`, inscription locale (`POST /auth/register/start`, `POST /auth/register/verify-phone`) et connexion locale `POST /auth/login`. Un compte n’est créé dans `users` qu’après validation du code SMS. Cette étape de connexion ne crée pas encore de JWT. Les schémas SQL sont définis mais doivent encore être appliqués manuellement dans Neon.
 
 ## Schéma utilisateurs
 
@@ -144,6 +144,35 @@ Succès attendu :
     "email": "alex@example.com",
     "login": "alex",
     "phone_verified": true,
+    "auth_provider": "local"
+  }
+}
+```
+
+### Connexion locale
+
+`POST /auth/login` reçoit `login` et `password`. L’utilisateur est recherché uniquement par `login`. Le mot de passe reçu est comparé à `password_hash` avec `bcrypt.compare`. Le téléphone doit être vérifié (`phone_verified = true`).
+
+Cette étape **ne crée pas de JWT** (ni refresh token, ni session). En cas de login ou mot de passe incorrect, la réponse est générique (`Invalid credentials`) pour ne pas indiquer si le login existe.
+
+```bash
+curl -sS -X POST http://localhost:3000/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "login": "alex",
+    "password": "choose-a-strong-password"
+  }'
+```
+
+Succès attendu :
+
+```json
+{
+  "message": "Login successful",
+  "user": {
+    "id": 1,
+    "login": "alex",
+    "email": "alex@example.com",
     "auth_provider": "local"
   }
 }

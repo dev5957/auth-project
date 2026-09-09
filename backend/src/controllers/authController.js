@@ -2,6 +2,7 @@ const {
   startLocalRegistration,
   verifyPhoneAndCreateUser,
 } = require('../services/registerService');
+const { loginLocalUser } = require('../services/loginService');
 
 async function startRegister(req, res, next) {
   try {
@@ -27,7 +28,20 @@ async function verifyPhone(req, res, next) {
   }
 }
 
+async function login(req, res, next) {
+  try {
+    const user = await loginLocalUser(req.body);
+    res.status(200).json({
+      message: 'Login successful',
+      user,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   startRegister,
   verifyPhone,
+  login,
 };
