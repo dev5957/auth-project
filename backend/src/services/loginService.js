@@ -6,6 +6,7 @@ const {
   generateRefreshToken,
   getRefreshTokenExpiryDate,
 } = require('./tokenService');
+const { storeLoginRefreshToken } = require('./refreshSessionService');
 
 const INVALID_CREDENTIALS = 'Invalid credentials';
 
@@ -66,11 +67,26 @@ async function loginLocalUser(body) {
   const { token: refresh_token, token_hash } = generateRefreshToken();
   const expires_at = getRefreshTokenExpiryDate();
 
-  await pool.query(
-    `INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
-     VALUES ($1, $2, $3)`,
-    [user.id, token_hash, expires_at]
-  );
+  const client = await pool.connect();
+  let committed = false;
+
+  try {
+    await client.query('BEGIN');
+    await storeLoginRefreshToken(user.id, token_hash, expires_at, client);
+    await client.query('COMMIT');
+    committed = true;
+  } catch (err) {
+    if (!committed) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (_) {
+        // Preserve the original error.
+      }
+    }
+    throw err;
+  } finally {
+    client.release();
+  }
 
   return {
     access_token,

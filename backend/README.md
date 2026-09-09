@@ -36,6 +36,10 @@ Le fichier `sql/004_create_refresh_tokens.sql` définit la table `refresh_tokens
 
 Un **JWT** (access token) est un jeton court (15 minutes, `JWT_EXPIRES_IN=15m`) signé avec `JWT_SECRET`, contenant `userId`, `login` et `auth_provider`. Il sert à authentifier les requêtes API. Un **refresh token** est un secret longue durée, lié à un utilisateur, révocable. `POST /auth/refresh` échange un refresh token valide contre un nouvel access token et un nouveau refresh token (rotation : l’ancien est révoqué via `revoked_at`). Si un refresh token **déjà révoqué** est présenté, tous les refresh tokens actifs de l’utilisateur sont révoqués (réutilisation possible). La réponse client reste `401 Invalid refresh token`.
 
+Un utilisateur a au plus **5 refresh tokens actifs** (`revoked_at IS NULL` et non expirés). Un 6e login révoque le plus ancien (`revoked_at`), sans supprimer la ligne. Les réponses HTTP de login/refresh restent inchangées.
+
+Un nettoyage optionnel (`purgeStaleRefreshTokens`, `npm run purge:refresh-tokens -- --confirm`) **supprime** les lignes révoquées ou expirées depuis **30 jours**. Il ne s’exécute pas tout seul. Les tokens encore actifs ne sont jamais effacés.
+
 ## PostgreSQL
 
 Le backend utilise PostgreSQL. La connexion est gérée par un pool (`pg.Pool`) dans `src/db.js`.

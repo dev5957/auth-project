@@ -8,6 +8,8 @@
     "test:db": "node src/check-db.js",
     "test:schema": "node src/check-schema.js",
     "test:refresh-reuse": "node src/check-refresh-reuse.js",
+    "test:refresh-lifecycle": "node src/check-refresh-lifecycle.js",
+    "purge:refresh-tokens": "node src/purge-refresh-tokens.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
