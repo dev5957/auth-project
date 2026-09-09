@@ -30,9 +30,11 @@ async function verifyPhone(req, res, next) {
 
 async function login(req, res, next) {
   try {
-    const user = await loginLocalUser(req.body);
+    const { access_token, refresh_token, user } = await loginLocalUser(req.body);
     res.status(200).json({
       message: 'Login successful',
+      access_token,
+      refresh_token,
       user,
     });
   } catch (err) {

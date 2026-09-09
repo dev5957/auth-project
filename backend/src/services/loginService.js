@@ -1,6 +1,11 @@
 const bcrypt = require('bcrypt');
 const pool = require('../db');
 const AppError = require('../errors/AppError');
+const {
+  generateAccessToken,
+  generateRefreshToken,
+  getRefreshTokenExpiryDate,
+} = require('./tokenService');
 
 const INVALID_CREDENTIALS = 'Invalid credentials';
 
@@ -22,6 +27,10 @@ function validateLoginPayload(body) {
 
 async function loginLocalUser(body) {
   const { login, password } = validateLoginPayload(body);
+
+  if (!process.env.JWT_SECRET) {
+    throw new AppError(503, 'JWT_SECRET is not configured');
+  }
 
   if (!process.env.DATABASE_URL) {
     throw new AppError(503, 'Database is not configured');
@@ -53,11 +62,25 @@ async function loginLocalUser(body) {
     throw new AppError(401, INVALID_CREDENTIALS);
   }
 
+  const access_token = generateAccessToken(user);
+  const { token: refresh_token, token_hash } = generateRefreshToken();
+  const expires_at = getRefreshTokenExpiryDate();
+
+  await pool.query(
+    `INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
+     VALUES ($1, $2, $3)`,
+    [user.id, token_hash, expires_at]
+  );
+
   return {
-    id: user.id,
-    login: user.login,
-    email: user.email,
-    auth_provider: user.auth_provider,
+    access_token,
+    refresh_token,
+    user: {
+      id: user.id,
+      login: user.login,
+      email: user.email,
+      auth_provider: user.auth_provider,
+    },
   };
 }
 

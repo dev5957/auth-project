@@ -12,7 +12,7 @@ API REST JSON (Node.js + Express) pour l’authentification des utilisateurs.
 
 ## État actuel
 
-Serveur Express avec `GET /health`, inscription locale (`POST /auth/register/start`, `POST /auth/register/verify-phone`) et connexion locale `POST /auth/login`. Un compte n’est créé dans `users` qu’après validation du code SMS. Cette étape de connexion ne crée pas encore de JWT. Les schémas SQL sont définis mais doivent encore être appliqués manuellement dans Neon.
+Serveur Express avec `GET /health`, inscription locale (`POST /auth/register/start`, `POST /auth/register/verify-phone`) et connexion locale `POST /auth/login`. Après un login réussi, le backend émet un JWT (access token, 15 minutes) et un refresh token (90 jours, stocké uniquement hashé). Un compte n’est créé dans `users` qu’après validation du code SMS. Les schémas SQL sont définis mais doivent encore être appliqués manuellement dans Neon.
 
 ## Schéma utilisateurs
 
@@ -30,11 +30,11 @@ La migration `sql/003_add_registration_data_to_phone_verifications.sql` ajoute `
 
 Ces scripts doivent être exécutés manuellement dans Neon à l’étape prévue. Aucun secret ni donnée réelle ne doit être ajouté au dépôt.
 
-## Refresh tokens (préparation)
+## Refresh tokens
 
-Le fichier `sql/004_create_refresh_tokens.sql` définit la table `refresh_tokens`. Elle servira plus tard aux sessions mobiles : un refresh token (longue durée, révocable, stocké uniquement sous forme de `token_hash`) permettra d’obtenir un nouvel access token.
+Le fichier `sql/004_create_refresh_tokens.sql` définit la table `refresh_tokens`. Après un `POST /auth/login` réussi, un refresh token opaque (90 jours) est renvoyé au client ; **seul son hash** (`token_hash`) est stocké en base, avec `user_id` et `expires_at`. Le jeton en clair n’est jamais persisté.
 
-Un **JWT** (access token) est un jeton court, souvent auto-contenu, envoyé à chaque requête API. Un **refresh token** est un secret persisté côté serveur, lié à un utilisateur, avec expiration et révocation. Cette étape **ne crée aucun JWT, aucun refresh token réel, aucune route et aucun mécanisme d’authentification**. Seul le schéma SQL est préparé. Le login local (`POST /auth/login`) reste inchangé.
+Un **JWT** (access token) est un jeton court (15 minutes, `JWT_EXPIRES_IN=15m`) signé avec `JWT_SECRET`, contenant `userId`, `login` et `auth_provider`. Il sert à authentifier les requêtes API. Un **refresh token** est un secret longue durée, lié à un utilisateur, révocable, destiné à obtenir plus tard un nouvel access token. Aucune route de refresh n’existe encore.
 
 ## PostgreSQL
 
@@ -46,11 +46,13 @@ La chaîne de connexion vient **uniquement** de la variable d’environnement `D
 
 La configuration du backend passe par des variables d’environnement (port d’écoute, URL PostgreSQL, secret JWT). Elles sont chargées au démarrage depuis un fichier `.env` local, grâce à `dotenv`.
 
-| Variable        | Rôle                                      | Obligatoire aujourd’hui |
-|-----------------|-------------------------------------------|-------------------------|
-| `PORT`          | Port HTTP du serveur (défaut : `3000`)    | Non                     |
-| `DATABASE_URL`  | Chaîne de connexion PostgreSQL            | Oui pour la base        |
-| `JWT_SECRET`    | Secret de signature des jetons JWT        | Non                     |
+| Variable                      | Rôle                                      | Obligatoire aujourd’hui |
+|-------------------------------|-------------------------------------------|-------------------------|
+| `PORT`                        | Port HTTP du serveur (défaut : `3000`)    | Non                     |
+| `DATABASE_URL`                | Chaîne de connexion PostgreSQL            | Oui pour la base        |
+| `JWT_SECRET`                  | Secret de signature des JWT               | Oui pour le login       |
+| `JWT_EXPIRES_IN`              | Durée de l’access token (défaut : `15m`)  | Non                     |
+| `REFRESH_TOKEN_EXPIRES_DAYS`  | Durée du refresh token (défaut : `90`)    | Non                     |
 
 Le fichier `.env` ne doit **jamais** être commité : il est ignoré par Git. Le fichier `.env.example` sert de modèle, sans valeurs secrètes.
 
@@ -61,7 +63,7 @@ cd backend
 cp .env.example .env
 ```
 
-Adapte ensuite `.env` si besoin (par exemple `PORT=4000`). `DATABASE_URL` et `JWT_SECRET` peuvent rester vides pour cette étape.
+Adapte ensuite `.env` si besoin (par exemple `PORT=4000`). Renseigne `DATABASE_URL` et `JWT_SECRET` **hors Git**. Ne commitez jamais de secrets.
 
 ## Démarrage
 
@@ -159,7 +161,7 @@ Succès attendu :
 
 `POST /auth/login` reçoit `login` et `password`. L’utilisateur est recherché uniquement par `login`. Le mot de passe reçu est comparé à `password_hash` avec `bcrypt.compare`. Le téléphone doit être vérifié (`phone_verified = true`).
 
-Cette étape **ne crée pas de JWT** (ni refresh token, ni session). En cas de login ou mot de passe incorrect, la réponse est générique (`Invalid credentials`) pour ne pas indiquer si le login existe.
+En cas de succès, le backend retourne un **access token JWT** (15 minutes) et un **refresh token** (90 jours). Seul le hash du refresh token est enregistré dans `refresh_tokens`. Le JWT n’est pas stocké en base. En cas de login ou mot de passe incorrect, la réponse est générique (`Invalid credentials`) pour ne pas indiquer si le login existe.
 
 ```bash
 curl -sS -X POST http://localhost:3000/auth/login \
@@ -175,6 +177,8 @@ Succès attendu :
 ```json
 {
   "message": "Login successful",
+  "access_token": "...",
+  "refresh_token": "...",
   "user": {
     "id": 1,
     "login": "alex",
