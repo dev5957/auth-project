@@ -98,9 +98,10 @@ async function startLocalRegistration(body) {
   const verification_token = generateVerificationToken();
   const expires_at = new Date(Date.now() + CODE_TTL_MS);
 
-  // DEV only: log the SMS code until a real SMS provider is wired in.
-  // This must be replaced by an SMS provider later. Never persist the plaintext code.
-  if (process.env.NODE_ENV !== 'production') {
+  // Log the plaintext SMS code only when DEV_LOG_SMS_CODE=true is set explicitly.
+  // Default is off. This must be replaced by an SMS provider later.
+  // Never persist the plaintext code. Never log password, hashes, or tokens.
+  if (process.env.DEV_LOG_SMS_CODE === 'true') {
     console.log('[DEV] SMS verification code (replace with SMS provider):', smsCode);
   }
 

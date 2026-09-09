@@ -53,6 +53,7 @@ La configuration du backend passe par des variables d’environnement (port d’
 | `JWT_SECRET`                  | Secret de signature des JWT               | Oui pour le login       |
 | `JWT_EXPIRES_IN`              | Durée de l’access token (défaut : `15m`)  | Non                     |
 | `REFRESH_TOKEN_EXPIRES_DAYS`  | Durée du refresh token (défaut : `90`)    | Non                     |
+| `DEV_LOG_SMS_CODE`            | Log du code SMS en clair (`true` seulement, défaut : off) | Non |
 
 Le fichier `.env` ne doit **jamais** être commité : il est ignoré par Git. Le fichier `.env.example` sert de modèle, sans valeurs secrètes.
 
@@ -96,7 +97,9 @@ Réponse attendue :
 
 ### Démarrer une inscription locale
 
-`POST /auth/register/start` valide les champs, vérifie qu’email / login / téléphone ne sont pas déjà dans `users`, hash le mot de passe avec bcrypt, puis enregistre une demande dans `phone_verifications` (jeton, hash du code SMS, `registration_data`). Aucune ligne n’est insérée dans `users`. Aucun SMS réel n’est envoyé pour le moment (le code n’apparaît que dans les logs de développement).
+`POST /auth/register/start` valide les champs, vérifie qu’email / login / téléphone ne sont pas déjà dans `users`, hash le mot de passe avec bcrypt, puis enregistre une demande dans `phone_verifications` (jeton, hash du code SMS, `registration_data`). Aucune ligne n’est insérée dans `users`. Aucun SMS réel n’est envoyé pour le moment. Le code SMS n’est logué **que si** `DEV_LOG_SMS_CODE=true` est défini explicitement (désactivé par défaut, y compris si `NODE_ENV` n’est pas `production`).
+
+Un rate limiting **en mémoire, par IP**, s’applique à `POST /auth/register/start` (5 / 15 min), `POST /auth/register/verify-phone` (10 / 15 min), `POST /auth/login` (10 / 15 min) et `POST /auth/refresh` (30 / 15 min). Dépassement : HTTP **429** et en-tête `Retry-After`. Ce limiteur n’est pas adapté à plusieurs instances de production.
 
 ```bash
 curl -sS -X POST http://localhost:3000/auth/register/start \
