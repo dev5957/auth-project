@@ -13,6 +13,7 @@
     "test:normalization": "node src/check-normalization.js",
     "test:auth-me": "node src/check-auth-me.js",
     "test:auth-hardening": "node src/check-auth-hardening.js",
+    "test:sql-hardening": "node src/check-sql-hardening.js",
     "purge:refresh-tokens": "node src/purge-refresh-tokens.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

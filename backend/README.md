@@ -40,6 +40,21 @@ Un utilisateur a au plus **5 refresh tokens actifs** (`revoked_at IS NULL` et no
 
 Un nettoyage optionnel (`purgeStaleRefreshTokens`, `npm run purge:refresh-tokens -- --confirm`) **supprime** les lignes révoquées ou expirées depuis **30 jours**. Il ne s’exécute pas tout seul. Les tokens encore actifs ne sont jamais effacés.
 
+## Durcissement SQL (005)
+
+Le fichier `sql/005_harden_users.sql` est une migration **non destructive**, à exécuter **manuellement dans Neon** après `npm run test:sql-hardening`. Le serveur ne l’applique pas.
+
+Elle ajoute :
+
+- `UNIQUE (phone_number)` sur `users` (`users_phone_number_unique`), si aucun doublon n’existe ;
+- un index partiel `refresh_tokens_user_id_active_idx` sur `refresh_tokens (user_id) WHERE revoked_at IS NULL` (sessions actives / révocation de réutilisation). L’index existant `refresh_tokens_user_id_idx` est conservé (FK / toutes les lignes).
+
+Aucun CHECK sur `login` / `email` / format téléphone : les nouvelles valeurs sont déjà validées par l’application ; un CHECK `lower(login)` casserait d’éventuels logins historiques en casse mixte ; E.164 n’est pas encore en place.
+
+`phone_verifications.phone_number` **reste non UNIQUE** (plusieurs demandes historiques possibles).
+
+**Migration prête à être appliquée manuellement dans Neon.**
+
 ## PostgreSQL
 
 Le backend utilise PostgreSQL. La connexion est gérée par un pool (`pg.Pool`) dans `src/db.js`.
@@ -115,7 +130,7 @@ Identifiants (fonctions centralisées, `src/validators/authFields.js`), appliqu�
 
 `POST /auth/register/verify-phone` re-normalise email / login / téléphone lus depuis `registration_data` avant les contrôles d’unicité et l’insertion dans `users`.
 
-Contraintes SQL actuelles (`sql/001_create_users.sql`) : `UNIQUE(email)`, `UNIQUE(login)` (comparaison PostgreSQL sensible à la casse). **`phone_number` n’a pas de contrainte UNIQUE** (contrôle applicatif seulement). Cette étape n’ajoute aucune contrainte UNIQUE.
+Contraintes SQL actuelles (`sql/001_create_users.sql`) : `UNIQUE(email)`, `UNIQUE(login)` (comparaison PostgreSQL sensible à la casse). **`phone_number` n’a pas de contrainte UNIQUE dans 001** (contrôle applicatif seulement jusqu’à `sql/005_harden_users.sql`, à appliquer manuellement dans Neon).
 
 Un rate limiting **en mémoire, par IP**, s’applique à `POST /auth/register/start` (5 / 15 min), `POST /auth/register/verify-phone` (10 / 15 min), `POST /auth/login` (10 / 15 min) et `POST /auth/refresh` (30 / 15 min). Dépassement : HTTP **429** et en-tête `Retry-After`. Ce limiteur n’est pas adapté à plusieurs instances de production.
 
@@ -344,4 +359,13 @@ npm run test:auth-me
 ```bash
 cd backend
 npm run test:auth-hardening
+```
+
+### Vérifier le durcissement SQL (SELECT uniquement)
+
+`npm run test:sql-hardening` inspecte les fichiers `sql/001`–`005` et, si `DATABASE_URL` est fournie, exécute uniquement des **SELECT** (doublons, contraintes, index). Aucun INSERT/UPDATE/DELETE. **N’applique pas** `sql/005_harden_users.sql`.
+
+```bash
+cd backend
+npm run test:sql-hardening
 ```
