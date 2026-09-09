@@ -7,22 +7,17 @@ const {
   getRefreshTokenExpiryDate,
 } = require('./tokenService');
 const { storeLoginRefreshToken } = require('./refreshSessionService');
+const { preparePasswordForLogin } = require('../validators/passwordValidator');
+const { prepareLoginForLookup } = require('../validators/authFields');
 
 const INVALID_CREDENTIALS = 'Invalid credentials';
 
 function validateLoginPayload(body) {
   const payload = body && typeof body === 'object' ? body : {};
 
-  if (typeof payload.login !== 'string' || payload.login.trim() === '') {
-    throw new AppError(400, 'login is required');
-  }
-  if (typeof payload.password !== 'string' || payload.password === '') {
-    throw new AppError(400, 'password is required');
-  }
-
   return {
-    login: payload.login.trim(),
-    password: payload.password,
+    login: prepareLoginForLookup(payload.login),
+    password: preparePasswordForLogin(payload.password),
   };
 }
 

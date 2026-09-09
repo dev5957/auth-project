@@ -2,6 +2,12 @@ const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const pool = require('../db');
 const AppError = require('../errors/AppError');
+const { validatePasswordForRegistration } = require('../validators/passwordValidator');
+const {
+  normalizeEmail,
+  normalizeLogin,
+  normalizePhoneNumber,
+} = require('../validators/authFields');
 
 const BCRYPT_ROUNDS = 10;
 const CODE_TTL_MS = 10 * 60 * 1000;
@@ -28,14 +34,11 @@ function optionalName(value) {
 function validateStartPayload(body) {
   const payload = body && typeof body === 'object' ? body : {};
 
-  const email = requiredString(payload.email, 'email');
+  const email = normalizeEmail(payload.email);
   const birth_date = requiredString(payload.birth_date, 'birth_date');
-  const login = requiredString(payload.login, 'login');
-  const phone_number = requiredString(payload.phone_number, 'phone_number');
-
-  if (typeof payload.password !== 'string' || payload.password === '') {
-    throw new AppError(400, 'password is required');
-  }
+  const login = normalizeLogin(payload.login);
+  const phone_number = normalizePhoneNumber(payload.phone_number);
+  const password = validatePasswordForRegistration(payload.password);
   if (typeof payload.password_confirmation !== 'string' || payload.password_confirmation === '') {
     throw new AppError(400, 'password_confirmation is required');
   }
@@ -47,7 +50,7 @@ function validateStartPayload(body) {
     email,
     birth_date,
     login,
-    password: payload.password,
+    password,
     phone_number,
     first_name: optionalName(payload.first_name),
     last_name: optionalName(payload.last_name),

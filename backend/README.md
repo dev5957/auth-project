@@ -103,6 +103,8 @@ Réponse attendue :
 
 `POST /auth/register/start` valide les champs, vérifie qu’email / login / téléphone ne sont pas déjà dans `users`, hash le mot de passe avec bcrypt, puis enregistre une demande dans `phone_verifications` (jeton, hash du code SMS, `registration_data`). Aucune ligne n’est insérée dans `users`. Aucun SMS réel n’est envoyé pour le moment. Le code SMS n’est logué **que si** `DEV_LOG_SMS_CODE=true` est défini explicitement (désactivé par défaut, y compris si `NODE_ENV` n’est pas `production`).
 
+Mot de passe (politique centralisée, `src/validators/passwordValidator.js`) : **8 à 72 caractères**, pas vide, pas seulement des espaces. Pas d’obligation de majuscule ni de caractère spécial. Au-delà de 72 caractères, l’inscription est refusée (**400**) et bcrypt n’est pas appelé. L’email est normalisé (`trim` + minuscules), le login et le téléphone sont trimés (longueurs max 64 et 32).
+
 Un rate limiting **en mémoire, par IP**, s’applique à `POST /auth/register/start` (5 / 15 min), `POST /auth/register/verify-phone` (10 / 15 min), `POST /auth/login` (10 / 15 min) et `POST /auth/refresh` (30 / 15 min). Dépassement : HTTP **429** et en-tête `Retry-After`. Ce limiteur n’est pas adapté à plusieurs instances de production.
 
 ```bash
