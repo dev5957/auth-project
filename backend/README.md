@@ -12,7 +12,7 @@ API REST JSON (Node.js + Express) pour l’authentification des utilisateurs.
 
 ## État actuel
 
-Serveur Express minimal avec une route de santé `GET /health`, chargement des variables d’environnement via `dotenv`, et un pool de connexions PostgreSQL prêt à l’emploi. Les schémas SQL `users` et `phone_verifications` sont définis, mais ne sont pas encore appliqués. Aucune authentification applicative pour le moment.
+Serveur Express avec `GET /health` et le début d’inscription locale `POST /auth/register/start`. Un compte n’est pas créé dans `users` tant que le SMS n’est pas validé. Les schémas SQL sont définis mais doivent encore être appliqués manuellement dans Neon.
 
 ## Schéma utilisateurs
 
@@ -83,6 +83,34 @@ Réponse attendue :
 {
   "status": "ok",
   "message": "API is running"
+}
+```
+
+### Démarrer une inscription locale
+
+`POST /auth/register/start` valide les champs, vérifie qu’email / login / téléphone ne sont pas déjà dans `users`, hash le mot de passe avec bcrypt, puis enregistre une demande dans `phone_verifications` (jeton, hash du code SMS, `registration_data`). Aucune ligne n’est insérée dans `users`. Aucun SMS réel n’est envoyé pour le moment (le code n’apparaît que dans les logs de développement).
+
+```bash
+curl -sS -X POST http://localhost:3000/auth/register/start \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "email": "alex@example.com",
+    "birth_date": "1990-01-15",
+    "login": "alex",
+    "password": "choose-a-strong-password",
+    "password_confirmation": "choose-a-strong-password",
+    "phone_number": "+33600000000",
+    "first_name": "Alex",
+    "last_name": "Martin"
+  }'
+```
+
+Succès attendu :
+
+```json
+{
+  "message": "Verification code generated",
+  "verification_token": "..."
 }
 ```
 
