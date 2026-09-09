@@ -12,7 +12,7 @@ API REST JSON (Node.js + Express) pour l’authentification des utilisateurs.
 
 ## État actuel
 
-Serveur Express avec `GET /health`, inscription locale (`POST /auth/register/start`, `POST /auth/register/verify-phone`) et connexion locale `POST /auth/login`. Après un login réussi, le backend émet un JWT (access token, 15 minutes) et un refresh token (90 jours, stocké uniquement hashé). Un compte n’est créé dans `users` qu’après validation du code SMS. Les schémas SQL sont définis mais doivent encore être appliqués manuellement dans Neon.
+Serveur Express avec `GET /health`, inscription locale (`POST /auth/register/start`, `POST /auth/register/verify-phone`), connexion locale `POST /auth/login` et renouvellement `POST /auth/refresh`. Après un login réussi, le backend émet un JWT (15 minutes) et un refresh token (90 jours, stocké uniquement hashé). `POST /auth/refresh` fait tourner le refresh token dans une transaction. Un compte n’est créé dans `users` qu’après validation du code SMS.
 
 ## Schéma utilisateurs
 
@@ -34,7 +34,7 @@ Ces scripts doivent être exécutés manuellement dans Neon à l’étape prévu
 
 Le fichier `sql/004_create_refresh_tokens.sql` définit la table `refresh_tokens`. Après un `POST /auth/login` réussi, un refresh token opaque (90 jours) est renvoyé au client ; **seul son hash** (`token_hash`) est stocké en base, avec `user_id` et `expires_at`. Le jeton en clair n’est jamais persisté.
 
-Un **JWT** (access token) est un jeton court (15 minutes, `JWT_EXPIRES_IN=15m`) signé avec `JWT_SECRET`, contenant `userId`, `login` et `auth_provider`. Il sert à authentifier les requêtes API. Un **refresh token** est un secret longue durée, lié à un utilisateur, révocable, destiné à obtenir plus tard un nouvel access token. Aucune route de refresh n’existe encore.
+Un **JWT** (access token) est un jeton court (15 minutes, `JWT_EXPIRES_IN=15m`) signé avec `JWT_SECRET`, contenant `userId`, `login` et `auth_provider`. Il sert à authentifier les requêtes API. Un **refresh token** est un secret longue durée, lié à un utilisateur, révocable. `POST /auth/refresh` échange un refresh token valide contre un nouvel access token et un nouveau refresh token (rotation : l’ancien est révoqué via `revoked_at`).
 
 ## PostgreSQL
 
@@ -185,6 +185,48 @@ Succès attendu :
     "email": "alex@example.com",
     "auth_provider": "local"
   }
+}
+```
+
+### Renouveler les tokens
+
+`POST /auth/refresh` reçoit `{ "refresh_token": "..." }`. Le jeton est hashé en SHA-256 puis recherché dans `refresh_tokens`. S’il existe, n’est pas expiré et n’est pas révoqué, une transaction PostgreSQL :
+
+1. génère un nouvel access token JWT et un nouveau refresh token opaque ;
+2. insère le **hash** du nouveau refresh token ;
+3. révoque l’ancien (`revoked_at`).
+
+Le refresh token en clair n’est jamais stocké.
+
+```bash
+curl -sS -X POST http://localhost:3000/auth/refresh \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "refresh_token": "replace-with-refresh-token"
+  }'
+```
+
+Succès attendu :
+
+```json
+{
+  "message": "Token refreshed",
+  "access_token": "...",
+  "refresh_token": "...",
+  "user": {
+    "id": 1,
+    "login": "alex",
+    "email": "alex@example.com",
+    "auth_provider": "local"
+  }
+}
+```
+
+Token invalide, expiré ou révoqué :
+
+```json
+{
+  "error": "Invalid refresh token"
 }
 ```
 

@@ -3,6 +3,7 @@ const {
   verifyPhoneAndCreateUser,
 } = require('../services/registerService');
 const { loginLocalUser } = require('../services/loginService');
+const { refreshAuthTokens } = require('../services/refreshTokenService');
 
 async function startRegister(req, res, next) {
   try {
@@ -42,8 +43,23 @@ async function login(req, res, next) {
   }
 }
 
+async function refresh(req, res, next) {
+  try {
+    const { access_token, refresh_token, user } = await refreshAuthTokens(req.body);
+    res.status(200).json({
+      message: 'Token refreshed',
+      access_token,
+      refresh_token,
+      user,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   startRegister,
   verifyPhone,
   login,
+  refresh,
 };
