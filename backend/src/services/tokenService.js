@@ -1,18 +1,21 @@
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
-const AppError = require('../errors/AppError');
+const {
+  getJwtSecret,
+  getJwtIssuer,
+  getJwtAudience,
+  getJwtExpiresIn,
+} = require('../config/authConfig');
 
 function hashRefreshToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
 function generateAccessToken(user) {
-  const secret = process.env.JWT_SECRET;
-  if (!secret) {
-    throw new AppError(503, 'JWT_SECRET is not configured');
-  }
-
-  const expiresIn = process.env.JWT_EXPIRES_IN || '15m';
+  const secret = getJwtSecret();
+  const issuer = getJwtIssuer();
+  const audience = getJwtAudience();
+  const expiresIn = getJwtExpiresIn();
 
   return jwt.sign(
     {
@@ -21,8 +24,37 @@ function generateAccessToken(user) {
       auth_provider: user.auth_provider,
     },
     secret,
-    { expiresIn, algorithm: 'HS256' }
+    {
+      expiresIn,
+      algorithm: 'HS256',
+      issuer,
+      audience,
+      jwtid: crypto.randomUUID(),
+    }
   );
+}
+
+function verifyAccessToken(token) {
+  const payload = jwt.verify(token, getJwtSecret(), {
+    algorithms: ['HS256'],
+    issuer: getJwtIssuer(),
+    audience: getJwtAudience(),
+  });
+
+  if (
+    payload == null ||
+    typeof payload !== 'object' ||
+    typeof payload.exp !== 'number' ||
+    payload.userId == null ||
+    typeof payload.login !== 'string' ||
+    typeof payload.auth_provider !== 'string'
+  ) {
+    const err = new Error('Invalid access token');
+    err.name = 'JsonWebTokenError';
+    throw err;
+  }
+
+  return payload;
 }
 
 function generateRefreshToken() {
@@ -40,6 +72,7 @@ function getRefreshTokenExpiryDate() {
 
 module.exports = {
   generateAccessToken,
+  verifyAccessToken,
   generateRefreshToken,
   getRefreshTokenExpiryDate,
   hashRefreshToken,

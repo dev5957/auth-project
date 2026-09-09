@@ -155,6 +155,8 @@ function activeTokens(state, userId) {
 
 async function main() {
   process.env.JWT_SECRET = 'test-jwt-secret-not-for-production';
+  process.env.JWT_ISSUER = 'auth-project';
+  process.env.JWT_AUDIENCE = 'auth-project-app';
   process.env.DATABASE_URL = 'mock://local-refresh-lifecycle';
 
   const user = {

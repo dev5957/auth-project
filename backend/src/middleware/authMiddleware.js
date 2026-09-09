@@ -1,4 +1,4 @@
-const jwt = require('jsonwebtoken');
+const { verifyAccessToken } = require('../services/tokenService');
 const AppError = require('../errors/AppError');
 
 function unauthorized() {
@@ -25,25 +25,13 @@ function requireAuth(req, res, next) {
       throw unauthorized();
     }
 
-    const secret = process.env.JWT_SECRET;
-    if (!secret) {
-      throw new AppError(503, 'JWT_SECRET is not configured');
-    }
-
     let payload;
     try {
-      payload = jwt.verify(token, secret, { algorithms: ['HS256'] });
-    } catch (_) {
-      throw unauthorized();
-    }
-
-    if (
-      payload == null ||
-      typeof payload !== 'object' ||
-      payload.userId == null ||
-      typeof payload.login !== 'string' ||
-      typeof payload.auth_provider !== 'string'
-    ) {
+      payload = verifyAccessToken(token);
+    } catch (err) {
+      if (err.statusCode) {
+        throw err;
+      }
       throw unauthorized();
     }
 

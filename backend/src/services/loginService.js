@@ -11,6 +11,8 @@ const { preparePasswordForLogin } = require('../validators/passwordValidator');
 const { prepareLoginForLookup } = require('../validators/authFields');
 
 const INVALID_CREDENTIALS = 'Invalid credentials';
+const BCRYPT_ROUNDS = 10;
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync('dummy-timing-password', BCRYPT_ROUNDS);
 
 function validateLoginPayload(body) {
   const payload = body && typeof body === 'object' ? body : {};
@@ -42,6 +44,7 @@ async function loginLocalUser(body) {
 
   const user = result.rows[0];
   if (!user) {
+    await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
     throw new AppError(401, INVALID_CREDENTIALS);
   }
 
@@ -50,6 +53,7 @@ async function loginLocalUser(body) {
   }
 
   if (!user.password_hash) {
+    await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
     throw new AppError(401, INVALID_CREDENTIALS);
   }
 

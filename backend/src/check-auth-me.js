@@ -5,6 +5,8 @@ const jwt = require('jsonwebtoken');
 const { generateAccessToken } = require('./services/tokenService');
 
 const TEST_SECRET = 'auth-me-test-secret-not-for-production';
+const TEST_ISSUER = 'auth-project';
+const TEST_AUDIENCE = 'auth-project-app';
 const TEST_PORT = 30436;
 
 function assert(condition, message) {
@@ -49,6 +51,8 @@ function startTestServer(port) {
     ...process.env,
     PORT: String(port),
     JWT_SECRET: TEST_SECRET,
+    JWT_ISSUER: TEST_ISSUER,
+    JWT_AUDIENCE: TEST_AUDIENCE,
     JWT_EXPIRES_IN: '15m',
     DEV_LOG_SMS_CODE: 'false',
   };
@@ -114,7 +118,11 @@ function tamperJwt(token) {
 
 async function main() {
   const previousSecret = process.env.JWT_SECRET;
+  const previousIssuer = process.env.JWT_ISSUER;
+  const previousAudience = process.env.JWT_AUDIENCE;
   process.env.JWT_SECRET = TEST_SECRET;
+  process.env.JWT_ISSUER = TEST_ISSUER;
+  process.env.JWT_AUDIENCE = TEST_AUDIENCE;
 
   const { child, logs } = startTestServer(TEST_PORT);
 
@@ -184,7 +192,7 @@ async function main() {
     const expired = jwt.sign(
       { userId: 42, login: 'test_user', auth_provider: 'local' },
       TEST_SECRET,
-      { algorithm: 'HS256', expiresIn: -10 }
+      { algorithm: 'HS256', expiresIn: -10, issuer: TEST_ISSUER, audience: TEST_AUDIENCE }
     );
     const expiredRes = await httpRequest({
       port: TEST_PORT,
@@ -207,6 +215,16 @@ async function main() {
       delete process.env.JWT_SECRET;
     } else {
       process.env.JWT_SECRET = previousSecret;
+    }
+    if (!previousIssuer) {
+      delete process.env.JWT_ISSUER;
+    } else {
+      process.env.JWT_ISSUER = previousIssuer;
+    }
+    if (!previousAudience) {
+      delete process.env.JWT_AUDIENCE;
+    } else {
+      process.env.JWT_AUDIENCE = previousAudience;
     }
   }
 

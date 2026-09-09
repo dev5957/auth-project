@@ -12,7 +12,7 @@ API REST JSON (Node.js + Express) pour l’authentification des utilisateurs.
 
 ## État actuel
 
-Serveur Express avec `GET /health`, inscription locale (`POST /auth/register/start`, `POST /auth/register/verify-phone`), connexion locale `POST /auth/login`, renouvellement `POST /auth/refresh` et profil JWT `GET /auth/me`. Après un login réussi, le backend émet un JWT (15 minutes) et un refresh token (90 jours, stocké uniquement hashé). `POST /auth/refresh` fait tourner le refresh token dans une transaction. Un compte n’est créé dans `users` qu’après validation du code SMS.
+Serveur Express avec `GET /health`, inscription locale (`POST /auth/register/start`, `POST /auth/register/verify-phone`), connexion locale `POST /auth/login`, renouvellement `POST /auth/refresh` et profil JWT `GET /auth/me`. Après un login réussi, le backend émet un JWT (15 minutes, HS256, claims `userId` / `login` / `auth_provider` / `jti`, `iss`, `aud`) et un refresh token (90 jours, stocké uniquement hashé). `POST /auth/refresh` fait tourner le refresh token dans une transaction. Un compte n’est créé dans `users` qu’après validation du code SMS. Le serveur refuse de démarrer si la configuration JWT est absente ou dangereuse. Le JSON d’entrée est limité à **32 Ko**.
 
 ## Schéma utilisateurs
 
@@ -34,7 +34,7 @@ Ces scripts doivent être exécutés manuellement dans Neon à l’étape prévu
 
 Le fichier `sql/004_create_refresh_tokens.sql` définit la table `refresh_tokens`. Après un `POST /auth/login` réussi, un refresh token opaque (90 jours) est renvoyé au client ; **seul son hash** (`token_hash`) est stocké en base, avec `user_id` et `expires_at`. Le jeton en clair n’est jamais persisté.
 
-Un **JWT** (access token) est un jeton court (15 minutes, `JWT_EXPIRES_IN=15m`) signé avec `JWT_SECRET`, contenant `userId`, `login` et `auth_provider`. Il sert à authentifier les requêtes API. Un **refresh token** est un secret longue durée, lié à un utilisateur, révocable. `POST /auth/refresh` échange un refresh token valide contre un nouvel access token et un nouveau refresh token (rotation : l’ancien est révoqué via `revoked_at`). Si un refresh token **déjà révoqué** est présenté, tous les refresh tokens actifs de l’utilisateur sont révoqués (réutilisation possible). La réponse client reste `401 Invalid refresh token`.
+Un **JWT** (access token) est un jeton court (15 minutes, `JWT_EXPIRES_IN=15m`) signé avec `JWT_SECRET` en **HS256**, contenant `userId`, `login`, `auth_provider`, `jti`, `iss` (`JWT_ISSUER`) et `aud` (`JWT_AUDIENCE`). Il sert à authentifier les requêtes API. Un **refresh token** est un secret longue durée, lié à un utilisateur, révocable. `POST /auth/refresh` échange un refresh token valide contre un nouvel access token et un nouveau refresh token (rotation : l’ancien est révoqué via `revoked_at`). Si un refresh token **déjà révoqué** est présenté, tous les refresh tokens actifs de l’utilisateur sont révoqués (réutilisation possible). La réponse client reste `401 Invalid refresh token`.
 
 Un utilisateur a au plus **5 refresh tokens actifs** (`revoked_at IS NULL` et non expirés). Un 6e login révoque le plus ancien (`revoked_at`), sans supprimer la ligne. Les réponses HTTP de login/refresh restent inchangées.
 
@@ -54,9 +54,11 @@ La configuration du backend passe par des variables d’environnement (port d’
 |-------------------------------|-------------------------------------------|-------------------------|
 | `PORT`                        | Port HTTP du serveur (défaut : `3000`)    | Non                     |
 | `DATABASE_URL`                | Chaîne de connexion PostgreSQL            | Oui pour la base        |
-| `JWT_SECRET`                  | Secret de signature des JWT               | Oui pour le login       |
-| `JWT_EXPIRES_IN`              | Durée de l’access token (défaut : `15m`)  | Non                     |
-| `REFRESH_TOKEN_EXPIRES_DAYS`  | Durée du refresh token (défaut : `90`)    | Non                     |
+| `JWT_SECRET`                  | Secret de signature des JWT (≥ 16 car.)   | Oui au démarrage        |
+| `JWT_ISSUER`                  | Claim `iss` des access tokens             | Oui au démarrage        |
+| `JWT_AUDIENCE`                | Claim `aud` des access tokens             | Oui au démarrage        |
+| `JWT_EXPIRES_IN`              | Durée de l’access token (défaut : `15m`, max 24h) | Format valide requis |
+| `REFRESH_TOKEN_EXPIRES_DAYS`  | Durée du refresh token (défaut : `90`, 1–365) | Format valide requis |
 | `DEV_LOG_SMS_CODE`            | Log du code SMS en clair (`true` seulement, défaut : off) | Non |
 
 Le fichier `.env` ne doit **jamais** être commité : il est ignoré par Git. Le fichier `.env.example` sert de modèle, sans valeurs secrètes.
@@ -68,7 +70,7 @@ cd backend
 cp .env.example .env
 ```
 
-Adapte ensuite `.env` si besoin (par exemple `PORT=4000`). Renseigne `DATABASE_URL` et `JWT_SECRET` **hors Git**. Ne commitez jamais de secrets.
+Adapte ensuite `.env` si besoin (par exemple `PORT=4000`). Renseigne `DATABASE_URL` et `JWT_SECRET` **hors Git**. Ne commitez jamais de secrets. `JWT_ISSUER` et `JWT_AUDIENCE` ne sont pas des secrets ; ils identifient l’émetteur et l’audience du JWT.
 
 ## Démarrage
 
@@ -180,7 +182,7 @@ Succès attendu :
 
 `POST /auth/login` reçoit `login` et `password`. L’utilisateur est recherché uniquement par `login` (valeur trimée et mise en minuscules, comme au stockage). Le mot de passe reçu est comparé à `password_hash` avec `bcrypt.compare`. Le téléphone doit être vérifié (`phone_verified = true`).
 
-En cas de succès, le backend retourne un **access token JWT** (15 minutes) et un **refresh token** (90 jours). Seul le hash du refresh token est enregistré dans `refresh_tokens`. Le JWT n’est pas stocké en base. En cas de login ou mot de passe incorrect, la réponse est générique (`Invalid credentials`) pour ne pas indiquer si le login existe.
+En cas de succès, le backend retourne un **access token JWT** (15 minutes) et un **refresh token** (90 jours). Seul le hash du refresh token est enregistré dans `refresh_tokens`. Le JWT n’est pas stocké en base. En cas de login ou mot de passe incorrect, **ou si le login n’existe pas**, la réponse est générique (`Invalid credentials`) pour ne pas indiquer si le login existe. Les deux chemins exécutent `bcrypt.compare` (hash factice si le compte est absent) afin d’aligner les temps de réponse.
 
 ```bash
 curl -sS -X POST http://localhost:3000/auth/login \
@@ -259,7 +261,7 @@ Les routes protégées exigent le header :
 Authorization: Bearer <access_token>
 ```
 
-Le middleware `requireAuth` (`src/middleware/authMiddleware.js`) vérifie le JWT avec `JWT_SECRET`, **HS256 uniquement**, et l’expiration `exp`. En cas de header absent, format invalide, token vide, signature incorrecte, algorithme refusé ou jeton expiré, la réponse est toujours :
+Le middleware `requireAuth` (`src/middleware/authMiddleware.js`) vérifie le JWT avec `JWT_SECRET`, **HS256 uniquement**, `issuer` (`JWT_ISSUER`), `audience` (`JWT_AUDIENCE`) et l’expiration `exp` (jeton sans `exp` refusé). Le payload signé contient `userId`, `login`, `auth_provider` et `jti`. En cas de header absent, format invalide, token vide, signature incorrecte, mauvais `iss` / `aud`, algorithme refusé, jeton expiré ou sans `exp`, la réponse est toujours :
 
 ```json
 {
@@ -295,6 +297,8 @@ Sans token, ou avec un token invalide :
   "error": "Unauthorized"
 }
 ```
+
+Les corps JSON de plus de **32 Ko** sont rejetés (**413**). Une erreur interne (**500**) ne renvoie jamais de stack, SQL, secret, ni token.
 
 ### Vérifier la connexion PostgreSQL
 
@@ -333,4 +337,11 @@ npm run test:normalization
 ```bash
 cd backend
 npm run test:auth-me
+```
+
+### Vérifier le durcissement auth (timing login, JWT iss/aud, JSON 32ko)
+
+```bash
+cd backend
+npm run test:auth-hardening
 ```

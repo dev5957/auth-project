@@ -309,10 +309,14 @@ function startTestServer(port) {
   const env = {
     ...process.env,
     PORT: String(port),
+    JWT_SECRET: 'normalization-http-test-secret',
+    JWT_ISSUER: 'auth-project',
+    JWT_AUDIENCE: 'auth-project-app',
+    JWT_EXPIRES_IN: '15m',
+    REFRESH_TOKEN_EXPIRES_DAYS: '90',
     DEV_LOG_SMS_CODE: 'false',
   };
   delete env.DATABASE_URL;
-  delete env.JWT_SECRET;
 
   const child = spawn(process.execPath, ['src/index.js'], {
     cwd: path.join(__dirname, '..'),
