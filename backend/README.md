@@ -12,7 +12,7 @@ API REST JSON (Node.js + Express) pour l’authentification des utilisateurs.
 
 ## État actuel
 
-Serveur Express avec `GET /health` et le début d’inscription locale `POST /auth/register/start`. Un compte n’est pas créé dans `users` tant que le SMS n’est pas validé. Les schémas SQL sont définis mais doivent encore être appliqués manuellement dans Neon.
+Serveur Express avec `GET /health`, `POST /auth/register/start` et `POST /auth/register/verify-phone`. Un compte n’est créé dans `users` qu’après validation du code SMS. Les schémas SQL sont définis mais doivent encore être appliqués manuellement dans Neon.
 
 ## Schéma utilisateurs
 
@@ -111,6 +111,41 @@ Succès attendu :
 {
   "message": "Verification code generated",
   "verification_token": "..."
+}
+```
+
+### Valider le SMS et créer le compte
+
+`POST /auth/register/verify-phone` reçoit `verification_token` et `code`. Le code SMS n’est **jamais** stocké en clair : seule la comparaison bcrypt avec `code_hash` est utilisée.
+
+Si le jeton existe, n’est pas expiré, n’a pas dépassé 5 tentatives et que le code est correct, une transaction PostgreSQL :
+
+1. crée la ligne `users` à partir de `registration_data` (`phone_verified = true`, `auth_provider = 'local'`) ;
+2. supprime la demande dans `phone_verifications`.
+
+Les deux opérations sont atomiques. Aucun JWT n’est émis.
+
+```bash
+curl -sS -X POST http://localhost:3000/auth/register/verify-phone \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "verification_token": "replace-with-token",
+    "code": "000000"
+  }'
+```
+
+Succès attendu :
+
+```json
+{
+  "message": "Account created",
+  "user": {
+    "id": 1,
+    "email": "alex@example.com",
+    "login": "alex",
+    "phone_verified": true,
+    "auth_provider": "local"
+  }
 }
 ```
 
