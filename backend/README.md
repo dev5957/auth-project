@@ -12,7 +12,7 @@ API REST JSON (Node.js + Express) pour l’authentification des utilisateurs.
 
 ## État actuel
 
-Serveur Express avec `GET /health`, inscription locale (`POST /auth/register/start`, `POST /auth/register/verify-phone`), connexion locale `POST /auth/login`, renouvellement `POST /auth/refresh` et profil JWT `GET /auth/me`. Après un login réussi, le backend émet un JWT (15 minutes, HS256, claims `userId` / `login` / `auth_provider` / `jti`, `iss`, `aud`) et un refresh token (90 jours, stocké uniquement hashé). `POST /auth/refresh` fait tourner le refresh token dans une transaction. Un compte n’est créé dans `users` qu’après validation du code SMS. Le serveur refuse de démarrer si la configuration JWT est absente ou dangereuse. Le JSON d’entrée est limité à **32 Ko**.
+Serveur Express avec `GET /health`, inscription locale (`POST /auth/register/start`, `POST /auth/register/verify-phone`), connexion locale `POST /auth/login`, renouvellement `POST /auth/refresh`, profil JWT `GET /auth/me` et profil SQL `GET /auth/profile`. Après un login réussi, le backend émet un JWT (15 minutes, HS256, claims `userId` / `login` / `auth_provider` / `jti`, `iss`, `aud`) et un refresh token (90 jours, stocké uniquement hashé). `POST /auth/refresh` fait tourner le refresh token dans une transaction. Un compte n’est créé dans `users` qu’après validation du code SMS. Le serveur refuse de démarrer si la configuration JWT est absente ou dangereuse. Le JSON d’entrée est limité à **32 Ko**.
 
 ## Schéma utilisateurs
 
@@ -313,6 +313,34 @@ Sans token, ou avec un token invalide :
 }
 ```
 
+### User profile endpoint
+
+`GET /auth/profile` est protégé par `requireAuth` (`Authorization: Bearer <access_token>`). L’identifiant utilisé pour charger le profil est **`req.user.userId`** (claim JWT), jamais le `login` du jeton. Les champs viennent de PostgreSQL (`userService.findUserProfileById`).
+
+```bash
+curl -sS http://localhost:3000/auth/profile \
+  -H 'Authorization: Bearer replace-with-access-token'
+```
+
+Succès (**200**) :
+
+```json
+{
+  "user": {
+    "id": 1,
+    "login": "example",
+    "email": "user@example.com",
+    "phone_number": "+33600000000",
+    "birth_date": "2000-01-01",
+    "auth_provider": "local"
+  }
+}
+```
+
+Champs volontairement exclus : `password_hash`, refresh token, `token_hash`, `provider_user_id`, noms, horodatages internes.
+
+Utilisateur absent : **404** `{ "error": "User not found" }`. Sans token ou JWT invalide : **401** `{ "error": "Unauthorized" }`.
+
 Les corps JSON de plus de **32 Ko** sont rejetés (**413**). Une erreur interne (**500**) ne renvoie jamais de stack, SQL, secret, ni token.
 
 ### Vérifier la connexion PostgreSQL
@@ -368,4 +396,11 @@ npm run test:auth-hardening
 ```bash
 cd backend
 npm run test:sql-hardening
+```
+
+### Vérifier GET /auth/profile
+
+```bash
+cd backend
+npm run test:user-profile
 ```

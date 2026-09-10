@@ -4,6 +4,7 @@ const {
 } = require('../services/registerService');
 const { loginLocalUser } = require('../services/loginService');
 const { refreshAuthTokens } = require('../services/refreshTokenService');
+const { findUserProfileById } = require('../services/userService');
 
 async function startRegister(req, res, next) {
   try {
@@ -67,10 +68,20 @@ function me(req, res) {
   });
 }
 
+async function getProfile(req, res, next) {
+  try {
+    const user = await findUserProfileById(req.user.userId);
+    res.status(200).json({ user });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   startRegister,
   verifyPhone,
   login,
   refresh,
   me,
+  getProfile,
 };
