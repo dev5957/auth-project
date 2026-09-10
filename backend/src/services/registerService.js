@@ -8,6 +8,7 @@ const {
   normalizeLogin,
   normalizePhoneNumber,
 } = require('../validators/authFields');
+const smsService = require('./smsService');
 
 const BCRYPT_ROUNDS = 10;
 const CODE_TTL_MS = 10 * 60 * 1000;
@@ -101,13 +102,6 @@ async function startLocalRegistration(body) {
   const verification_token = generateVerificationToken();
   const expires_at = new Date(Date.now() + CODE_TTL_MS);
 
-  // Log the plaintext SMS code only when DEV_LOG_SMS_CODE=true is set explicitly.
-  // Default is off. This must be replaced by an SMS provider later.
-  // Never persist the plaintext code. Never log password, hashes, or tokens.
-  if (process.env.DEV_LOG_SMS_CODE === 'true') {
-    console.log('[DEV] SMS verification code (replace with SMS provider):', smsCode);
-  }
-
   await pool.query(
     `INSERT INTO phone_verifications (
        verification_token,
@@ -132,6 +126,17 @@ async function startLocalRegistration(body) {
         last_name: data.last_name,
       },
     ]
+  );
+
+  // Log the plaintext SMS code only when DEV_LOG_SMS_CODE=true is set explicitly.
+  // Default is off. Never persist the plaintext code. Never log password, hashes, or tokens.
+  if (process.env.DEV_LOG_SMS_CODE === 'true') {
+    console.log('[DEV] SMS verification code:', smsCode);
+  }
+
+  await smsService.sendSms(
+    data.phone_number,
+    `Your verification code is ${smsCode}`
   );
 
   return { verification_token };

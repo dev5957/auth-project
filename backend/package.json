@@ -15,6 +15,7 @@
     "test:auth-hardening": "node src/check-auth-hardening.js",
     "test:sql-hardening": "node src/check-sql-hardening.js",
     "test:user-profile": "node src/check-user-profile.js",
+    "test:sms": "node src/check-sms-service.js",
     "purge:refresh-tokens": "node src/purge-refresh-tokens.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -26,6 +27,7 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
-    "pg": "^8.23.0"
+    "pg": "^8.23.0",
+    "twilio": "^6.1.0"
   }
 }
