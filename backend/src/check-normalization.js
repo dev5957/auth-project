@@ -232,7 +232,7 @@ async function testVerifyPhoneRenormalizes() {
           ],
         };
       }
-      if (key.includes('DELETE FROM PHONE_VERIFICATIONS')) {
+      if (key.includes('UPDATE PHONE_VERIFICATIONS') && key.includes('VERIFIED_AT')) {
         return { rowCount: 1 };
       }
       throw new Error(`unexpected verify query: ${sql}`);

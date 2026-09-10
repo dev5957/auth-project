@@ -16,6 +16,7 @@
     "test:sql-hardening": "node src/check-sql-hardening.js",
     "test:user-profile": "node src/check-user-profile.js",
     "test:sms": "node src/check-sms-service.js",
+    "test:registration-finalization": "node src/check-registration-finalization.js",
     "purge:refresh-tokens": "node src/purge-refresh-tokens.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

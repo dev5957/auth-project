@@ -175,12 +175,12 @@ Succès attendu :
 
 `POST /auth/register/verify-phone` reçoit `verification_token` et `code`. Le code SMS n’est **jamais** stocké en clair : seule la comparaison bcrypt avec `code_hash` est utilisée.
 
-Si le jeton existe, n’est pas expiré, n’a pas dépassé 5 tentatives et que le code est correct, une transaction PostgreSQL :
+Si le jeton existe, n’est pas expiré, n’a pas dépassé 5 tentatives et que le code est correct, une transaction PostgreSQL (`SELECT … FOR UPDATE`) :
 
 1. crée la ligne `users` à partir de `registration_data` (`phone_verified = true`, `auth_provider = 'local'`) ;
-2. supprime la demande dans `phone_verifications`.
+2. marque la demande comme consommée (`verified_at = NOW()`), sans supprimer la ligne (audit).
 
-Les deux opérations sont atomiques. Aucun JWT n’est émis.
+Un même `verification_token` ne peut aboutir qu’une fois. Un conflit email / login / téléphone à cette étape renvoie **409** générique (`Email, login or phone number is already in use`). Les deux opérations sont atomiques. Aucun JWT n’est émis.
 
 ```bash
 curl -sS -X POST http://localhost:3000/auth/register/verify-phone \
@@ -423,4 +423,11 @@ npm run test:user-profile
 ```bash
 cd backend
 npm run test:sms
+```
+
+### Vérifier la finalisation d’inscription (verify-phone)
+
+```bash
+cd backend
+npm run test:registration-finalization
 ```

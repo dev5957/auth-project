@@ -236,14 +236,8 @@ async function verifyPhoneAndCreateUser(body) {
       [email, login, phone_number]
     );
     const flags = taken.rows[0];
-    if (flags.email_taken) {
-      throw new AppError(409, 'Email is already in use');
-    }
-    if (flags.login_taken) {
-      throw new AppError(409, 'Login is already in use');
-    }
-    if (flags.phone_taken) {
-      throw new AppError(409, 'Phone number is already in use');
+    if (flags.email_taken || flags.login_taken || flags.phone_taken) {
+      throw new AppError(409, 'Email, login or phone number is already in use');
     }
 
     const inserted = await client.query(
@@ -263,7 +257,16 @@ async function verifyPhoneAndCreateUser(body) {
       [email, birth_date, phone_number, login, password_hash, first_name, last_name]
     );
 
-    await client.query('DELETE FROM phone_verifications WHERE id = $1', [row.id]);
+    const consumed = await client.query(
+      `UPDATE phone_verifications
+       SET verified_at = NOW()
+       WHERE id = $1
+         AND verified_at IS NULL`,
+      [row.id]
+    );
+    if (consumed.rowCount !== 1) {
+      throw new AppError(400, 'Verification is no longer valid');
+    }
     await client.query('COMMIT');
     committed = true;
 
