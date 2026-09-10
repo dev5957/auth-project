@@ -163,7 +163,19 @@ async function verifyPhoneAndCreateUser(body) {
     throw new AppError(503, 'Database is not configured');
   }
 
-  const client = await pool.connect();
+  let client;
+  try {
+    client = await pool.connect();
+  } catch (err) {
+    console.error('[verify-phone diagnostic]', {
+      name: err && err.name,
+      code: err && err.code,
+      message: err && err.message,
+      stack: err && err.stack,
+    });
+    throw err;
+  }
+
   let committed = false;
 
   try {
@@ -272,6 +284,13 @@ async function verifyPhoneAndCreateUser(body) {
 
     return inserted.rows[0];
   } catch (err) {
+    console.error('[verify-phone diagnostic]', {
+      name: err && err.name,
+      code: err && err.code,
+      message: err && err.message,
+      stack: err && err.stack,
+    });
+
     if (!committed) {
       try {
         await client.query('ROLLBACK');

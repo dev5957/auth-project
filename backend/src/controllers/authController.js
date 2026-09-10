@@ -27,6 +27,12 @@ async function verifyPhone(req, res, next) {
       user,
     });
   } catch (err) {
+    console.error('[verify-phone diagnostic]', {
+      name: err && err.name,
+      code: err && err.code,
+      message: err && err.message,
+      stack: err && err.stack,
+    });
     next(err);
   }
 }
