@@ -23,6 +23,14 @@ function isTwilioConfigured() {
   return getTwilioConfig() != null;
 }
 
+function getSmsProvider() {
+  const raw = readTrimmed('SMS_PROVIDER');
+  if (raw == null) {
+    return 'twilio';
+  }
+  return raw.toLowerCase();
+}
+
 function maskPhoneNumber(phoneNumber) {
   const value = String(phoneNumber || '');
   if (value.length < 6) {
@@ -41,6 +49,14 @@ async function sendSms(phoneNumber, message, options = {}) {
     throw new AppError(503, 'SMS could not be sent');
   }
   if (typeof message !== 'string' || message.trim() === '') {
+    throw new AppError(503, 'SMS could not be sent');
+  }
+
+  const provider = getSmsProvider();
+  if (provider === 'mock') {
+    return { skipped: false, mocked: true };
+  }
+  if (provider !== 'twilio') {
     throw new AppError(503, 'SMS could not be sent');
   }
 
@@ -77,5 +93,6 @@ async function sendSms(phoneNumber, message, options = {}) {
 module.exports = {
   sendSms,
   isTwilioConfigured,
+  getSmsProvider,
   maskPhoneNumber,
 };

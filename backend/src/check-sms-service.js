@@ -46,12 +46,14 @@ async function main() {
     TWILIO_AUTH_TOKEN: process.env.TWILIO_AUTH_TOKEN,
     TWILIO_PHONE_NUMBER: process.env.TWILIO_PHONE_NUMBER,
     DEV_LOG_SMS_CODE: process.env.DEV_LOG_SMS_CODE,
+    SMS_PROVIDER: process.env.SMS_PROVIDER,
     DATABASE_URL: process.env.DATABASE_URL,
   };
 
   delete process.env.TWILIO_ACCOUNT_SID;
   delete process.env.TWILIO_AUTH_TOKEN;
   delete process.env.TWILIO_PHONE_NUMBER;
+  delete process.env.SMS_PROVIDER;
   process.env.DEV_LOG_SMS_CODE = 'false';
 
   assert(smsService.isTwilioConfigured() === false, 'Twilio should be off without env');
@@ -61,6 +63,38 @@ async function main() {
   assertLogsSafe(skipped.logs, ['+33612345678', '123456']);
   console.log('OK sans Twilio: envoi ignoré, pas de SMS réel');
 
+  process.env.SMS_PROVIDER = 'mock';
+  process.env.TWILIO_ACCOUNT_SID = 'ACtestaccountsidnotreal0000000000';
+  process.env.TWILIO_AUTH_TOKEN = 'SK_should_never_appear';
+  process.env.TWILIO_PHONE_NUMBER = '+15550000000';
+
+  const mockProviderCalls = [];
+  const mockProviderClient = {
+    messages: {
+      create: async (payload) => {
+        mockProviderCalls.push(payload);
+        return { sid: 'SM_should_not_be_used' };
+      },
+    },
+  };
+  const mocked = await captureLogs(() =>
+    smsService.sendSms('+33612345678', 'Your verification code is 999111', {
+      client: mockProviderClient,
+    })
+  );
+  assert(smsService.getSmsProvider() === 'mock', 'SMS_PROVIDER=mock');
+  assert(mocked.result && mocked.result.mocked === true, 'mock provider should simulate success');
+  assert(mocked.result.skipped === false, 'mock provider is a successful send, not a skip');
+  assert(mockProviderCalls.length === 0, 'mock provider must not call Twilio');
+  assertLogsSafe(mocked.logs, [
+    '+33612345678',
+    '999111',
+    'SK_should_never_appear',
+    'ACtestaccountsidnotreal0000000000',
+  ]);
+  console.log('OK SMS_PROVIDER=mock: succes simule, aucun appel Twilio');
+
+  process.env.SMS_PROVIDER = 'twilio';
   process.env.TWILIO_ACCOUNT_SID = 'ACtestaccountsidnotreal0000000000';
   process.env.TWILIO_AUTH_TOKEN = 'SK_should_never_appear';
   process.env.TWILIO_PHONE_NUMBER = '+15550000000';
@@ -80,13 +114,15 @@ async function main() {
     smsService.sendSms('+33612345678', 'Your verification code is 654321', { client: mockClient })
   );
   assert(sent.result && sent.result.skipped === false, 'mocked send should not skip');
+  assert(sent.result.mocked !== true, 'twilio provider must not report mocked');
+  assert(smsService.getSmsProvider() === 'twilio', 'SMS_PROVIDER=twilio');
   assert(calls.length === 1, 'mock client should be called once');
   assert(calls[0].to === '+33612345678', 'mock to');
   assert(calls[0].from === '+15550000000', 'mock from');
   assert(calls[0].body.includes('654321'), 'mock body has code');
   assertLogsSafe(sent.logs, ['+33612345678', '654321', 'ACtestaccountsidnotreal0000000000']);
   assert(smsService.maskPhoneNumber('+33612345678') !== '+33612345678', 'mask must hide the full number');
-  console.log('OK envoi mocké: Twilio client injecté, aucun SMS réel');
+  console.log('OK SMS_PROVIDER=twilio: client Twilio mocke, aucun SMS reel');
 
   const failing = {
     messages: {

@@ -75,9 +75,10 @@ La configuration du backend passe par des variables d’environnement (port d’
 | `JWT_EXPIRES_IN`              | Durée de l’access token (défaut : `15m`, max 24h) | Format valide requis |
 | `REFRESH_TOKEN_EXPIRES_DAYS`  | Durée du refresh token (défaut : `90`, 1–365) | Format valide requis |
 | `DEV_LOG_SMS_CODE`            | Log du code SMS en clair (`true` seulement, défaut : off) | Non |
-| `TWILIO_ACCOUNT_SID`          | Identifiant compte Twilio                 | Oui pour SMS réel       |
-| `TWILIO_AUTH_TOKEN`           | Secret API Twilio                         | Oui pour SMS réel       |
-| `TWILIO_PHONE_NUMBER`         | Numéro expéditeur Twilio                  | Oui pour SMS réel       |
+| `SMS_PROVIDER`                | Fournisseur SMS : `mock` (dev) ou `twilio` (défaut / prod) | Non |
+| `TWILIO_ACCOUNT_SID`          | Identifiant compte Twilio                 | Oui si `SMS_PROVIDER=twilio` et envoi réel |
+| `TWILIO_AUTH_TOKEN`           | Secret API Twilio                         | Oui si `SMS_PROVIDER=twilio` et envoi réel |
+| `TWILIO_PHONE_NUMBER`         | Numéro expéditeur Twilio                  | Oui si `SMS_PROVIDER=twilio` et envoi réel |
 
 Le fichier `.env` ne doit **jamais** être commité : il est ignoré par Git. Le fichier `.env.example` sert de modèle, sans valeurs secrètes.
 
@@ -88,17 +89,32 @@ cd backend
 cp .env.example .env
 ```
 
-Adapte ensuite `.env` si besoin (par exemple `PORT=4000`). Renseigne `DATABASE_URL`, `JWT_SECRET` et, pour un envoi SMS réel, les variables Twilio **hors Git**. Ne commitez jamais de secrets. `JWT_ISSUER` et `JWT_AUDIENCE` ne sont pas des secrets ; ils identifient l’émetteur et l’audience du JWT.
+Adapte ensuite `.env` si besoin (par exemple `PORT=4000`). Renseigne `DATABASE_URL`, `JWT_SECRET` et `SMS_PROVIDER` (`mock` en local, `twilio` en production). Pour un envoi SMS réel, ajoute les variables Twilio **hors Git**. Ne commitez jamais de secrets. `JWT_ISSUER` et `JWT_AUDIENCE` ne sont pas des secrets ; ils identifient l’émetteur et l’audience du JWT.
 
-### Configuration Twilio (SMS)
+### Configuration SMS (`SMS_PROVIDER`)
 
-L’envoi réel passe par `backend/src/services/smsService.js` (`sendSms`). Renseigne dans `.env` (jamais Git) :
+L’envoi passe par `backend/src/services/smsService.js` (`sendSms`). Deux modes :
 
-- `TWILIO_ACCOUNT_SID`
-- `TWILIO_AUTH_TOKEN`
-- `TWILIO_PHONE_NUMBER` (numéro d’expéditeur Twilio)
+**Développement local** — aucun fournisseur externe :
 
-Développement : si ces trois variables sont vides, **aucun SMS n’est envoyé** ; `POST /auth/register/start` reste utilisable (code visible seulement avec `DEV_LOG_SMS_CODE=true`). Production : les trois variables sont requises pour délivrer le code. Un échec Twilio renvoie **503** `{ "error": "SMS could not be sent" }`, sans détail fournisseur.
+```bash
+SMS_PROVIDER=mock
+DEV_LOG_SMS_CODE=true
+```
+
+`SMS_PROVIDER=mock` simule un envoi réussi et **n’appelle jamais Twilio**, même si les variables Twilio sont présentes. `DEV_LOG_SMS_CODE=true` affiche uniquement le code OTP dans les logs du serveur (jamais stocké en clair, jamais renvoyé dans une réponse HTTP). Le flux `register/start` → `verify-phone` → création `users` reste inchangé.
+
+**Production** — envoi réel Twilio :
+
+```bash
+SMS_PROVIDER=twilio
+TWILIO_ACCOUNT_SID=...
+TWILIO_AUTH_TOKEN=...
+TWILIO_PHONE_NUMBER=...
+DEV_LOG_SMS_CODE=false
+```
+
+Si `SMS_PROVIDER` est absent, le comportement reste celui de Twilio (envoi si les trois variables sont renseignées, sinon envoi ignoré). Un échec Twilio renvoie **503** `{ "error": "SMS could not be sent" }`, sans détail fournisseur. Le token Twilio et le numéro complet ne sont pas logués.
 
 ## Démarrage
 
@@ -131,7 +147,7 @@ Réponse attendue :
 
 ### Démarrer une inscription locale
 
-`POST /auth/register/start` valide les champs, vérifie qu’email / login / téléphone ne sont pas déjà dans `users`, hash le mot de passe avec bcrypt, puis enregistre une demande dans `phone_verifications` (jeton, hash du code SMS, `registration_data`). Aucune ligne n’est insérée dans `users`. Après stockage du `code_hash`, le backend envoie le code via Twilio (`smsService.sendSms`) si `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` et `TWILIO_PHONE_NUMBER` sont renseignés. **Sans ces variables** (développement / tests), l’envoi est ignoré et l’inscription continue. Le code SMS n’est logué **que si** `DEV_LOG_SMS_CODE=true` (désactivé par défaut). Les erreurs Twilio ne sont jamais renvoyées au client (**503** générique). Le token Twilio et le numéro complet ne sont pas logués.
+`POST /auth/register/start` valide les champs, vérifie qu’email / login / téléphone ne sont pas déjà dans `users`, hash le mot de passe avec bcrypt, puis enregistre une demande dans `phone_verifications` (jeton, hash du code SMS, `registration_data`). Aucune ligne n’est insérée dans `users`. Après stockage du `code_hash`, le backend appelle `smsService.sendSms` : `SMS_PROVIDER=mock` simule un succès sans Twilio ; `SMS_PROVIDER=twilio` envoie via Twilio si `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` et `TWILIO_PHONE_NUMBER` sont renseignés. **Sans ces variables** (et hors mode mock), l’envoi est ignoré et l’inscription continue. Le code SMS n’est logué **que si** `DEV_LOG_SMS_CODE=true` (désactivé par défaut) ; il n’est jamais stocké en clair ni renvoyé dans la réponse HTTP. Les erreurs Twilio ne sont jamais renvoyées au client (**503** générique). Le token Twilio et le numéro complet ne sont pas logués.
 
 Mot de passe (politique centralisée, `src/validators/passwordValidator.js`) : **8 à 72 caractères**, pas vide, pas seulement des espaces. Pas d’obligation de majuscule ni de caractère spécial. Au-delà de 72 caractères, l’inscription est refusée (**400**) et bcrypt n’est pas appelé.
 
