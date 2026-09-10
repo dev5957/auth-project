@@ -12,7 +12,7 @@ API REST JSON (Node.js + Express) pour l’authentification des utilisateurs.
 
 ## État actuel
 
-Serveur Express avec `GET /health`, inscription locale (`POST /auth/register/start`, `POST /auth/register/verify-phone`), connexion locale `POST /auth/login`, renouvellement `POST /auth/refresh`, profil JWT `GET /auth/me` et profil SQL `GET /auth/profile`. Après un login réussi, le backend émet un JWT (15 minutes, HS256, claims `userId` / `login` / `auth_provider` / `jti`, `iss`, `aud`) et un refresh token (90 jours, stocké uniquement hashé). `POST /auth/refresh` fait tourner le refresh token dans une transaction. Un compte n’est créé dans `users` qu’après validation du code SMS. Le serveur refuse de démarrer si la configuration JWT est absente ou dangereuse. Le JSON d’entrée est limité à **32 Ko**.
+Serveur Express avec `GET /health`, inscription locale (`POST /auth/register/start`, `POST /auth/register/verify-phone`), connexion locale `POST /auth/login`, renouvellement `POST /auth/refresh`, déconnexion `POST /auth/logout`, profil JWT `GET /auth/me` et profil SQL `GET /auth/profile`. Après un login réussi, le backend émet un JWT (15 minutes, HS256, claims `userId` / `login` / `auth_provider` / `jti`, `iss`, `aud`) et un refresh token (90 jours, stocké uniquement hashé). `POST /auth/refresh` fait tourner le refresh token dans une transaction. Un compte n’est créé dans `users` qu’après validation du code SMS. Le serveur refuse de démarrer si la configuration JWT est absente ou dangereuse. Le JSON d’entrée est limité à **32 Ko**.
 
 ## Schéma utilisateurs
 
@@ -354,6 +354,33 @@ Champs volontairement exclus : `password_hash`, refresh token, `token_hash`, `pr
 
 Utilisateur absent : **404** `{ "error": "User not found" }`. Sans token ou JWT invalide : **401** `{ "error": "Unauthorized" }`.
 
+### Déconnexion
+
+`POST /auth/logout` est protégé par `requireAuth` (`Authorization: Bearer <access_token>`). Le corps JSON doit contenir le **refresh token** de la session à fermer. Le jeton est hashé en SHA-256 (même méthode que le stockage), recherché dans `refresh_tokens`, puis révoqué (`revoked_at = NOW()`) si `user_id` correspond à `req.user.userId` et que `revoked_at IS NULL`. La ligne n’est pas supprimée.
+
+```bash
+curl -sS -X POST http://localhost:3000/auth/logout \
+  -H 'Authorization: Bearer replace-with-access-token' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "refresh_token": "replace-with-refresh-token"
+  }'
+```
+
+Succès (**200**) :
+
+```json
+{
+  "message": "Logged out"
+}
+```
+
+Refresh token absent : **400** `{ "error": "Refresh token required" }`.
+
+JWT absent ou invalide, refresh inconnu, déjà révoqué, ou appartenant à un autre utilisateur : **401** `{ "error": "Unauthorized" }`. Ces cas invalides ne distinguent pas l’existence, l’état ni le propriétaire du refresh token.
+
+Les réponses de `login`, `refresh` et `profile` restent inchangées. Aucun refresh token, `token_hash`, JWT ni secret n’est logué.
+
 Les corps JSON de plus de **32 Ko** sont rejetés (**413**). Une erreur interne (**500**) ne renvoie jamais de stack, SQL, secret, ni token.
 
 ### Vérifier la connexion PostgreSQL
@@ -430,4 +457,11 @@ npm run test:sms
 ```bash
 cd backend
 npm run test:registration-finalization
+```
+
+### Vérifier POST /auth/logout
+
+```bash
+cd backend
+npm run test:logout
 ```

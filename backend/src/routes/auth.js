@@ -1,5 +1,5 @@
 const express = require('express');
-const { startRegister, verifyPhone, login, refresh, me, getProfile } = require('../controllers/authController');
+const { startRegister, verifyPhone, login, refresh, me, getProfile, logout } = require('../controllers/authController');
 const { authRateLimit } = require('../middleware/rateLimit');
 const { requireAuth } = require('../middleware/authMiddleware');
 
@@ -11,5 +11,6 @@ router.post('/login', authRateLimit.login, login);
 router.post('/refresh', authRateLimit.refresh, refresh);
 router.get('/me', requireAuth, me);
 router.get('/profile', requireAuth, getProfile);
+router.post('/logout', requireAuth, logout);
 
 module.exports = router;

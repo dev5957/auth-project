@@ -5,6 +5,7 @@ const {
 const { loginLocalUser } = require('../services/loginService');
 const { refreshAuthTokens } = require('../services/refreshTokenService');
 const { findUserProfileById } = require('../services/userService');
+const { logoutCurrentSession } = require('../services/logoutService');
 
 async function startRegister(req, res, next) {
   try {
@@ -77,6 +78,17 @@ async function getProfile(req, res, next) {
   }
 }
 
+async function logout(req, res, next) {
+  try {
+    await logoutCurrentSession(req.body, req.user.userId);
+    res.status(200).json({
+      message: 'Logged out',
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   startRegister,
   verifyPhone,
@@ -84,4 +96,5 @@ module.exports = {
   refresh,
   me,
   getProfile,
+  logout,
 };
