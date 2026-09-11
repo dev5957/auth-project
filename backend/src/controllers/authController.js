@@ -6,6 +6,7 @@ const { loginLocalUser } = require('../services/loginService');
 const { refreshAuthTokens } = require('../services/refreshTokenService');
 const { findUserProfileById } = require('../services/userService');
 const { logoutCurrentSession } = require('../services/logoutService');
+const { startGoogleAuth } = require('../services/googleStartService');
 
 async function startRegister(req, res, next) {
   try {
@@ -89,6 +90,27 @@ async function logout(req, res, next) {
   }
 }
 
+async function startGoogle(req, res, next) {
+  try {
+    const result = await startGoogleAuth(req.body);
+    if (result.access_token) {
+      res.status(200).json({
+        message: result.message,
+        access_token: result.access_token,
+        refresh_token: result.refresh_token,
+      });
+      return;
+    }
+    res.status(200).json({
+      message: result.message,
+      oauth_verification_token: result.oauth_verification_token,
+      email: result.email,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   startRegister,
   verifyPhone,
@@ -97,4 +119,5 @@ module.exports = {
   me,
   getProfile,
   logout,
+  startGoogle,
 };

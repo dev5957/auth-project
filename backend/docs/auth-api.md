@@ -2,7 +2,7 @@
 
 Documentation des endpoints **implémentés** dans le backend. Les statuts et messages des sections suivantes (jusqu’à Session Management Policy) sont ceux renvoyés par le code actuel (`authController`, services, `errorHandler`).
 
-La section **OAuth Authentication Contract** (Phase 7A.0) est un **contrat** : ces routes **n’existent pas encore**. Ne pas les appeler.
+La section **OAuth Authentication Contract** (Phase 7A.0) fige le parcours Google / Apple. **`POST /auth/google/start` est implémenté.** Les autres routes OAuth (`/auth/apple/start`, `/auth/oauth/start-phone`, `/auth/oauth/verify-phone`) **n’existent pas encore**.
 
 Préfixe : `/auth`  
 Corps : JSON (`Content-Type: application/json`)  
@@ -292,6 +292,64 @@ L’access token JWT n’est pas invalidé : il reste utilisable jusqu’à son 
 
 ---
 
+## POST `/auth/google/start`
+
+Vérifie un Google ID token (`googleAuthService.verifyGoogleIdToken()`), puis soit ouvre une session existante, soit crée un **contexte temporaire** dans `phone_verifications`. **Aucune** ligne `users` n’est créée ici.
+
+**Rate limit :** 10 requêtes / 15 min / IP → `429` `{ "error": "Too many requests" }` (`Retry-After`).
+
+### Corps
+
+```json
+{
+  "id_token": "google_identity_token"
+}
+```
+
+Le `id_token` n’est **jamais** logué ni renvoyé dans une erreur.
+
+### Compte Google existant — `200`
+
+`users.auth_provider = 'google'` et `users.provider_user_id` = `sub` Google. Session = `generateAccessToken()` + `storeLoginRefreshToken()` (même mécanisme que le login local).
+
+```json
+{
+  "message": "Login successful",
+  "access_token": "...",
+  "refresh_token": "..."
+}
+```
+
+### Nouveau parcours — `200`
+
+Pas de `users`. Une ligne `phone_verifications` est insérée (`verification_token` = `oauth_verification_token`, téléphone placeholder, `registration_data` : `provider`, `provider_user_id`, `email`, `first_name`, `last_name`). TTL 10 minutes.
+
+```json
+{
+  "message": "Phone verification required",
+  "oauth_verification_token": "...",
+  "email": "..."
+}
+```
+
+`email` est normalisé (minuscules). Les étapes `/auth/oauth/start-phone` et `/auth/oauth/verify-phone` ne sont pas encore exposées.
+
+### Erreurs
+
+| HTTP | `error` |
+|---|---|
+| 400 | `id_token is required` |
+| 401 | `Unauthorized` |
+| 409 | `Account already exists with another authentication method` |
+| 429 | `Too many requests` |
+| 503 | `Google authentication is not configured` |
+| 503 | `Database is not configured` |
+| 503 | `JWT_SECRET is not configured` |
+
+`401 Unauthorized` : signature, `aud`, `iss` ou `exp` Google invalides. `409` : l’email Google existe déjà avec un autre `auth_provider` (pas de fusion). `503 JWT_SECRET` uniquement si un compte Google existant doit recevoir une session.
+
+---
+
 ## Session Management Policy
 
 Décisions fonctionnelles pour le client Flutter. Elles décrivent le comportement de session attendu ; elles ne changent pas l’API.
@@ -334,7 +392,7 @@ Après création du compte et **validation du téléphone**, la session est main
 
 À chaque ouverture de l’application, le client **ne rappelle pas** Google ni Apple. Il utilise le refresh automatique décrit ci-dessus.
 
-Les routes OAuth ne sont **pas encore implémentées**. Le contrat (Phase 7A.0) est décrit dans la section **OAuth Authentication Contract**. En attendant, seule l’auth locale (`login` / `password`) est disponible.
+`POST /auth/google/start` est implémenté (connexion Google existante ou jeton temporaire avant téléphone). Apple et les étapes SMS OAuth ne le sont pas encore. Le contrat (Phase 7A.0) est décrit dans la section **OAuth Authentication Contract**.
 
 ### Règles d’inscription actuelles
 
@@ -346,13 +404,13 @@ Un compte n’est créé dans `users` qu’après **téléphone vérifié** (SMS
 | **GOOGLE** | Identité Google + choix d’un `login` + téléphone vérifié + `birth_date` | Session via nos tokens (pas de rappel Google) |
 | **APPLE** | Identité Apple + choix d’un `login` + téléphone vérifié + `birth_date` | Session via nos tokens (pas de rappel Apple) |
 
-LOCAL est implémenté (`/auth/register/start`, `/auth/register/verify-phone`, `/auth/login`). GOOGLE et APPLE : voir le contrat Phase 7A.0 ci-dessous ; les routes OAuth ne sont pas encore implémentées.
+LOCAL est implémenté (`/auth/register/start`, `/auth/register/verify-phone`, `/auth/login`). GOOGLE : `POST /auth/google/start` seulement (pas encore de création de compte ni SMS). APPLE et `/auth/oauth/*` : voir le contrat Phase 7A.0 ci-dessous.
 
 ---
 
 # OAuth Authentication Contract
 
-**Phase 7A.0 — contrat finalisé.** Aucune de ces routes n’est exposée par le serveur aujourd’hui. Aucune logique OAuth n’est écrite. Cette section fige le comportement attendu pour Flutter et pour l’implémentation backend ultérieure.
+**Phase 7A.0 — contrat finalisé.** `POST /auth/google/start` est implémenté (Phase 7A.2). `/auth/apple/start`, `/auth/oauth/start-phone` et `/auth/oauth/verify-phone` ne sont pas encore exposés.
 
 ## Règles générales
 
@@ -386,7 +444,7 @@ POST /auth/google/start   (ou /auth/apple/start)
 
 ## POST `/auth/google/start`
 
-Vérifie l’identité Google, récupère les informations disponibles, et prépare **création** ou **connexion**. **Aucun** `users` n’est créé ici.
+**Implémenté (Phase 7A.2).** Détail opérationnel dans la section du même nom plus haut. Vérifie l’identité Google, récupère les informations disponibles, et prépare **création** ou **connexion**. **Aucun** `users` n’est créé ici.
 
 ### Request
 
@@ -438,12 +496,11 @@ Pas de ligne `users`. Renvoyer un jeton de parcours OAuth (ce n’est pas encore
 {
   "message": "Phone verification required",
   "oauth_verification_token": "...",
-  "provider": "google",
   "email": "..."
 }
 ```
 
-Le client enchaîne sur `POST /auth/oauth/start-phone`.
+Le client enchaîne sur `POST /auth/oauth/start-phone` (pas encore implémenté).
 
 ---
 
