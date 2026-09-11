@@ -18,6 +18,7 @@
     "test:sms": "node src/check-sms-service.js",
     "test:registration-finalization": "node src/check-registration-finalization.js",
     "test:logout": "node src/check-logout.js",
+    "test:google-auth": "node src/check-google-auth.js",
     "purge:refresh-tokens": "node src/purge-refresh-tokens.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
