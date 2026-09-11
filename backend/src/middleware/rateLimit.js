@@ -51,6 +51,7 @@ const authRateLimit = {
   login: createRateLimiter({ windowMs: FIFTEEN_MINUTES_MS, max: 10 }),
   refresh: createRateLimiter({ windowMs: FIFTEEN_MINUTES_MS, max: 30 }),
   googleStart: createRateLimiter({ windowMs: FIFTEEN_MINUTES_MS, max: 10 }),
+  oauthStartPhone: createRateLimiter({ windowMs: FIFTEEN_MINUTES_MS, max: 5 }),
 };
 
 module.exports = {

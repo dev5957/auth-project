@@ -20,6 +20,7 @@
     "test:logout": "node src/check-logout.js",
     "test:google-auth": "node src/check-google-auth.js",
     "test:google-start": "node src/check-google-start.js",
+    "test:oauth-start-phone": "node src/check-oauth-start-phone.js",
     "purge:refresh-tokens": "node src/purge-refresh-tokens.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

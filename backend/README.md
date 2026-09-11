@@ -12,7 +12,7 @@ API REST JSON (Node.js + Express) pour l’authentification des utilisateurs.
 
 ## État actuel
 
-Serveur Express avec `GET /health`, inscription locale (`POST /auth/register/start`, `POST /auth/register/verify-phone`), connexion locale `POST /auth/login`, renouvellement `POST /auth/refresh`, déconnexion `POST /auth/logout`, profil JWT `GET /auth/me`, profil SQL `GET /auth/profile`, et démarrage Google `POST /auth/google/start`. Après un login réussi (local ou Google déjà lié), le backend émet un JWT (15 minutes, HS256, claims `userId` / `login` / `auth_provider` / `jti`, `iss`, `aud`) et un refresh token (90 jours, stocké uniquement hashé). `POST /auth/refresh` fait tourner le refresh token dans une transaction. Un compte n’est créé dans `users` qu’après validation du code SMS. Le serveur refuse de démarrer si la configuration JWT est absente ou dangereuse. Le JSON d’entrée est limité à **32 Ko**.
+Serveur Express avec `GET /health`, inscription locale (`POST /auth/register/start`, `POST /auth/register/verify-phone`), connexion locale `POST /auth/login`, renouvellement `POST /auth/refresh`, déconnexion `POST /auth/logout`, profil JWT `GET /auth/me`, profil SQL `GET /auth/profile`, démarrage Google `POST /auth/google/start`, et téléphone OAuth `POST /auth/oauth/start-phone`. Après un login réussi (local ou Google déjà lié), le backend émet un JWT (15 minutes, HS256, claims `userId` / `login` / `auth_provider` / `jti`, `iss`, `aud`) et un refresh token (90 jours, stocké uniquement hashé). `POST /auth/refresh` fait tourner le refresh token dans une transaction. Un compte n’est créé dans `users` qu’après validation du code SMS. Le serveur refuse de démarrer si la configuration JWT est absente ou dangereuse. Le JSON d’entrée est limité à **32 Ko**.
 
 ## Schéma utilisateurs
 
@@ -161,7 +161,7 @@ Identifiants (fonctions centralisées, `src/validators/authFields.js`), appliqu�
 
 Contraintes SQL actuelles (`sql/001_create_users.sql`) : `UNIQUE(email)`, `UNIQUE(login)` (comparaison PostgreSQL sensible à la casse). **`phone_number` n’a pas de contrainte UNIQUE dans 001** (contrôle applicatif seulement jusqu’à `sql/005_harden_users.sql`, à appliquer manuellement dans Neon).
 
-Un rate limiting **en mémoire, par IP**, s’applique à `POST /auth/register/start` (5 / 15 min), `POST /auth/register/verify-phone` (10 / 15 min), `POST /auth/login` (10 / 15 min), `POST /auth/refresh` (30 / 15 min) et `POST /auth/google/start` (10 / 15 min). Dépassement : HTTP **429** et en-tête `Retry-After`. Ce limiteur n’est pas adapté à plusieurs instances de production.
+Un rate limiting **en mémoire, par IP**, s’applique à `POST /auth/register/start` (5 / 15 min), `POST /auth/register/verify-phone` (10 / 15 min), `POST /auth/login` (10 / 15 min), `POST /auth/refresh` (30 / 15 min), `POST /auth/google/start` (10 / 15 min) et `POST /auth/oauth/start-phone` (5 / 15 min). Dépassement : HTTP **429** et en-tête `Retry-After`. Ce limiteur n’est pas adapté à plusieurs instances de production.
 
 ```bash
 curl -sS -X POST http://localhost:3000/auth/register/start \
@@ -484,10 +484,19 @@ npm run test:logout
 
 ### Vérifier POST /auth/google/start
 
-`POST /auth/google/start` appelle `googleAuthService.verifyGoogleIdToken()`. Un compte Google déjà présent (`auth_provider = 'google'` + `provider_user_id`) reçoit la même session que le login local. Sinon aucun `users` n’est créé : un `oauth_verification_token` est stocké dans `phone_verifications` (données provider / email / nom). L’`id_token` n’est jamais logué. Apple et `/auth/oauth/*` ne sont pas exposés.
+`POST /auth/google/start` appelle `googleAuthService.verifyGoogleIdToken()`. Un compte Google déjà présent (`auth_provider = 'google'` + `provider_user_id`) reçoit la même session que le login local. Sinon aucun `users` n’est créé : un `oauth_verification_token` est stocké dans `phone_verifications` (données provider / email / nom). L’`id_token` n’est jamais logué. Apple et `/auth/oauth/verify-phone` ne sont pas exposés.
 
 ```bash
 cd backend
 npm run test:google-auth
 npm run test:google-start
+```
+
+### Vérifier POST /auth/oauth/start-phone
+
+`POST /auth/oauth/start-phone` (`oauthService`) reprend le contexte OAuth, normalise le téléphone, vérifie qu’il n’est pas déjà dans `users`, hash un OTP (même mécanisme que l’inscription locale) et envoie le SMS via `smsService`. Aucun compte `users`, JWT ou refresh token n’est créé à cette étape.
+
+```bash
+cd backend
+npm run test:oauth-start-phone
 ```

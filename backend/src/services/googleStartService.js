@@ -1,5 +1,3 @@
-const crypto = require('crypto');
-const bcrypt = require('bcrypt');
 const pool = require('../db');
 const AppError = require('../errors/AppError');
 const { normalizeEmail } = require('../validators/authFields');
@@ -10,15 +8,9 @@ const {
 } = require('./tokenService');
 const { storeLoginRefreshToken } = require('./refreshSessionService');
 const { verifyGoogleIdToken } = require('./googleAuthService');
+const { createPendingOauthContext, PENDING_PHONE_PLACEHOLDER } = require('./oauthService');
 
-const BCRYPT_ROUNDS = 10;
-const OAUTH_TTL_MS = 10 * 60 * 1000;
-const PENDING_PHONE_PLACEHOLDER = 'oauth-pending';
 const EMAIL_PROVIDER_CONFLICT = 'Account already exists with another authentication method';
-
-function generateOauthVerificationToken() {
-  return crypto.randomBytes(32).toString('hex');
-}
 
 async function issueSession(user, executor) {
   const access_token = generateAccessToken(user);
@@ -93,38 +85,21 @@ async function startGoogleAuth(body, options = {}) {
     throw new AppError(409, EMAIL_PROVIDER_CONFLICT);
   }
 
-  const oauth_verification_token = generateOauthVerificationToken();
-  const placeholderHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), BCRYPT_ROUNDS);
-  const expires_at = new Date(Date.now() + OAUTH_TTL_MS);
-
-  await db.query(
-    `INSERT INTO phone_verifications (
-       verification_token,
-       phone_number,
-       code_hash,
-       expires_at,
-       attempts,
-       registration_data
-     ) VALUES ($1, $2, $3, $4, 0, $5)`,
-    [
-      oauth_verification_token,
-      PENDING_PHONE_PLACEHOLDER,
-      placeholderHash,
-      expires_at,
-      {
-        provider: 'google',
-        provider_user_id,
-        email,
-        first_name: identity.first_name,
-        last_name: identity.last_name,
-      },
-    ]
+  const pending = await createPendingOauthContext(
+    {
+      provider: 'google',
+      provider_user_id,
+      email,
+      first_name: identity.first_name,
+      last_name: identity.last_name,
+    },
+    { db }
   );
 
   return {
     message: 'Phone verification required',
-    oauth_verification_token,
-    email,
+    oauth_verification_token: pending.oauth_verification_token,
+    email: pending.email,
   };
 }
 

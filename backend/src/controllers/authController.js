@@ -7,6 +7,7 @@ const { refreshAuthTokens } = require('../services/refreshTokenService');
 const { findUserProfileById } = require('../services/userService');
 const { logoutCurrentSession } = require('../services/logoutService');
 const { startGoogleAuth } = require('../services/googleStartService');
+const { startOAuthPhoneVerification } = require('../services/oauthService');
 
 async function startRegister(req, res, next) {
   try {
@@ -111,6 +112,18 @@ async function startGoogle(req, res, next) {
   }
 }
 
+async function startOAuthPhone(req, res, next) {
+  try {
+    const { oauth_verification_token } = await startOAuthPhoneVerification(req.body);
+    res.status(200).json({
+      message: 'Verification code generated',
+      oauth_verification_token,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   startRegister,
   verifyPhone,
@@ -120,4 +133,5 @@ module.exports = {
   getProfile,
   logout,
   startGoogle,
+  startOAuthPhone,
 };
