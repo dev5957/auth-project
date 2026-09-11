@@ -1,6 +1,8 @@
 # API d’authentification
 
-Documentation des endpoints **implémentés** dans le backend. Les statuts et messages ci-dessous sont ceux renvoyés par le code actuel (`authController`, services, `errorHandler`).
+Documentation des endpoints **implémentés** dans le backend. Les statuts et messages des sections suivantes (jusqu’à Session Management Policy) sont ceux renvoyés par le code actuel (`authController`, services, `errorHandler`).
+
+La section **OAuth Authentication Contract** (Phase 7A.0) est un **contrat** : ces routes **n’existent pas encore**. Ne pas les appeler.
 
 Préfixe : `/auth`  
 Corps : JSON (`Content-Type: application/json`)  
@@ -344,7 +346,193 @@ Un compte n’est créé dans `users` qu’après **téléphone vérifié** (SMS
 | **GOOGLE** | Identité Google + choix d’un `login` + téléphone vérifié | Session via nos tokens (pas de rappel Google) |
 | **APPLE** | Identité Apple + choix d’un `login` + téléphone vérifié | Session via nos tokens (pas de rappel Apple) |
 
-LOCAL est implémenté (`/auth/register/start`, `/auth/register/verify-phone`, `/auth/login`). GOOGLE et APPLE sont des règles produit ; les endpoints OAuth correspondants n’existent pas encore.
+LOCAL est implémenté (`/auth/register/start`, `/auth/register/verify-phone`, `/auth/login`). GOOGLE et APPLE : voir le contrat Phase 7A.0 ci-dessous ; les routes OAuth ne sont pas encore implémentées.
+
+---
+
+# OAuth Authentication Contract
+
+**Phase 7A.0 — contrat uniquement.** Aucune de ces routes n’est exposée par le serveur aujourd’hui. Aucune logique OAuth n’est écrite. Cette section fige le comportement attendu pour Flutter et pour l’implémentation backend ultérieure.
+
+## Règles générales
+
+- Google et Apple sont des **méthodes d’authentification externes**. Elles ne remplacent pas la vérification du téléphone.
+- **Aucun compte OAuth n’est créé** dans `users` avant validation du téléphone.
+- Le **`login` est obligatoire** pour tous les comptes (choisi par l’utilisateur à la finalisation).
+- Les comptes Google / Apple **n’ont pas de `password_hash`** (`password_hash` = `NULL`).
+- L’**email** fourni par Google / Apple est **obligatoire** et conservé dans `users.email`.
+- Après création du compte, la session est gérée par **nos** `access_token` et `refresh_token` (même politique que la section Session Management Policy).
+- Google / Apple **ne sont pas rappelés** à chaque ouverture de l’application.
+
+---
+
+## POST `/auth/google/start`
+
+Démarre une authentification Google.
+
+### Request
+
+```json
+{
+  "id_token": "google_identity_token"
+}
+```
+
+### Comportement backend (contrat)
+
+1. Vérifier le token Google.
+2. Récupérer :
+   - `provider_user_id` Google
+   - `email`
+   - `first_name`
+   - `last_name`
+
+### Cas 1 — compte Google existant
+
+Le `provider_user_id` correspond déjà à un `users` (`auth_provider = 'google'`).
+
+Réponse (même idée que le login local) :
+
+```json
+{
+  "message": "Login successful",
+  "access_token": "...",
+  "refresh_token": "..."
+}
+```
+
+### Cas 2 — nouveau compte Google
+
+**Ne pas** créer immédiatement la ligne `users`.
+
+Réponse :
+
+```json
+{
+  "message": "Phone verification required",
+  "verification_token": "...",
+  "provider": "google",
+  "email": "..."
+}
+```
+
+Le client enchaîne ensuite sur `POST /auth/oauth/verify-phone` (téléphone + choix du `login`).
+
+---
+
+## POST `/auth/apple/start`
+
+Même principe que Google.
+
+### Request
+
+```json
+{
+  "identity_token": "apple_identity_token"
+}
+```
+
+### Comportement backend (contrat)
+
+- Vérifier l’Apple Identity Token.
+- Récupérer :
+  - `provider_user_id` Apple
+  - `email`
+  - `first_name`
+  - `last_name`
+
+### Compte existant
+
+Retourner `access_token` + `refresh_token` :
+
+```json
+{
+  "message": "Login successful",
+  "access_token": "...",
+  "refresh_token": "..."
+}
+```
+
+### Nouveau compte
+
+Demander la vérification téléphone. **Ne pas** créer `users`.
+
+```json
+{
+  "message": "Phone verification required",
+  "verification_token": "...",
+  "provider": "apple",
+  "email": "..."
+}
+```
+
+---
+
+## POST `/auth/oauth/verify-phone`
+
+Finalise la création d’un compte OAuth **après** validation du téléphone.
+
+### Request
+
+```json
+{
+  "verification_token": "...",
+  "code": "SMS_CODE",
+  "login": "chosen_login"
+}
+```
+
+### Comportement backend (contrat)
+
+1. Vérifier le code SMS.
+2. Vérifier que le `login` est disponible.
+3. Créer le compte `users` (pas avant).
+
+**Exemple Google :**
+
+| Champ | Valeur |
+|---|---|
+| `email` | email Google |
+| `login` | login choisi |
+| `phone_verified` | `true` |
+| `auth_provider` | `google` |
+| `provider_user_id` | google id |
+| `password_hash` | `NULL` |
+
+**Exemple Apple :**
+
+| Champ | Valeur |
+|---|---|
+| `email` | email Apple |
+| `login` | login choisi |
+| `phone_verified` | `true` |
+| `auth_provider` | `apple` |
+| `provider_user_id` | apple id |
+| `password_hash` | `NULL` |
+
+### Succès
+
+```json
+{
+  "message": "Account created",
+  "access_token": "...",
+  "refresh_token": "..."
+}
+```
+
+Contrairement au `POST /auth/register/verify-phone` local, la finalisation OAuth **émet** déjà la session (access + refresh).
+
+---
+
+## Authentication methods summary
+
+| Méthode | Authentification initiale | Compte `users` |
+|---|---|---|
+| **LOCAL** | `login` + `password` + téléphone vérifié | `auth_provider = 'local'`, `password_hash` bcrypt |
+| **GOOGLE** | Identité Google + choix d’un `login` + téléphone vérifié | `auth_provider = 'google'`, `password_hash` `NULL` |
+| **APPLE** | Identité Apple + choix d’un `login` + téléphone vérifié | `auth_provider = 'apple'`, `password_hash` `NULL` |
+
+Dans les trois cas : pas de ligne `users` avant SMS validé ; ensuite session = nos tokens uniquement.
 
 ---
 
