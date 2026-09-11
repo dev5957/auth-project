@@ -290,8 +290,65 @@ L’access token JWT n’est pas invalidé : il reste utilisable jusqu’à son 
 
 ---
 
+## Session Management Policy
+
+Décisions fonctionnelles pour le client Flutter. Elles décrivent le comportement de session attendu ; elles ne changent pas l’API.
+
+### Session persistante par défaut
+
+La session **reste ouverte** tant que l’utilisateur ne se déconnecte pas explicitement.
+
+- Fermer l’application ≠ logout.
+- Passer l’application en arrière-plan ≠ logout.
+- Relancer l’application ≠ logout.
+
+Le **`refresh_token`** est le mécanisme qui maintient la session. Le client doit le conserver de façon sécurisée (stockage persistant, pas seulement en mémoire). L’`access_token` est court (~15 min) ; à l’expiration, un `POST /auth/refresh` avec le refresh token stocké émet un nouveau couple access + refresh.
+
+### Logout volontaire
+
+La déconnexion n’a lieu **que** sur une action explicite de l’utilisateur (bouton « se déconnecter », etc.).
+
+- Le client appelle `POST /auth/logout` avec l’`access_token` (header) et le `refresh_token` (corps).
+- Le backend révoque ce refresh token (`revoked_at`).
+- Après logout, l’ancien `refresh_token` ne doit plus permettre un `POST /auth/refresh` (réponse `401` `{ "error": "Invalid refresh token" }`).
+- Le client doit alors supprimer access token, refresh token et état « connecté » du stockage local.
+
+L’access token déjà émis peut encore être accepté jusqu’à son `exp` ; le client ne doit plus l’utiliser après logout.
+
+### Après réouverture de l’application
+
+1. Lire le `refresh_token` persisté.
+2. S’il est présent, appeler `POST /auth/refresh` **automatiquement** (sans écran login).
+3. Si le refresh réussit (`200`) : stocker les nouveaux tokens, laisser l’utilisateur connecté. **Ne pas** redemander login/mot de passe, ni Google, ni Apple.
+4. Si le refresh échoue (`401`) : session invalide (logout, révocation, expiration). Afficher l’écran de connexion.
+
+Sans `refresh_token` en stockage : traiter l’utilisateur comme déconnecté.
+
+### Impact OAuth (Google / Apple)
+
+Google et Apple ne servent qu’à **l’authentification initiale** (création ou liaison du compte).
+
+Après création du compte et **validation du téléphone**, la session est maintenue uniquement par **nos** `access_token` et `refresh_token`, comme pour un compte local.
+
+À chaque ouverture de l’application, le client **ne rappelle pas** Google ni Apple. Il utilise le refresh automatique décrit ci-dessus.
+
+Les routes OAuth ne sont **pas encore implémentées** dans ce backend. La règle ci-dessus s’applique dès qu’elles le seront ; en attendant, seule l’auth locale (`login` / `password`) est disponible.
+
+### Règles d’inscription actuelles
+
+Un compte n’est créé dans `users` qu’après **téléphone vérifié** (SMS).
+
+| Mode | Authentification initiale | Ensuite |
+|---|---|---|
+| **LOCAL** | `login` + `password` + téléphone vérifié | Session via nos tokens |
+| **GOOGLE** | Identité Google + choix d’un `login` + téléphone vérifié | Session via nos tokens (pas de rappel Google) |
+| **APPLE** | Identité Apple + choix d’un `login` + téléphone vérifié | Session via nos tokens (pas de rappel Apple) |
+
+LOCAL est implémenté (`/auth/register/start`, `/auth/register/verify-phone`, `/auth/login`). GOOGLE et APPLE sont des règles produit ; les endpoints OAuth correspondants n’existent pas encore.
+
+---
+
 ## Notes
 
 - `GET /auth/me` existe (JWT only) mais n’est pas documenté ici.
-- OAuth Google / Apple : non implémenté.
 - Mot de passe et OTP : jamais renvoyés. OTP jamais stocké en clair.
