@@ -2,7 +2,7 @@
 
 Documentation des endpoints **implémentés** dans le backend. Les statuts et messages des sections suivantes (jusqu’à Session Management Policy) sont ceux renvoyés par le code actuel (`authController`, services, `errorHandler`).
 
-La section **OAuth Authentication Contract** (Phase 7A.0) fige le parcours Google / Apple. **`POST /auth/google/start` et `POST /auth/oauth/start-phone` sont implémentés.** `/auth/apple/start` et `/auth/oauth/verify-phone` **n’existent pas encore**.
+La section **OAuth Authentication Contract** (Phase 7A.0) fige le parcours Google / Apple. **`POST /auth/google/start`**, **`POST /auth/oauth/start-phone`** et **`POST /auth/oauth/verify-phone`** sont implémentés. `/auth/apple/start` **n’existe pas encore**.
 
 Préfixe : `/auth`  
 Corps : JSON (`Content-Type: application/json`)  
@@ -332,7 +332,7 @@ Pas de `users`. Une ligne `phone_verifications` est insérée (`verification_tok
 }
 ```
 
-`email` est normalisé (minuscules). L’étape suivante est `POST /auth/oauth/start-phone`. `/auth/oauth/verify-phone` n’est pas encore exposé.
+`email` est normalisé (minuscules). L’étape suivante est `POST /auth/oauth/start-phone`, puis `POST /auth/oauth/verify-phone`.
 
 ### Erreurs
 
@@ -394,6 +394,64 @@ Le code SMS n’est **pas** dans la réponse. Le téléphone est normalisé (mê
 
 ---
 
+## POST `/auth/oauth/verify-phone`
+
+Valide l’OTP du parcours OAuth (`oauthService.verifyOAuthPhoneAndCreateUser()`), exige `birth_date` et un `login` libre, puis crée `users` et ouvre une session. `password_hash` est `NULL`. `auth_provider` / `provider_user_id` viennent du contexte Google (ou Apple plus tard).
+
+**Rate limit :** 10 requêtes / 15 min / IP → `429` `{ "error": "Too many requests" }` (`Retry-After`).
+
+### Corps
+
+```json
+{
+  "oauth_verification_token": "...",
+  "code": "SMS_CODE",
+  "birth_date": "YYYY-MM-DD",
+  "login": "chosen_login"
+}
+```
+
+`login` est trimé et mis en minuscules. `birth_date` est la valeur fournie par l’utilisateur (pas une date Google/Apple).
+
+### Succès — `201`
+
+```json
+{
+  "message": "Account created",
+  "access_token": "...",
+  "refresh_token": "..."
+}
+```
+
+Session = `generateAccessToken()` + `storeLoginRefreshToken()` (même mécanisme que le login). La ligne `phone_verifications` est consommée (`verified_at`), pas supprimée.
+
+### Erreurs
+
+| HTTP | `error` |
+|---|---|
+| 400 | `oauth_verification_token is required` |
+| 400 | `code is required` |
+| 400 | `birth_date is required` |
+| 400 | `birth_date is invalid` |
+| 400 | `login is required` |
+| 400 | `login is invalid` |
+| 400 | `Verification is no longer valid` |
+| 400 | `Verification code has expired` |
+| 400 | `Invalid verification code` |
+| 404 | `Verification token not found` |
+| 409 | `Login is already in use` |
+| 409 | `Phone number is already in use` |
+| 409 | `Email is already in use` |
+| 409 | `Account already exists with another authentication method` |
+| 429 | `Too many requests` |
+| 429 | `Too many verification attempts` |
+| 503 | `Database is not configured` |
+| 503 | `JWT_SECRET is not configured` |
+
+`409 Account already exists with another authentication method` : l’email du provider existe déjà avec un autre `auth_provider` (pas de fusion).
+
+---
+
 ## Session Management Policy
 
 Décisions fonctionnelles pour le client Flutter. Elles décrivent le comportement de session attendu ; elles ne changent pas l’API.
@@ -436,7 +494,7 @@ Après création du compte et **validation du téléphone**, la session est main
 
 À chaque ouverture de l’application, le client **ne rappelle pas** Google ni Apple. Il utilise le refresh automatique décrit ci-dessus.
 
-`POST /auth/google/start` et `POST /auth/oauth/start-phone` sont implémentés. Apple et `/auth/oauth/verify-phone` ne le sont pas encore. Le contrat (Phase 7A.0) est décrit dans la section **OAuth Authentication Contract**.
+`POST /auth/google/start`, `POST /auth/oauth/start-phone` et `POST /auth/oauth/verify-phone` sont implémentés. Apple n’est pas encore exposé. Le contrat (Phase 7A.0) est décrit dans la section **OAuth Authentication Contract**.
 
 ### Règles d’inscription actuelles
 
@@ -448,13 +506,13 @@ Un compte n’est créé dans `users` qu’après **téléphone vérifié** (SMS
 | **GOOGLE** | Identité Google + choix d’un `login` + téléphone vérifié + `birth_date` | Session via nos tokens (pas de rappel Google) |
 | **APPLE** | Identité Apple + choix d’un `login` + téléphone vérifié + `birth_date` | Session via nos tokens (pas de rappel Apple) |
 
-LOCAL est implémenté (`/auth/register/start`, `/auth/register/verify-phone`, `/auth/login`). GOOGLE : `POST /auth/google/start` puis `POST /auth/oauth/start-phone` (pas encore de création de compte). APPLE et `/auth/oauth/verify-phone` : voir le contrat Phase 7A.0 ci-dessous.
+LOCAL est implémenté (`/auth/register/start`, `/auth/register/verify-phone`, `/auth/login`). GOOGLE : `POST /auth/google/start` → `POST /auth/oauth/start-phone` → `POST /auth/oauth/verify-phone`. APPLE : voir le contrat Phase 7A.0 ci-dessous.
 
 ---
 
 # OAuth Authentication Contract
 
-**Phase 7A.0 — contrat finalisé.** `POST /auth/google/start` (Phase 7A.2) et `POST /auth/oauth/start-phone` (Phase 7A.3) sont implémentés. `/auth/apple/start` et `/auth/oauth/verify-phone` ne sont pas encore exposés.
+**Phase 7A.0 — contrat finalisé.** `POST /auth/google/start` (7A.2), `POST /auth/oauth/start-phone` (7A.3) et `POST /auth/oauth/verify-phone` (7A.4) sont implémentés. `/auth/apple/start` n’est pas encore exposé.
 
 ## Règles générales
 
@@ -544,7 +602,7 @@ Pas de ligne `users`. Renvoyer un jeton de parcours OAuth (ce n’est pas encore
 }
 ```
 
-Le client enchaîne sur `POST /auth/oauth/start-phone` (pas encore implémenté).
+Le client enchaîne sur `POST /auth/oauth/start-phone` puis `POST /auth/oauth/verify-phone`.
 
 ---
 
@@ -616,7 +674,7 @@ Le code SMS n’est **pas** dans la réponse.
 
 ## POST `/auth/oauth/verify-phone`
 
-Finalise la création du compte OAuth après OTP, `birth_date` et `login`.
+**Implémenté (Phase 7A.4).** Détail opérationnel dans la section du même nom plus haut. Finalise la création du compte OAuth après OTP, `birth_date` et `login`.
 
 ### Request
 

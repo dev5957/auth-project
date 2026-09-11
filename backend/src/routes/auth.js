@@ -9,6 +9,7 @@ const {
   logout,
   startGoogle,
   startOAuthPhone,
+  verifyOAuthPhone,
 } = require('../controllers/authController');
 const { authRateLimit } = require('../middleware/rateLimit');
 const { requireAuth } = require('../middleware/authMiddleware');
@@ -24,5 +25,6 @@ router.get('/profile', requireAuth, getProfile);
 router.post('/logout', requireAuth, logout);
 router.post('/google/start', authRateLimit.googleStart, startGoogle);
 router.post('/oauth/start-phone', authRateLimit.oauthStartPhone, startOAuthPhone);
+router.post('/oauth/verify-phone', authRateLimit.oauthVerifyPhone, verifyOAuthPhone);
 
 module.exports = router;

@@ -8,9 +8,7 @@ const {
 } = require('./tokenService');
 const { storeLoginRefreshToken } = require('./refreshSessionService');
 const { verifyGoogleIdToken } = require('./googleAuthService');
-const { createPendingOauthContext, PENDING_PHONE_PLACEHOLDER } = require('./oauthService');
-
-const EMAIL_PROVIDER_CONFLICT = 'Account already exists with another authentication method';
+const { createPendingOauthContext, PENDING_PHONE_PLACEHOLDER, EMAIL_PROVIDER_CONFLICT } = require('./oauthService');
 
 async function issueSession(user, executor) {
   const access_token = generateAccessToken(user);
