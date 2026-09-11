@@ -328,13 +328,13 @@ Sans `refresh_token` en stockage : traiter l’utilisateur comme déconnecté.
 
 ### Impact OAuth (Google / Apple)
 
-Google et Apple ne servent qu’à **l’authentification initiale** (création ou liaison du compte).
+Google et Apple ne servent qu’à **l’authentification initiale**. Il n’y a **pas de fusion automatique** de comptes.
 
 Après création du compte et **validation du téléphone**, la session est maintenue uniquement par **nos** `access_token` et `refresh_token`, comme pour un compte local.
 
 À chaque ouverture de l’application, le client **ne rappelle pas** Google ni Apple. Il utilise le refresh automatique décrit ci-dessus.
 
-Les routes OAuth ne sont **pas encore implémentées** dans ce backend. La règle ci-dessus s’applique dès qu’elles le seront ; en attendant, seule l’auth locale (`login` / `password`) est disponible.
+Les routes OAuth ne sont **pas encore implémentées**. Le contrat (Phase 7A.0) est décrit dans la section **OAuth Authentication Contract**. En attendant, seule l’auth locale (`login` / `password`) est disponible.
 
 ### Règles d’inscription actuelles
 
@@ -343,8 +343,8 @@ Un compte n’est créé dans `users` qu’après **téléphone vérifié** (SMS
 | Mode | Authentification initiale | Ensuite |
 |---|---|---|
 | **LOCAL** | `login` + `password` + téléphone vérifié | Session via nos tokens |
-| **GOOGLE** | Identité Google + choix d’un `login` + téléphone vérifié | Session via nos tokens (pas de rappel Google) |
-| **APPLE** | Identité Apple + choix d’un `login` + téléphone vérifié | Session via nos tokens (pas de rappel Apple) |
+| **GOOGLE** | Identité Google + choix d’un `login` + téléphone vérifié + `birth_date` | Session via nos tokens (pas de rappel Google) |
+| **APPLE** | Identité Apple + choix d’un `login` + téléphone vérifié + `birth_date` | Session via nos tokens (pas de rappel Apple) |
 
 LOCAL est implémenté (`/auth/register/start`, `/auth/register/verify-phone`, `/auth/login`). GOOGLE et APPLE : voir le contrat Phase 7A.0 ci-dessous ; les routes OAuth ne sont pas encore implémentées.
 
@@ -352,23 +352,41 @@ LOCAL est implémenté (`/auth/register/start`, `/auth/register/verify-phone`, `
 
 # OAuth Authentication Contract
 
-**Phase 7A.0 — contrat uniquement.** Aucune de ces routes n’est exposée par le serveur aujourd’hui. Aucune logique OAuth n’est écrite. Cette section fige le comportement attendu pour Flutter et pour l’implémentation backend ultérieure.
+**Phase 7A.0 — contrat finalisé.** Aucune de ces routes n’est exposée par le serveur aujourd’hui. Aucune logique OAuth n’est écrite. Cette section fige le comportement attendu pour Flutter et pour l’implémentation backend ultérieure.
 
 ## Règles générales
 
 - Google et Apple sont des **méthodes d’authentification externes**. Elles ne remplacent pas la vérification du téléphone.
-- **Aucun compte OAuth n’est créé** dans `users` avant validation du téléphone.
-- Le **`login` est obligatoire** pour tous les comptes (choisi par l’utilisateur à la finalisation).
-- Les comptes Google / Apple **n’ont pas de `password_hash`** (`password_hash` = `NULL`).
+- **Aucun compte OAuth n’est créé** dans `users` avant validation du téléphone **et** saisie d’une `birth_date`.
+- Le **`login` est obligatoire** (choisi par l’utilisateur à la finalisation).
+- La **`birth_date` est obligatoire**. C’est une donnée métier de l’application. Elle n’est **pas** prise telle quelle chez Google/Apple : même si le provider en fournit une, elle doit être **validée** ou **redemandée** à l’utilisateur. Sans `birth_date`, pas de création de compte.
+- Les comptes Google / Apple **n’ont pas de `password_hash`** (`NULL`).
 - L’**email** fourni par Google / Apple est **obligatoire** et conservé dans `users.email`.
-- Après création du compte, la session est gérée par **nos** `access_token` et `refresh_token` (même politique que la section Session Management Policy).
+- **Pas de fusion automatique** : si cet email existe déjà dans `users` avec un autre `auth_provider`, renvoyer un conflit (voir ci-dessous). Ne pas lier ni fusionner les comptes.
+- Après création, la session réutilise le mécanisme actuel : `access_token` + `refresh_token` (`storeLoginRefreshToken`, rotation `/auth/refresh`, logout).
 - Google / Apple **ne sont pas rappelés** à chaque ouverture de l’application.
+
+### Parcours
+
+```
+POST /auth/google/start   (ou /auth/apple/start)
+        │
+        ├─ compte déjà lié à ce provider → Login successful (tokens)
+        ├─ email déjà utilisé par un autre auth_provider → 409
+        └─ nouveau parcours → oauth_verification_token
+                │
+                ▼
+        POST /auth/oauth/start-phone     (phone_number + SMS)
+                │
+                ▼
+        POST /auth/oauth/verify-phone    (OTP + birth_date + login → users + session)
+```
 
 ---
 
 ## POST `/auth/google/start`
 
-Démarre une authentification Google.
+Vérifie l’identité Google, récupère les informations disponibles, et prépare **création** ou **connexion**. **Aucun** `users` n’est créé ici.
 
 ### Request
 
@@ -381,17 +399,12 @@ Démarre une authentification Google.
 ### Comportement backend (contrat)
 
 1. Vérifier le token Google.
-2. Récupérer :
-   - `provider_user_id` Google
-   - `email`
-   - `first_name`
-   - `last_name`
+2. Récupérer : `provider_user_id`, `email` (obligatoire), `first_name`, `last_name` s’ils sont présents.
+3. **Ne pas** utiliser une date de naissance provider comme `users.birth_date`.
 
-### Cas 1 — compte Google existant
+### Compte Google existant
 
-Le `provider_user_id` correspond déjà à un `users` (`auth_provider = 'google'`).
-
-Réponse (même idée que le login local) :
+`users` avec `auth_provider = 'google'` et le même `provider_user_id` :
 
 ```json
 {
@@ -401,22 +414,36 @@ Réponse (même idée que le login local) :
 }
 ```
 
-### Cas 2 — nouveau compte Google
+Session = mécanisme actuel (comme `POST /auth/login`).
 
-**Ne pas** créer immédiatement la ligne `users`.
+### Email déjà pris par un autre provider
 
-Réponse :
+Exemple : `users.email = user@example.com` et `auth_provider = 'local'`, token Google avec le même email.
+
+**Ne pas fusionner.**
+
+**409 Conflict**
+
+```json
+{
+  "error": "Account already exists with another authentication method"
+}
+```
+
+### Nouveau parcours Google
+
+Pas de ligne `users`. Renvoyer un jeton de parcours OAuth (ce n’est pas encore un SMS token) :
 
 ```json
 {
   "message": "Phone verification required",
-  "verification_token": "...",
+  "oauth_verification_token": "...",
   "provider": "google",
   "email": "..."
 }
 ```
 
-Le client enchaîne ensuite sur `POST /auth/oauth/verify-phone` (téléphone + choix du `login`).
+Le client enchaîne sur `POST /auth/oauth/start-phone`.
 
 ---
 
@@ -434,33 +461,16 @@ Même principe que Google.
 
 ### Comportement backend (contrat)
 
-- Vérifier l’Apple Identity Token.
-- Récupérer :
-  - `provider_user_id` Apple
-  - `email`
-  - `first_name`
-  - `last_name`
+Vérifier l’Apple Identity Token ; récupérer `provider_user_id`, `email` (obligatoire), `first_name`, `last_name` s’ils sont présents. Aucune création `users`. `birth_date` Apple éventuelle : à valider plus tard ou à redemander, jamais écrite telle quelle.
 
-### Compte existant
-
-Retourner `access_token` + `refresh_token` :
-
-```json
-{
-  "message": "Login successful",
-  "access_token": "...",
-  "refresh_token": "..."
-}
-```
-
-### Nouveau compte
-
-Demander la vérification téléphone. **Ne pas** créer `users`.
+- Compte Apple existant → `Login successful` + `access_token` + `refresh_token`.
+- Email déjà utilisé avec un autre `auth_provider` → **409** `{ "error": "Account already exists with another authentication method" }`.
+- Nouveau parcours → `oauth_verification_token` :
 
 ```json
 {
   "message": "Phone verification required",
-  "verification_token": "...",
+  "oauth_verification_token": "...",
   "provider": "apple",
   "email": "..."
 }
@@ -468,47 +478,77 @@ Demander la vérification téléphone. **Ne pas** créer `users`.
 
 ---
 
-## POST `/auth/oauth/verify-phone`
+## POST `/auth/oauth/start-phone`
 
-Finalise la création d’un compte OAuth **après** validation du téléphone.
+Associe un **numéro de téléphone** au parcours OAuth et envoie le code SMS OTP. Toujours **aucun** `users` à cette étape.
 
 ### Request
 
 ```json
 {
-  "verification_token": "...",
+  "oauth_verification_token": "...",
+  "phone_number": "+..."
+}
+```
+
+### Comportement backend (contrat)
+
+1. Vérifier que `oauth_verification_token` est valide (parcours Google ou Apple en cours, non consommé).
+2. Normaliser `phone_number` (mêmes règles que l’inscription locale).
+3. Envoyer un OTP (même pipeline SMS que le local : hash bcrypt, pas de code en clair, `SMS_PROVIDER`).
+4. Lier le numéro au parcours OAuth.
+
+Le téléphone est **obligatoire** pour Google et Apple, comme pour LOCAL.
+
+Réponse attendue (contrat) :
+
+```json
+{
+  "message": "Verification code generated",
+  "oauth_verification_token": "..."
+}
+```
+
+Le code SMS n’est **pas** dans la réponse.
+
+---
+
+## POST `/auth/oauth/verify-phone`
+
+Finalise la création du compte OAuth après OTP, `birth_date` et `login`.
+
+### Request
+
+```json
+{
+  "oauth_verification_token": "...",
   "code": "SMS_CODE",
+  "birth_date": "YYYY-MM-DD",
   "login": "chosen_login"
 }
 ```
 
 ### Comportement backend (contrat)
 
-1. Vérifier le code SMS.
-2. Vérifier que le `login` est disponible.
-3. Créer le compte `users` (pas avant).
+1. Vérifier le parcours OAuth et le code SMS.
+2. Exiger `birth_date` (métier, format date). Sans elle : pas de création.
+3. Vérifier que le `login` est disponible.
+4. Revérifier l’unicité email / téléphone / `(auth_provider, provider_user_id)` ; si l’email existe déjà avec un **autre** `auth_provider` → **409** (même message que ci-dessus), **sans fusion**.
+5. Créer `users` **seulement maintenant**.
+6. Émettre la session avec le système existant (`access_token` + `refresh_token`).
 
-**Exemple Google :**
-
-| Champ | Valeur |
-|---|---|
-| `email` | email Google |
-| `login` | login choisi |
-| `phone_verified` | `true` |
-| `auth_provider` | `google` |
-| `provider_user_id` | google id |
-| `password_hash` | `NULL` |
-
-**Exemple Apple :**
+### Ligne `users`
 
 | Champ | Valeur |
 |---|---|
-| `email` | email Apple |
-| `login` | login choisi |
+| `email` | email fourni par le provider |
+| `login` | choisi par l’utilisateur |
+| `birth_date` | saisie / validée par l’utilisateur (obligatoire) |
+| `phone_number` | numéro associé via `start-phone` |
 | `phone_verified` | `true` |
-| `auth_provider` | `apple` |
-| `provider_user_id` | apple id |
 | `password_hash` | `NULL` |
+| `auth_provider` | `google` ou `apple` |
+| `provider_user_id` | obligatoire (id provider) |
 
 ### Succès
 
@@ -520,7 +560,17 @@ Finalise la création d’un compte OAuth **après** validation du téléphone.
 }
 ```
 
-Contrairement au `POST /auth/register/verify-phone` local, la finalisation OAuth **émet** déjà la session (access + refresh).
+Contrairement au `POST /auth/register/verify-phone` local, la finalisation OAuth **émet** la session tout de suite (même mécanisme que le login : JWT + refresh hashé, plafond 5 sessions).
+
+### Conflit d’email / autre méthode
+
+**409 Conflict**
+
+```json
+{
+  "error": "Account already exists with another authentication method"
+}
+```
 
 ---
 
@@ -529,10 +579,10 @@ Contrairement au `POST /auth/register/verify-phone` local, la finalisation OAuth
 | Méthode | Authentification initiale | Compte `users` |
 |---|---|---|
 | **LOCAL** | `login` + `password` + téléphone vérifié | `auth_provider = 'local'`, `password_hash` bcrypt |
-| **GOOGLE** | Identité Google + choix d’un `login` + téléphone vérifié | `auth_provider = 'google'`, `password_hash` `NULL` |
-| **APPLE** | Identité Apple + choix d’un `login` + téléphone vérifié | `auth_provider = 'apple'`, `password_hash` `NULL` |
+| **GOOGLE** | Identité Google + choix d’un `login` + téléphone vérifié + `birth_date` obligatoire | `auth_provider = 'google'`, `password_hash` `NULL`, `provider_user_id` obligatoire |
+| **APPLE** | Identité Apple + choix d’un `login` + téléphone vérifié + `birth_date` obligatoire | `auth_provider = 'apple'`, `password_hash` `NULL`, `provider_user_id` obligatoire |
 
-Dans les trois cas : pas de ligne `users` avant SMS validé ; ensuite session = nos tokens uniquement.
+Dans les trois cas : pas de ligne `users` avant SMS validé ; ensuite session = nos `access_token` + `refresh_token` uniquement. Pas de fusion automatique entre méthodes.
 
 ---
 
