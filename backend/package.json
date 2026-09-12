@@ -22,6 +22,7 @@
     "test:google-start": "node src/check-google-start.js",
     "test:oauth-start-phone": "node src/check-oauth-start-phone.js",
     "test:oauth-verify-phone": "node src/check-oauth-verify-phone.js",
+    "test:google-oauth-flow": "node src/check-google-oauth-flow.js",
     "purge:refresh-tokens": "node src/purge-refresh-tokens.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

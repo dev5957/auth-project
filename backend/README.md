@@ -509,3 +509,12 @@ npm run test:oauth-start-phone
 cd backend
 npm run test:oauth-verify-phone
 ```
+
+### Vérifier le parcours Google OAuth (tests fonctionnels internes)
+
+Suite interne sans Google Cloud : identité Google simulée, base mémoire, vrais endpoints HTTP (`/auth/google/start` → `/auth/oauth/start-phone` → `/auth/oauth/verify-phone`, reconnexion, logout/refresh). Aucune logique métier n’est modifiée.
+
+```bash
+cd backend
+npm run test:google-oauth-flow
+```
