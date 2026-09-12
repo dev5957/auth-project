@@ -1,0 +1,43 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "API REST d'authentification (Node.js, Express, PostgreSQL, JWT)",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test:db": "node src/check-db.js",
+    "test:schema": "node src/check-schema.js",
+    "test:refresh-reuse": "node src/check-refresh-reuse.js",
+    "test:refresh-lifecycle": "node src/check-refresh-lifecycle.js",
+    "test:password-policy": "node src/check-password-policy.js",
+    "test:normalization": "node src/check-normalization.js",
+    "test:auth-me": "node src/check-auth-me.js",
+    "test:auth-hardening": "node src/check-auth-hardening.js",
+    "test:sql-hardening": "node src/check-sql-hardening.js",
+    "test:user-profile": "node src/check-user-profile.js",
+    "test:sms": "node src/check-sms-service.js",
+    "test:registration-finalization": "node src/check-registration-finalization.js",
+    "test:logout": "node src/check-logout.js",
+    "test:google-auth": "node src/check-google-auth.js",
+    "test:google-start": "node src/check-google-start.js",
+    "test:oauth-start-phone": "node src/check-oauth-start-phone.js",
+    "test:oauth-verify-phone": "node src/check-oauth-verify-phone.js",
+    "test:google-oauth-flow": "node src/check-google-oauth-flow.js",
+    "test:cors": "node src/check-cors.js",
+    "diagnose:google-id-token": "node src/diagnose-google-id-token.js",
+    "purge:refresh-tokens": "node src/purge-refresh-tokens.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "google-auth-library": "^11.0.2",
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.23.0",
+    "twilio": "^6.1.0"
+  }
+}
