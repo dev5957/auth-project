@@ -11,10 +11,12 @@ try {
 const express = require('express');
 const authRoutes = require('./routes/auth');
 const errorHandler = require('./middleware/errorHandler');
+const { corsMiddleware } = require('./middleware/cors');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+app.use(corsMiddleware);
 app.use(express.json({ limit: '32kb' }));
 
 app.get('/health', (req, res) => {

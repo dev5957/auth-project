@@ -79,6 +79,8 @@ La configuration du backend passe par des variables d’environnement (port d’
 | `TWILIO_ACCOUNT_SID`          | Identifiant compte Twilio                 | Oui si `SMS_PROVIDER=twilio` et envoi réel |
 | `TWILIO_AUTH_TOKEN`           | Secret API Twilio                         | Oui si `SMS_PROVIDER=twilio` et envoi réel |
 | `TWILIO_PHONE_NUMBER`         | Numéro expéditeur Twilio                  | Oui si `SMS_PROVIDER=twilio` et envoi réel |
+| `GOOGLE_CLIENT_ID`            | Client ID OAuth Google (`aud` du id_token) | Oui pour Google OAuth |
+| `CORS_ORIGINS`                | Origines navigateur autorisées, séparées par des virgules (jamais `*`) | Non : vide = pas de CORS |
 
 Le fichier `.env` ne doit **jamais** être commité : il est ignoré par Git. Le fichier `.env.example` sert de modèle, sans valeurs secrètes.
 
@@ -90,6 +92,8 @@ cp .env.example .env
 ```
 
 Adapte ensuite `.env` si besoin (par exemple `PORT=4000`). Renseigne `DATABASE_URL`, `JWT_SECRET` et `SMS_PROVIDER` (`mock` en local, `twilio` en production). Pour un envoi SMS réel, ajoute les variables Twilio **hors Git**. Ne commitez jamais de secrets. `JWT_ISSUER` et `JWT_AUDIENCE` ne sont pas des secrets ; ils identifient l’émetteur et l’audience du JWT.
+
+Pour un test navigateur local (`http://localhost:5500` → `http://localhost:3000`), définis `CORS_ORIGINS=http://localhost:5500`. En production, mets l’origine du frontend ou laisse vide (aucune origine cross-origin). `*` est ignoré.
 
 ### Configuration SMS (`SMS_PROVIDER`)
 
@@ -517,4 +521,11 @@ Suite interne sans Google Cloud : identité Google simulée, base mémoire, vrai
 ```bash
 cd backend
 npm run test:google-oauth-flow
+```
+
+### Vérifier le CORS restreint
+
+```bash
+cd backend
+npm run test:cors
 ```

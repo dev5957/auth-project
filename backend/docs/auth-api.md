@@ -10,6 +10,8 @@ Limite globale : **32 Ko** → `413` `{ "error": "Payload too large" }`
 JSON invalide → `400` `{ "error": "Invalid JSON" }`  
 Erreur inattendue → `500` `{ "error": "Internal server error" }`
 
+CORS : origines listées dans `CORS_ORIGINS` (jamais `*`). Preflight `OPTIONS` → `204`. Méthodes : `POST`, `OPTIONS`. Header : `Content-Type`. Vide = pas de cross-origin.
+
 Les erreurs métier ont la forme `{ "error": "<message>" }`.
 
 ---
