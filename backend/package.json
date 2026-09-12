@@ -24,6 +24,7 @@
     "test:oauth-verify-phone": "node src/check-oauth-verify-phone.js",
     "test:google-oauth-flow": "node src/check-google-oauth-flow.js",
     "test:cors": "node src/check-cors.js",
+    "diagnose:google-id-token": "node src/diagnose-google-id-token.js",
     "purge:refresh-tokens": "node src/purge-refresh-tokens.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

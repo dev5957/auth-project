@@ -6,6 +6,9 @@ node_modules/
 .env.*
 !.env.example
 
+# Local Google ID token for diagnose-google-id-token.js (never commit)
+.google-id-token
+
 # Logs
 logs/
 *.log
