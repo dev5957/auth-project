@@ -170,11 +170,49 @@ async function main() {
     assertNoWildcard(preflight);
     assert(header(preflight, 'access-control-allow-origin') === LOCAL_ORIGIN, 'preflight ACAO');
     const methods = String(header(preflight, 'access-control-allow-methods') || '').toUpperCase();
+    assert(methods.includes('GET'), 'preflight allows GET');
     assert(methods.includes('POST'), 'preflight allows POST');
     assert(methods.includes('OPTIONS'), 'preflight allows OPTIONS');
     const allowHeaders = String(header(preflight, 'access-control-allow-headers') || '').toLowerCase();
     assert(allowHeaders.includes('content-type'), 'preflight allows Content-Type');
+    assert(allowHeaders.includes('authorization'), 'preflight allows Authorization');
+    assert(!allowHeaders.includes('*'), 'preflight must not allow * headers');
     console.log('OK OPTIONS preflight localhost:5500');
+
+    const mePreflight = await httpRequest({
+      port: TEST_PORT,
+      method: 'OPTIONS',
+      urlPath: '/auth/me',
+      headers: {
+        Origin: LOCAL_ORIGIN,
+        'Access-Control-Request-Method': 'GET',
+        'Access-Control-Request-Headers': 'authorization',
+      },
+    });
+    assert(mePreflight.status === 204, `GET /auth/me preflight status ${mePreflight.status}`);
+    assertNoWildcard(mePreflight);
+    assert(header(mePreflight, 'access-control-allow-origin') === LOCAL_ORIGIN, 'GET preflight ACAO');
+    const meMethods = String(header(mePreflight, 'access-control-allow-methods') || '').toUpperCase();
+    assert(meMethods.includes('GET'), 'GET /auth/me preflight allows GET');
+    const meHeaders = String(header(mePreflight, 'access-control-allow-headers') || '').toLowerCase();
+    assert(meHeaders.includes('authorization'), 'GET /auth/me preflight allows Authorization');
+    console.log('OK OPTIONS GET /auth/me Authorization depuis localhost:5500');
+
+    const meGet = await httpRequest({
+      port: TEST_PORT,
+      method: 'GET',
+      urlPath: '/auth/me',
+      headers: {
+        Origin: LOCAL_ORIGIN,
+        Authorization: 'Bearer cors-test-must-not-appear',
+      },
+    });
+    assert(meGet.status === 401, `GET /auth/me status ${meGet.status} ${meGet.raw}`);
+    assertNoWildcard(meGet);
+    assert(header(meGet, 'access-control-allow-origin') === LOCAL_ORIGIN, 'GET /auth/me ACAO');
+    assert(!meGet.raw.includes('cors-test-must-not-appear'), 'response leaked Bearer token');
+    assert(!logs.join('').includes('cors-test-must-not-appear'), 'logs leaked Bearer token');
+    console.log('OK GET /auth/me reflète localhost:5500, Authorization autorisé, sans *');
 
     const denied = await httpRequest({
       port: TEST_PORT,
