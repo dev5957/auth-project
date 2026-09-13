@@ -2,7 +2,7 @@
 
 Documentation des endpoints **implémentés** dans le backend. Les statuts et messages des sections suivantes (jusqu’à Session Management Policy) sont ceux renvoyés par le code actuel (`authController`, services, `errorHandler`).
 
-La section **OAuth Authentication Contract** (Phase 7A.0) fige le parcours Google / Apple. **`POST /auth/google/start`**, **`POST /auth/oauth/start-phone`** et **`POST /auth/oauth/verify-phone`** sont implémentés. `/auth/apple/start` **n’existe pas encore**.
+La section **OAuth Authentication Contract** (Phase 7A.0) fige le parcours Google / Apple. **`POST /auth/google/start`**, **`POST /auth/apple/start`**, **`POST /auth/oauth/start-phone`** et **`POST /auth/oauth/verify-phone`** sont implémentés.
 
 Préfixe : `/auth`  
 Corps : JSON (`Content-Type: application/json`)  
@@ -352,6 +352,68 @@ Pas de `users`. Une ligne `phone_verifications` est insérée (`verification_tok
 
 ---
 
+## POST `/auth/apple/start`
+
+Vérifie un Apple Identity Token (`appleAuthService.verifyAppleIdentityToken()`), puis soit ouvre une session existante, soit crée un **contexte temporaire** dans `phone_verifications`. **Aucune** ligne `users` n’est créée ici.
+
+**Rate limit :** 10 requêtes / 15 min / IP → `429` `{ "error": "Too many requests" }` (`Retry-After`).
+
+Variable requise : `APPLE_CLIENT_ID` (valeur du claim `aud` du identity token : Services ID web et/ou Bundle ID iOS). Plusieurs IDs possibles, séparés par des virgules. Aucune clé privée Apple n’est nécessaire pour **vérifier** le token. L’`identity_token` n’est jamais logué.
+
+### Corps
+
+```json
+{
+  "identity_token": "apple_identity_token",
+  "first_name": "Ada",
+  "last_name": "Lovelace"
+}
+```
+
+`first_name` / `last_name` sont optionnels (Apple ne les envoie souvent qu’à la première autorisation, hors JWT).
+
+### Compte Apple existant — `200`
+
+`users.auth_provider = 'apple'` et `users.provider_user_id` = `sub` Apple. L’email peut être **absent** du token (reconnexion). Session = `generateAccessToken()` + `storeLoginRefreshToken()`.
+
+```json
+{
+  "message": "Login successful",
+  "access_token": "...",
+  "refresh_token": "..."
+}
+```
+
+### Nouveau parcours — `200`
+
+Pas de `users`. L’email est **obligatoire** pour un premier compte (présent dans le token à la première autorisation). Contexte via `createPendingOauthContext()` (`provider = apple`).
+
+```json
+{
+  "message": "Phone verification required",
+  "oauth_verification_token": "...",
+  "provider": "apple",
+  "email": "..."
+}
+```
+
+### Erreurs
+
+| HTTP | `error` |
+|---|---|
+| 400 | `identity_token is required` |
+| 400 | `email is required` |
+| 401 | `Unauthorized` |
+| 409 | `Account already exists with another authentication method` |
+| 429 | `Too many requests` |
+| 503 | `Apple authentication is not configured` |
+| 503 | `Database is not configured` |
+| 503 | `JWT_SECRET is not configured` |
+
+`401 Unauthorized` : signature, `aud`, `iss` ou `exp` Apple invalides. `400 email is required` : nouveau parcours sans claim `email`. `409` : email déjà pris par un autre `auth_provider` (pas de fusion).
+
+---
+
 ## POST `/auth/oauth/start-phone`
 
 Associe un numéro de téléphone au contexte OAuth créé par `/auth/google/start` (`oauthService`) et envoie un OTP via `smsService`. **Aucune** ligne `users` n’est créée. Aucun JWT ni refresh token n’est émis.
@@ -496,7 +558,7 @@ Après création du compte et **validation du téléphone**, la session est main
 
 À chaque ouverture de l’application, le client **ne rappelle pas** Google ni Apple. Il utilise le refresh automatique décrit ci-dessus.
 
-`POST /auth/google/start`, `POST /auth/oauth/start-phone` et `POST /auth/oauth/verify-phone` sont implémentés. Apple n’est pas encore exposé. Le contrat (Phase 7A.0) est décrit dans la section **OAuth Authentication Contract**.
+`POST /auth/google/start`, `POST /auth/apple/start`, `POST /auth/oauth/start-phone` et `POST /auth/oauth/verify-phone` sont implémentés. Le contrat (Phase 7A.0) est décrit dans la section **OAuth Authentication Contract**.
 
 ### Règles d’inscription actuelles
 
@@ -508,13 +570,13 @@ Un compte n’est créé dans `users` qu’après **téléphone vérifié** (SMS
 | **GOOGLE** | Identité Google + choix d’un `login` + téléphone vérifié + `birth_date` | Session via nos tokens (pas de rappel Google) |
 | **APPLE** | Identité Apple + choix d’un `login` + téléphone vérifié + `birth_date` | Session via nos tokens (pas de rappel Apple) |
 
-LOCAL est implémenté (`/auth/register/start`, `/auth/register/verify-phone`, `/auth/login`). GOOGLE : `POST /auth/google/start` → `POST /auth/oauth/start-phone` → `POST /auth/oauth/verify-phone`. APPLE : voir le contrat Phase 7A.0 ci-dessous.
+LOCAL est implémenté (`/auth/register/start`, `/auth/register/verify-phone`, `/auth/login`). GOOGLE : `POST /auth/google/start` → `POST /auth/oauth/start-phone` → `POST /auth/oauth/verify-phone`. APPLE : `POST /auth/apple/start` → mêmes étapes téléphone.
 
 ---
 
 # OAuth Authentication Contract
 
-**Phase 7A.0 — contrat finalisé.** `POST /auth/google/start` (7A.2), `POST /auth/oauth/start-phone` (7A.3) et `POST /auth/oauth/verify-phone` (7A.4) sont implémentés. `/auth/apple/start` n’est pas encore exposé.
+**Phase 7A.0 — contrat finalisé.** `POST /auth/google/start` (7A.2), `POST /auth/apple/start` (7B.1), `POST /auth/oauth/start-phone` (7A.3) et `POST /auth/oauth/verify-phone` (7A.4) sont implémentés.
 
 ## Règles générales
 
@@ -610,7 +672,7 @@ Le client enchaîne sur `POST /auth/oauth/start-phone` puis `POST /auth/oauth/ve
 
 ## POST `/auth/apple/start`
 
-Même principe que Google.
+**Implémenté (Phase 7B.1).** Détail opérationnel dans la section du même nom plus haut. Même principe que Google.
 
 ### Request
 

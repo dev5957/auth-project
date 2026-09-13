@@ -12,7 +12,7 @@ API REST JSON (Node.js + Express) pour l’authentification des utilisateurs.
 
 ## État actuel
 
-Serveur Express avec `GET /health`, inscription locale (`POST /auth/register/start`, `POST /auth/register/verify-phone`), connexion locale `POST /auth/login`, renouvellement `POST /auth/refresh`, déconnexion `POST /auth/logout`, profil JWT `GET /auth/me`, profil SQL `GET /auth/profile`, Google `POST /auth/google/start`, et OAuth téléphone `POST /auth/oauth/start-phone` / `POST /auth/oauth/verify-phone`. Après un login réussi (local ou Google déjà lié) ou une création OAuth, le backend émet un JWT (15 minutes, HS256, claims `userId` / `login` / `auth_provider` / `jti`, `iss`, `aud`) et un refresh token (90 jours, stocké uniquement hashé). `POST /auth/refresh` fait tourner le refresh token dans une transaction. Un compte n’est créé dans `users` qu’après validation du code SMS. Le serveur refuse de démarrer si la configuration JWT est absente ou dangereuse. Le JSON d’entrée est limité à **32 Ko**.
+Serveur Express avec `GET /health`, inscription locale (`POST /auth/register/start`, `POST /auth/register/verify-phone`), connexion locale `POST /auth/login`, renouvellement `POST /auth/refresh`, déconnexion `POST /auth/logout`, profil JWT `GET /auth/me`, profil SQL `GET /auth/profile`, Google `POST /auth/google/start`, Apple `POST /auth/apple/start`, et OAuth téléphone `POST /auth/oauth/start-phone` / `POST /auth/oauth/verify-phone`. Après un login réussi (local, Google ou Apple déjà lié) ou une création OAuth, le backend émet un JWT (15 minutes, HS256, claims `userId` / `login` / `auth_provider` / `jti`, `iss`, `aud`) et un refresh token (90 jours, stocké uniquement hashé). `POST /auth/refresh` fait tourner le refresh token dans une transaction. Un compte n’est créé dans `users` qu’après validation du code SMS. Le serveur refuse de démarrer si la configuration JWT est absente ou dangereuse. Le JSON d’entrée est limité à **32 Ko**.
 
 ## Schéma utilisateurs
 
@@ -80,6 +80,7 @@ La configuration du backend passe par des variables d’environnement (port d’
 | `TWILIO_AUTH_TOKEN`           | Secret API Twilio                         | Oui si `SMS_PROVIDER=twilio` et envoi réel |
 | `TWILIO_PHONE_NUMBER`         | Numéro expéditeur Twilio                  | Oui si `SMS_PROVIDER=twilio` et envoi réel |
 | `GOOGLE_CLIENT_ID`            | Client ID OAuth Google (`aud` du id_token) | Oui pour Google OAuth |
+| `APPLE_CLIENT_ID`             | Client ID Apple (`aud` du identity token : Services ID et/ou Bundle ID, virgules OK) | Oui pour Apple OAuth |
 | `CORS_ORIGINS`                | Origines navigateur autorisées, séparées par des virgules (jamais `*`) | Non : vide = pas de CORS |
 
 Le fichier `.env` ne doit **jamais** être commité : il est ignoré par Git. Le fichier `.env.example` sert de modèle, sans valeurs secrètes.
@@ -488,12 +489,22 @@ npm run test:logout
 
 ### Vérifier POST /auth/google/start
 
-`POST /auth/google/start` appelle `googleAuthService.verifyGoogleIdToken()`. Un compte Google déjà présent (`auth_provider = 'google'` + `provider_user_id`) reçoit la même session que le login local. Sinon aucun `users` n’est créé : un `oauth_verification_token` est stocké dans `phone_verifications` (données provider / email / nom). L’`id_token` n’est jamais logué. Apple n’est pas exposé.
+`POST /auth/google/start` appelle `googleAuthService.verifyGoogleIdToken()`. Un compte Google déjà présent (`auth_provider = 'google'` + `provider_user_id`) reçoit la même session que le login local. Sinon aucun `users` n’est créé : un `oauth_verification_token` est stocké dans `phone_verifications` (données provider / email / nom). L’`id_token` n’est jamais logué.
 
 ```bash
 cd backend
 npm run test:google-auth
 npm run test:google-start
+```
+
+### Vérifier POST /auth/apple/start
+
+`POST /auth/apple/start` appelle `appleAuthService.verifyAppleIdentityToken()` (JWKS Apple, `iss` = `https://appleid.apple.com`, `aud` = `APPLE_CLIENT_ID`). Reconnexion par `sub` même sans email. Nouveau parcours : `createPendingOauthContext({ provider: 'apple' })`, pas de ligne `users`. L’`identity_token` n’est jamais logué. Variable requise : `APPLE_CLIENT_ID` (pas de secret Apple pour la vérification).
+
+```bash
+cd backend
+npm run test:apple-auth
+npm run test:apple-start
 ```
 
 ### Vérifier POST /auth/oauth/start-phone

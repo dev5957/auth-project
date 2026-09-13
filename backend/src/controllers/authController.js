@@ -7,6 +7,7 @@ const { refreshAuthTokens } = require('../services/refreshTokenService');
 const { findUserProfileById } = require('../services/userService');
 const { logoutCurrentSession } = require('../services/logoutService');
 const { startGoogleAuth } = require('../services/googleStartService');
+const { startAppleAuth } = require('../services/appleStartService');
 const { startOAuthPhoneVerification, verifyOAuthPhoneAndCreateUser } = require('../services/oauthService');
 
 async function startRegister(req, res, next) {
@@ -112,6 +113,28 @@ async function startGoogle(req, res, next) {
   }
 }
 
+async function startApple(req, res, next) {
+  try {
+    const result = await startAppleAuth(req.body);
+    if (result.access_token) {
+      res.status(200).json({
+        message: result.message,
+        access_token: result.access_token,
+        refresh_token: result.refresh_token,
+      });
+      return;
+    }
+    res.status(200).json({
+      message: result.message,
+      oauth_verification_token: result.oauth_verification_token,
+      email: result.email,
+      provider: result.provider,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function startOAuthPhone(req, res, next) {
   try {
     const { oauth_verification_token } = await startOAuthPhoneVerification(req.body);
@@ -146,6 +169,7 @@ module.exports = {
   getProfile,
   logout,
   startGoogle,
+  startApple,
   startOAuthPhone,
   verifyOAuthPhone,
 };

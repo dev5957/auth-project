@@ -20,6 +20,8 @@
     "test:logout": "node src/check-logout.js",
     "test:google-auth": "node src/check-google-auth.js",
     "test:google-start": "node src/check-google-start.js",
+    "test:apple-auth": "node src/check-apple-auth.js",
+    "test:apple-start": "node src/check-apple-start.js",
     "test:oauth-start-phone": "node src/check-oauth-start-phone.js",
     "test:oauth-verify-phone": "node src/check-oauth-verify-phone.js",
     "test:google-oauth-flow": "node src/check-google-oauth-flow.js",

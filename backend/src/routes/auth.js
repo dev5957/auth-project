@@ -8,6 +8,7 @@ const {
   getProfile,
   logout,
   startGoogle,
+  startApple,
   startOAuthPhone,
   verifyOAuthPhone,
 } = require('../controllers/authController');
@@ -24,6 +25,7 @@ router.get('/me', requireAuth, me);
 router.get('/profile', requireAuth, getProfile);
 router.post('/logout', requireAuth, logout);
 router.post('/google/start', authRateLimit.googleStart, startGoogle);
+router.post('/apple/start', authRateLimit.appleStart, startApple);
 router.post('/oauth/start-phone', authRateLimit.oauthStartPhone, startOAuthPhone);
 router.post('/oauth/verify-phone', authRateLimit.oauthVerifyPhone, verifyOAuthPhone);
 
