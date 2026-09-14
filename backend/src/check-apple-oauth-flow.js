@@ -1,5 +1,6 @@
 const express = require('express');
 const AppError = require('./errors/AppError');
+const { hashRefreshToken } = require('./services/tokenService');
 const {
   createOauthFlowMemoryDb,
   installMemoryDb,
@@ -364,7 +365,69 @@ async function main() {
       };
     });
 
-    await runTest('6. Reconnexion Apple existant', async () => {
+    await runTest('6. Ancien refresh Apple refusé après rotation', async () => {
+      assert(session, 'session from Apple reconnect is required');
+      assert(flowDb.state.users.length === 1, 'must keep the Apple user');
+      const userId = session.userId;
+      const refreshA = session.refresh_token;
+      const hashA = hashRefreshToken(refreshA);
+
+      const rotated = await httpRequest({
+        method: 'POST',
+        urlPath: '/auth/refresh',
+        body: { refresh_token: refreshA },
+      });
+      assert(rotated.status === 200, `refresh status ${rotated.status} ${rotated.raw}`);
+      assert(rotated.json && rotated.json.message === 'Token refreshed', 'refresh message');
+      assert(typeof rotated.json.access_token === 'string', 'access_token_B');
+      assert(typeof rotated.json.refresh_token === 'string', 'refresh_token_B');
+      const refreshB = rotated.json.refresh_token;
+      assert(refreshB !== refreshA, 'refresh_token_B must differ from refresh_token_A');
+
+      const hashB = hashRefreshToken(refreshB);
+      const rowA = flowDb.state.tokens.find((token) => token.token_hash === hashA);
+      const rowB = flowDb.state.tokens.find((token) => token.token_hash === hashB);
+      assert(rowA, 'refresh_token_A row');
+      assert(rowB, 'refresh_token_B row');
+      assert(rowA.user_id === userId, 'refresh_token_A user_id');
+      assert(rowB.user_id === userId, 'refresh_token_B user_id');
+      assert(rowA.revoked_at, 'refresh_token_A must be revoked after rotation');
+      assert(rowB.revoked_at == null, 'refresh_token_B must be the active session token');
+
+      const createdBeforeReuse = flowDb.stats.refreshCreated;
+      const securityEvents = [];
+      const originalError = console.error;
+      console.error = (...args) => {
+        securityEvents.push(args.map(String).join(' '));
+        originalError.apply(console, args);
+      };
+      let reuse;
+      try {
+        reuse = await httpRequest({
+          method: 'POST',
+          urlPath: '/auth/refresh',
+          body: { refresh_token: refreshA },
+        });
+      } finally {
+        console.error = originalError;
+      }
+
+      assert(reuse.status === 401, `reuse status ${reuse.status} ${reuse.raw}`);
+      assert(reuse.json && reuse.json.error === 'Invalid refresh token', reuse.raw);
+      assert(
+        securityEvents.some((line) => line.includes('refresh_token_reuse')),
+        'expected refresh_token_reuse security event'
+      );
+      assert(flowDb.stats.refreshCreated === createdBeforeReuse, 'reuse must not insert a refresh token');
+      assert(rowA.revoked_at, 'refresh_token_A stays revoked after reuse');
+      assert(rowB.revoked_at, 'reuse of a revoked token must revoke remaining active tokens');
+      const active = flowDb.state.tokens.filter(
+        (token) => token.user_id === userId && token.revoked_at == null
+      );
+      assert(active.length === 0, `active refresh tokens after reuse: ${active.length}`);
+    });
+
+    await runTest('7. Reconnexion Apple existant', async () => {
       flowDb.reset();
       const first = await beginOauthToSms();
       const created = await verifyPhone({
@@ -384,7 +447,7 @@ async function main() {
       assert(flowDb.state.users[0].provider_user_id === APPLE_IDENTITY.provider_user_id, 'same apple sub');
     });
 
-    await runTest('7. Conflit email déjà utilisé par local', async () => {
+    await runTest('8. Conflit email déjà utilisé par local', async () => {
       flowDb.reset({
         users: [
           {
@@ -412,7 +475,7 @@ async function main() {
       assert(flowDb.state.verifications.length === 0, 'no pending oauth on email conflict');
     });
 
-    await runTest('8. Conflit email déjà utilisé par google', async () => {
+    await runTest('9. Conflit email déjà utilisé par google', async () => {
       flowDb.reset({
         users: [
           {
@@ -439,7 +502,7 @@ async function main() {
       assert(flowDb.state.users.length === usersBefore, 'no extra user on google email conflict');
     });
 
-    await runTest('9. Conflit login déjà utilisé', async () => {
+    await runTest('10. Conflit login déjà utilisé', async () => {
       flowDb.reset({
         users: [
           {
@@ -468,7 +531,7 @@ async function main() {
       assert(flowDb.state.users.length === usersBefore, 'no extra user on login conflict');
     });
 
-    await runTest('10. Conflit téléphone déjà utilisé', async () => {
+    await runTest('11. Conflit téléphone déjà utilisé', async () => {
       flowDb.reset({
         users: [
           {
@@ -499,7 +562,7 @@ async function main() {
       assert(flowDb.state.users.length === usersBefore, 'no extra user on phone conflict');
     });
 
-    await runTest('11. Conflit provider_user_id Apple déjà utilisé', async () => {
+    await runTest('12. Conflit provider_user_id Apple déjà utilisé', async () => {
       flowDb.reset();
       const pending = await appleStart();
       assert(pending.status === 200, 'apple/start before provider conflict');
@@ -535,7 +598,7 @@ async function main() {
       assert(flowDb.state.users.length === usersBefore, 'no extra user on apple sub conflict');
     });
 
-    await runTest('12. Apple sans email', async () => {
+    await runTest('13. Apple sans email', async () => {
       flowDb.reset();
       const missing = await appleStart({ identity_token: NO_EMAIL_TOKEN });
       assert(missing.status === 400, `expected 400, got ${missing.status} ${missing.raw}`);
@@ -544,7 +607,7 @@ async function main() {
       assert(flowDb.state.verifications.length === 0, 'no pending oauth without email');
     });
 
-    await runTest('13. Noms optionnels', async () => {
+    await runTest('14. Noms optionnels', async () => {
       flowDb.reset();
       const fromBody = await appleStart({
         identity_token: IDENTITY_TOKEN,
@@ -585,7 +648,7 @@ async function main() {
       assert(flowDb.state.users[0].auth_provider === 'apple', 'named user provider');
     });
 
-    await runTest('14. Token Apple inconnu rejeté par le mock', async () => {
+    await runTest('15. Token Apple inconnu rejeté par le mock', async () => {
       flowDb.reset();
       const unknown = await appleStart({ identity_token: UNKNOWN_TOKEN });
       assert(unknown.status === 401, `expected 401, got ${unknown.status} ${unknown.raw}`);
