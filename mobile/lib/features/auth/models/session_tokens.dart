@@ -9,9 +9,14 @@ class SessionTokens {
   final String refreshToken;
 
   factory SessionTokens.fromJson(Map<String, dynamic> json) {
+    final accessToken = json['access_token'];
+    final refreshToken = json['refresh_token'];
+    if (accessToken is! String || refreshToken is! String) {
+      throw const FormatException('Missing access_token or refresh_token');
+    }
     return SessionTokens(
-      accessToken: json['access_token'] as String,
-      refreshToken: json['refresh_token'] as String,
+      accessToken: accessToken,
+      refreshToken: refreshToken,
     );
   }
 }

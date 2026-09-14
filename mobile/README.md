@@ -1,6 +1,6 @@
 # mobile
 
-Squelette Flutter du client Auth. Aucun écran métier et aucune logique Auth complète pour l’instant.
+Squelette Flutter du client Auth. Couche HTTP locale + session implémentée. Aucun écran métier, pas de Google / Apple.
 
 ## Architecture
 
@@ -11,15 +11,15 @@ lib/
   main.dart
 ```
 
-Couches prévues :
+Couches :
 
-1. **config** — URL de l’API, timeouts.
-2. **network** — client HTTP (Dio). Les interceptors Bearer / refresh 401 viendront plus tard.
-3. **storage** — persistance sécurisée des tokens.
-4. **services** — appels `/auth/*` (non implémentés).
-5. **repositories** — orchestration session (non implémentée).
+1. **config** — URL de l’API, timeouts (`API_BASE_URL`).
+2. **network** — Dio JSON + mapping `{ "error": "..." }` → `ApiException`.
+3. **storage** — `flutter_secure_storage` (access + refresh).
+4. **services** — `AuthApiService` : register/start, register/verify-phone, login, me, refresh, logout.
+5. **repositories** — persiste les jetons après login/refresh, les lit pour me/refresh/logout.
 6. **providers** — injection Riverpod.
-7. **screens** — vide jusqu’à la prochaine étape.
+7. **screens** — vide.
 
 Le backend vit dans `../backend`. Contrat : `../backend/docs/auth-api.md`.
 
@@ -27,29 +27,50 @@ Le backend vit dans `../backend`. Contrat : `../backend/docs/auth-api.md`.
 
 | Besoin | Package | Pourquoi |
 |---|---|---|
-| HTTP | `dio` | Interceptors pour `Authorization` et refresh 401, sans `BuildContext`. |
-| Tokens | `flutter_secure_storage` | Keychain (iOS) / Keystore (Android). Le `refresh_token` doit survivre au kill de l’app. |
-| État | `flutter_riverpod` | Session globale, lisible depuis un interceptor, testable. Moins de boilerplate que Bloc à ce stade ; plus adapté que `Provider` pour un client HTTP hors widget. |
+| HTTP | `dio` | Interceptors d’erreur, headers Bearer par requête protégée. |
+| Tokens | `flutter_secure_storage` | Keychain / Keystore. |
+| État | `flutter_riverpod` | Injection de `AuthRepository`. |
 
-Google Sign-In et Sign in with Apple ne sont **pas** ajoutés dans cette étape.
+Google Sign-In et Sign in with Apple ne sont **pas** ajoutés.
 
-## URL de l’API
+## Tester la communication Flutter ↔ backend
 
-Par défaut : `http://127.0.0.1:3000`.
-
-Surcharge à la compilation :
+1. Démarrer l’API :
 
 ```bash
-flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000
+cd backend
+# JWT_SECRET, DATABASE_URL, SMS_PROVIDER=mock dans l’environnement
+npm start
 ```
 
-- Émulateur Android : `http://10.0.2.2:3000` (`localhost` du host).
-- Simulateur iOS : `http://127.0.0.1:3000`.
-- Appareil physique : IP LAN de la machine qui héberge le backend.
+2. Générer les dossiers plateforme si besoin, puis un binaire Dart (pas d’écran Auth) :
+
+```bash
+cd mobile
+flutter create . --project-name mobile --org com.authproject
+flutter pub get
+```
+
+3. URL :
+
+- Desktop / simulateur iOS : `http://127.0.0.1:3000` (défaut)
+- Émulateur Android : `--dart-define=API_BASE_URL=http://10.0.2.2:3000`
+- Appareil physique : IP LAN du host
+
+4. Exercer la couche (depuis un test ou un snippet temporaire), via `authRepositoryProvider` :
+
+- `startRegister` → `POST /auth/register/start` → `verification_token`
+- `verifyRegisterPhone` → `POST /auth/register/verify-phone` → `user` (pas de JWT)
+- `login` → `POST /auth/login` → stocke `access_token` + `refresh_token`
+- `me` → `GET /auth/me` avec Bearer
+- `refreshSession` → `POST /auth/refresh` (rotation, anciens jetons remplacés en stockage ; 401 purge locale)
+- `logout` → Bearer + `{ refresh_token }` puis purge locale
+
+Les erreurs backend arrivent en `ApiException.message` (ex. `Invalid credentials`).
+
+Le refresh automatique sur 401 n’est **pas** encore branché : appeler `refreshSession()` explicitement.
 
 ## Générer les dossiers plateforme
-
-Ce dépôt ne versionne que le code Dart du squelette. Pour Android / iOS :
 
 ```bash
 cd mobile

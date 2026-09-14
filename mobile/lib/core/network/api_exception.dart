@@ -1,3 +1,5 @@
+import 'package:dio/dio.dart';
+
 /// Erreur API alignée sur `{ "error": "<message>" }` du backend.
 class ApiException implements Exception {
   const ApiException({
@@ -18,6 +20,35 @@ class ApiException implements Exception {
     return ApiException(message: 'Unexpected error', statusCode: statusCode);
   }
 
+  factory ApiException.fromDio(DioException error) {
+    if (error.response != null) {
+      return ApiException.fromResponse(
+        statusCode: error.response?.statusCode,
+        body: error.response?.data,
+      );
+    }
+
+    switch (error.type) {
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.receiveTimeout:
+      case DioExceptionType.connectionError:
+        return const ApiException(message: 'Network error');
+      default:
+        return const ApiException(message: 'Network error');
+    }
+  }
+
   @override
   String toString() => 'ApiException($statusCode, $message)';
+}
+
+Map<String, dynamic> asJsonMap(Object? data) {
+  if (data is Map<String, dynamic>) {
+    return data;
+  }
+  if (data is Map) {
+    return Map<String, dynamic>.from(data);
+  }
+  throw const ApiException(message: 'Invalid JSON');
 }
