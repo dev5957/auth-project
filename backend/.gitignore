@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Local Google ID token for diagnose-google-id-token.js (never commit)
+.google-id-token
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime / OS
+.DS_Store
+Thumbs.db
+
+# Tests / coverage
+coverage/
+.nyc_output/
+
+# Build / cache
+dist/
+build/
+.cache/
+*.tgz
+
+# IDE
+.idea/
+.vscode/
+*.swp
