@@ -25,6 +25,7 @@
     "test:oauth-start-phone": "node src/check-oauth-start-phone.js",
     "test:oauth-verify-phone": "node src/check-oauth-verify-phone.js",
     "test:google-oauth-flow": "node src/check-google-oauth-flow.js",
+    "test:apple-oauth-flow": "node src/check-apple-oauth-flow.js",
     "test:cors": "node src/check-cors.js",
     "diagnose:google-id-token": "node src/diagnose-google-id-token.js",
     "purge:refresh-tokens": "node src/purge-refresh-tokens.js",

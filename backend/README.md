@@ -534,6 +534,15 @@ cd backend
 npm run test:google-oauth-flow
 ```
 
+### Vérifier le parcours Apple OAuth (tests fonctionnels internes)
+
+Suite interne sans compte Apple Developer : identité Apple simulée, mock explicite de `verifyAppleIdentityToken` (jetons connus uniquement), base mémoire, vrais endpoints HTTP (`/auth/apple/start` → `/auth/oauth/start-phone` → `/auth/oauth/verify-phone`, `/auth/me`, `/auth/refresh`, logout, reconnexion, conflits). Le service de production continue d’exiger un JWT Apple RS256/JWKS. Aucune clé `.p8`.
+
+```bash
+cd backend
+npm run test:apple-oauth-flow
+```
+
 ### Vérifier le CORS restreint
 
 ```bash
