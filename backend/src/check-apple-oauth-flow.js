@@ -23,6 +23,7 @@ const LOGIN = 'apple_tester';
 const TAKEN_LOGIN = 'taken_apple_login';
 const BIRTH_DATE = '1991-07-15';
 const PENDING_PHONE_PLACEHOLDER = 'oauth-pending';
+const APPLE_OTP_MAX_ATTEMPTS = 5;
 
 const APPLE_IDENTITY = {
   provider: 'apple',
@@ -152,6 +153,16 @@ async function beginOauthToSms({
   assert(phone.result.status === 200, `oauth/start-phone: ${phone.result.status} ${phone.result.raw}`);
   assert(phone.code, 'OTP was not captured');
   return { token, code: phone.code, started };
+}
+
+function unusedOtp(code) {
+  return code === '000000' ? '111111' : '000000';
+}
+
+function pendingAppleVerification(token) {
+  const row = flowDb.state.verifications.find((item) => item.verification_token === token);
+  assert(row, 'pending Apple verification missing');
+  return row;
 }
 
 function printReport(results) {
@@ -656,6 +667,143 @@ async function main() {
       assert(flowDb.state.users.length === 0, 'unknown token must not create users');
       assert(flowDb.state.verifications.length === 0, 'unknown token must not create pending oauth');
       assert(productionVerifyCalls === 0, 'production JWKS verify must not run in this suite');
+    });
+
+    await runTest('16. OTP Apple incorrect', async () => {
+      flowDb.reset();
+      const step = await beginOauthToSms({ phoneNumber: '+33620000031' });
+      const pending = pendingAppleVerification(step.token);
+      assert(pending.registration_data.provider === 'apple', 'wrong OTP pending provider');
+      const usersBefore = flowDb.state.users.length;
+
+      const wrong = await verifyPhone({
+        oauth_verification_token: step.token,
+        code: unusedOtp(step.code),
+        birth_date: BIRTH_DATE,
+        login: 'apple_wrong_otp',
+      });
+      assert(wrong.status === 400, `expected 400, got ${wrong.status} ${wrong.raw}`);
+      assert(wrong.json && wrong.json.error === 'Invalid verification code', wrong.raw);
+      assert(flowDb.state.users.length === usersBefore, 'wrong OTP must not create users');
+      assert(pending.verified_at == null, 'wrong OTP must keep context usable');
+      assert(pending.attempts === 1, `attempts after one wrong OTP: ${pending.attempts}`);
+
+      const retry = await verifyPhone({
+        oauth_verification_token: step.token,
+        code: step.code,
+        birth_date: BIRTH_DATE,
+        login: 'apple_wrong_otp',
+      });
+      assert(retry.status === 201, `retry after wrong OTP: ${retry.status} ${retry.raw}`);
+      assert(flowDb.state.users.length === usersBefore + 1, 'correct OTP after a miss must create the Apple user');
+      assert(flowDb.state.users[0].auth_provider === 'apple', 'retry user provider');
+    });
+
+    await runTest('17. Cinq OTP Apple incorrects', async () => {
+      flowDb.reset();
+      const step = await beginOauthToSms({ phoneNumber: '+33620000032' });
+      const pending = pendingAppleVerification(step.token);
+      const usersBefore = flowDb.state.users.length;
+      const badCode = unusedOtp(step.code);
+
+      for (let attempt = 1; attempt <= APPLE_OTP_MAX_ATTEMPTS; attempt += 1) {
+        const failed = await verifyPhone({
+          oauth_verification_token: step.token,
+          code: badCode,
+          birth_date: BIRTH_DATE,
+          login: 'apple_otp_limit',
+        });
+        if (attempt < APPLE_OTP_MAX_ATTEMPTS) {
+          assert(failed.status === 400, `attempt ${attempt}: expected 400, got ${failed.status} ${failed.raw}`);
+          assert(failed.json && failed.json.error === 'Invalid verification code', failed.raw);
+          assert(pending.attempts === attempt, `attempts after ${attempt} wrong OTP(s)`);
+        } else {
+          assert(failed.status === 429, `attempt ${attempt}: expected 429, got ${failed.status} ${failed.raw}`);
+          assert(failed.json && failed.json.error === 'Too many verification attempts', failed.raw);
+          assert(pending.attempts === APPLE_OTP_MAX_ATTEMPTS, 'attempts at the limit');
+        }
+        assert(flowDb.state.users.length === usersBefore, `no users after wrong OTP attempt ${attempt}`);
+        assert(pending.verified_at == null, 'limit must not consume the Apple context as verified');
+      }
+    });
+
+    await runTest('18. OTP Apple expiré', async () => {
+      flowDb.reset();
+      const step = await beginOauthToSms({ phoneNumber: '+33620000033' });
+      const pending = pendingAppleVerification(step.token);
+      pending.expires_at = new Date(Date.now() - 1000);
+      const usersBefore = flowDb.state.users.length;
+
+      const expired = await verifyPhone({
+        oauth_verification_token: step.token,
+        code: step.code,
+        birth_date: BIRTH_DATE,
+        login: 'apple_expired_otp',
+      });
+      assert(expired.status === 400, `expected 400, got ${expired.status} ${expired.raw}`);
+      assert(expired.json && expired.json.error === 'Verification code has expired', expired.raw);
+      assert(flowDb.state.users.length === usersBefore, 'expired OTP must not create users');
+      assert(pending.verified_at == null, 'expired OTP must not mark verification complete');
+    });
+
+    await runTest('19. oauth_verification_token Apple expiré', async () => {
+      flowDb.reset();
+      const pendingStart = await appleStart();
+      assert(pendingStart.status === 200, `apple/start before expiry: ${pendingStart.status} ${pendingStart.raw}`);
+      const token = pendingStart.json.oauth_verification_token;
+      const pending = pendingAppleVerification(token);
+      assert(pending.registration_data.provider === 'apple', 'expired context provider');
+      pending.expires_at = new Date(Date.now() - 1000);
+      const usersBefore = flowDb.state.users.length;
+
+      const expired = await startPhone({
+        oauth_verification_token: token,
+        phone_number: '+33620000034',
+      });
+      assert(expired.result.status === 400, `expected 400, got ${expired.result.status} ${expired.result.raw}`);
+      assert(
+        expired.result.json && expired.result.json.error === 'Verification is no longer valid',
+        expired.result.raw
+      );
+      assert(expired.code == null, 'expired Apple context must not capture an OTP');
+      assert(smsCalls.length === 0, 'expired Apple context must not send SMS');
+      assert(flowDb.state.users.length === usersBefore, 'expired Apple context must not create users');
+    });
+
+    await runTest('20. Contexte Apple déjà consommé', async () => {
+      flowDb.reset();
+      const step = await beginOauthToSms({ phoneNumber: '+33620000035' });
+      const created = await verifyPhone({
+        oauth_verification_token: step.token,
+        code: step.code,
+        birth_date: BIRTH_DATE,
+        login: 'apple_consumed',
+      });
+      assert(created.status === 201, `create before reuse: ${created.status} ${created.raw}`);
+      const pending = pendingAppleVerification(step.token);
+      assert(pending.verified_at, 'consumed Apple context must set verified_at');
+      const usersBefore = flowDb.state.users.length;
+
+      const reusedStart = await startPhone({
+        oauth_verification_token: step.token,
+        phone_number: '+33620000036',
+      });
+      assert(reusedStart.result.status === 400, `start-phone reuse: ${reusedStart.result.status} ${reusedStart.result.raw}`);
+      assert(
+        reusedStart.result.json && reusedStart.result.json.error === 'Verification is no longer valid',
+        reusedStart.result.raw
+      );
+      assert(smsCalls.length === 0, 'consumed context must not send SMS');
+
+      const reusedVerify = await verifyPhone({
+        oauth_verification_token: step.token,
+        code: step.code,
+        birth_date: BIRTH_DATE,
+        login: 'apple_consumed_again',
+      });
+      assert(reusedVerify.status === 400, `verify-phone reuse: ${reusedVerify.status} ${reusedVerify.raw}`);
+      assert(reusedVerify.json && reusedVerify.json.error === 'Verification is no longer valid', reusedVerify.raw);
+      assert(flowDb.state.users.length === usersBefore, 'consumed Apple context must not create another user');
     });
   } finally {
     await new Promise((resolve) => server.close(resolve));
