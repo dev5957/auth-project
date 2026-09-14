@@ -62,6 +62,36 @@ function signIdentityToken(privateKey, claims, options = {}) {
   });
 }
 
+function decodeJwtSegment(segment) {
+  const padded = segment + '='.repeat((4 - (segment.length % 4)) % 4);
+  return JSON.parse(Buffer.from(padded, 'base64').toString('utf8'));
+}
+
+function decodeJwtHeader(token) {
+  return decodeJwtSegment(token.split('.')[0]);
+}
+
+function decodeJwtPayload(token) {
+  return decodeJwtSegment(token.split('.')[1]);
+}
+
+function unsignedNoneToken(claims) {
+  const now = Math.floor(Date.now() / 1000);
+  const header = Buffer.from(
+    JSON.stringify({ alg: 'none', typ: 'JWT', kid: KID })
+  ).toString('base64url');
+  const payload = Buffer.from(
+    JSON.stringify({
+      iss: APPLE_ISSUER,
+      aud: CLIENT_ID,
+      exp: now + 3600,
+      iat: now,
+      ...claims,
+    })
+  ).toString('base64url');
+  return `${header}.${payload}.`;
+}
+
 async function main() {
   const previous = {
     APPLE_CLIENT_ID: process.env.APPLE_CLIENT_ID,
@@ -148,6 +178,49 @@ async function main() {
     'Unauthorized'
   );
   console.log('OK token expire -> 401');
+
+  const hs256 = jwt.sign(
+    { sub: 'apple-user-001', email: 'user@example.com' },
+    'hmac-secret-must-not-be-accepted-as-apple-jwks',
+    {
+      algorithm: 'HS256',
+      issuer: APPLE_ISSUER,
+      audience: CLIENT_ID,
+      expiresIn: '1h',
+      keyid: KID,
+    }
+  );
+  assert(decodeJwtHeader(hs256).alg === 'HS256', 'HS256 token header alg');
+  await expectStatus(
+    () => verifyAppleIdentityToken(hs256, { getSigningKey }),
+    401,
+    'Unauthorized'
+  );
+  console.log('OK alg HS256 -> 401');
+
+  const noneToken = unsignedNoneToken({
+    sub: 'apple-user-001',
+    email: 'user@example.com',
+  });
+  assert(decodeJwtHeader(noneToken).alg === 'none', 'none token header alg');
+  await expectStatus(
+    () => verifyAppleIdentityToken(noneToken, { getSigningKey }),
+    401,
+    'Unauthorized'
+  );
+  console.log('OK alg none -> 401');
+
+  const missingSub = signIdentityToken(privateKey, {
+    email: 'user@example.com',
+  });
+  assert(decodeJwtHeader(missingSub).alg === 'RS256', 'missing sub token alg');
+  assert(decodeJwtPayload(missingSub).sub === undefined, 'sub claim must be absent');
+  await expectStatus(
+    () => verifyAppleIdentityToken(missingSub, { getSigningKey }),
+    401,
+    'Unauthorized'
+  );
+  console.log('OK RS256 sans sub -> 401');
 
   const failedLogs = await captureLogs(async () => {
     await expectStatus(
