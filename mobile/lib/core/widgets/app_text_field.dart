@@ -49,8 +49,9 @@ class AppTextField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.luminaColors;
+    final rawError = errorText;
     final resolvedError =
-        (errorText == null || errorText.isEmpty) ? null : errorText;
+        (rawError == null || rawError.isEmpty) ? null : rawError;
 
     final border = OutlineInputBorder(
       borderRadius: BorderRadius.circular(AppSpacing.lg),
