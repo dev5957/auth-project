@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'core/branding/app_brand.dart';
+import 'core/theme/app_colors.dart';
+import 'core/theme/app_theme.dart';
 import 'features/auth/providers/auth_controller.dart';
 import 'features/auth/state/auth_state.dart';
 
@@ -22,11 +25,25 @@ class AuthSkeletonApp extends ConsumerWidget {
     };
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'auth-project',
-      home: Scaffold(
-        body: Center(
-          child: Text(label),
-        ),
+      title: AppBrand.appName,
+      theme: AppTheme.light,
+      darkTheme: AppTheme.dark,
+      themeMode: AppTheme.themeMode,
+      home: Builder(
+        builder: (context) {
+          final colors = context.luminaColors;
+          return Scaffold(
+            backgroundColor: colors.bgBase,
+            body: Center(
+              child: Text(
+                label,
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      color: colors.textPrimary,
+                    ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
