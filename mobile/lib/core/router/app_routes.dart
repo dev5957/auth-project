@@ -1,4 +1,4 @@
-/// Chemins GoRouter Lumina. Les guards Auth viendront plus tard.
+/// Chemins GoRouter Lumina. Les redirects session sont dans [appRouterProvider].
 abstract final class AppRoutes {
   static const String entry = '/';
   static const String login = '/auth/login';

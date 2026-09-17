@@ -10,8 +10,8 @@ void main() {
   runApp(const ProviderScope(child: LuminaApp()));
 }
 
-/// Point d’entrée UI. [authControllerProvider] reste observé pour la restore ;
-/// les guards de navigation viendront plus tard.
+/// Point d’entrée UI. La restore de session est déclenchée par [authControllerProvider] ;
+/// [appRouterProvider] redirige Welcome/Login ↔ Home selon l’état.
 class LuminaApp extends ConsumerWidget {
   const LuminaApp({super.key});
 

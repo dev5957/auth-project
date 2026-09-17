@@ -17,7 +17,7 @@ final class AuthAuthenticated extends AuthState {
   final AuthAccount user;
 }
 
-/// Pas de session, refresh 401/400, ou logout.
+/// Pas de session, pas de refresh_token, refresh en échec, ou logout.
 final class AuthUnauthenticated extends AuthState {
   const AuthUnauthenticated();
 }

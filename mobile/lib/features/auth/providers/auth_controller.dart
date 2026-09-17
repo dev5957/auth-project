@@ -7,7 +7,7 @@ import '../repositories/auth_repository.dart';
 import '../state/auth_state.dart';
 import 'auth_providers.dart';
 
-/// Session globale. Restaure au premier `watch` via `refreshSession()`.
+/// Session globale. Restaure au premier `watch` si un `refresh_token` est stocké.
 class AuthController extends Notifier<AuthState> {
   @override
   AuthState build() {
@@ -17,8 +17,13 @@ class AuthController extends Notifier<AuthState> {
 
   AuthRepository get _repository => ref.read(authRepositoryProvider);
 
-  /// Cold start : le contrat client exige `POST /auth/refresh`, pas `GET /auth/me`.
+  /// Cold start : `POST /auth/refresh` uniquement s’il existe un refresh token.
   Future<void> restore() async {
+    final hasRefreshToken = await _repository.hasStoredRefreshToken();
+    if (!hasRefreshToken) {
+      state = const AuthUnauthenticated();
+      return;
+    }
     try {
       final session = await _repository.refreshSession();
       state = AuthAuthenticated(user: session.user);
@@ -81,8 +86,11 @@ class AuthController extends Notifier<AuthState> {
   }
 
   Future<void> logout() async {
-    await _repository.logout();
-    state = const AuthUnauthenticated();
+    try {
+      await _repository.logout();
+    } finally {
+      state = const AuthUnauthenticated();
+    }
   }
 }
 
