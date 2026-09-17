@@ -56,6 +56,42 @@ class RegisterFlowController extends Notifier<RegisterFlowState> {
     );
   }
 
+  void savePhone({String? phoneNumber}) {
+    final data = state.data;
+    state = state.copyWith(
+      data: RegisterFormData(
+        firstName: data.firstName,
+        lastName: data.lastName,
+        birthDate: data.birthDate,
+        login: data.login,
+        email: data.email,
+        confirmEmail: data.confirmEmail,
+        password: data.password,
+        confirmPassword: data.confirmPassword,
+        phoneNumber: phoneNumber,
+        verificationToken: data.verificationToken,
+      ),
+    );
+  }
+
+  void saveVerificationToken(String verificationToken) {
+    final data = state.data;
+    state = state.copyWith(
+      data: RegisterFormData(
+        firstName: data.firstName,
+        lastName: data.lastName,
+        birthDate: data.birthDate,
+        login: data.login,
+        email: data.email,
+        confirmEmail: data.confirmEmail,
+        password: data.password,
+        confirmPassword: data.confirmPassword,
+        phoneNumber: data.phoneNumber,
+        verificationToken: verificationToken,
+      ),
+    );
+  }
+
   void goToNextStep() {
     final next = switch (state.step) {
       RegisterStep.personal => RegisterStep.account,

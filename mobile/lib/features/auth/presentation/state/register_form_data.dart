@@ -24,6 +24,17 @@ class RegisterFormData {
   final String? phoneNumber;
   final String? verificationToken;
 
+  String? get formattedBirthDate {
+    final date = birthDate;
+    if (date == null) {
+      return null;
+    }
+    final year = date.year.toString().padLeft(4, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
+    return '$year-$month-$day';
+  }
+
   RegisterFormData copyWith({
     String? firstName,
     String? lastName,

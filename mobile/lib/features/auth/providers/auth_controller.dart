@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/api_exception.dart';
+import '../models/register_start_result.dart';
 import '../repositories/auth_repository.dart';
 import '../state/auth_state.dart';
 import 'auth_providers.dart';
@@ -25,6 +26,29 @@ class AuthController extends Notifier<AuthState> {
     } on FormatException {
       state = const AuthUnauthenticated();
     }
+  }
+
+  /// Inscription locale : SMS + `verification_token`. Pas une session.
+  Future<RegisterStartResult> startRegister({
+    required String email,
+    required String login,
+    required String phoneNumber,
+    required String birthDate,
+    required String password,
+    required String passwordConfirmation,
+    String? firstName,
+    String? lastName,
+  }) {
+    return _repository.startRegister(
+      email: email,
+      login: login,
+      phoneNumber: phoneNumber,
+      birthDate: birthDate,
+      password: password,
+      passwordConfirmation: passwordConfirmation,
+      firstName: firstName,
+      lastName: lastName,
+    );
   }
 
   Future<void> login({

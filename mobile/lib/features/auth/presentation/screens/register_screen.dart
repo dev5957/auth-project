@@ -9,8 +9,10 @@ import '../state/register_flow_controller.dart';
 import '../state/register_form_data.dart';
 import '../widgets/register_account_step.dart';
 import '../widgets/register_personal_step.dart';
+import '../widgets/register_phone_step.dart';
+import '../widgets/register_verify_phone_step.dart';
 
-/// Coquille Sign Up multi-step. Personal + Account ; Phone/OTP plus tard.
+/// Coquille Sign Up multi-step. Personal + Account + Phone ; OTP plus tard.
 class RegisterScreen extends ConsumerWidget {
   const RegisterScreen({super.key});
 
@@ -58,14 +60,20 @@ class RegisterScreen extends ConsumerWidget {
                         ref.read(registerFlowProvider.notifier).goToNextStep();
                       },
                     ),
-                  RegisterStep.account ||
-                  RegisterStep.phone ||
-                  RegisterStep.verifyPhone =>
-                    RegisterAccountStep(
+                  RegisterStep.account => RegisterAccountStep(
                       key: const ValueKey(RegisterStep.account),
                       onContinue: () {
-                        // Étape Phone : branchée à la prochaine itération.
+                        ref.read(registerFlowProvider.notifier).goToNextStep();
                       },
+                    ),
+                  RegisterStep.phone => RegisterPhoneStep(
+                      key: const ValueKey(RegisterStep.phone),
+                      onCodeSent: () {
+                        ref.read(registerFlowProvider.notifier).goToNextStep();
+                      },
+                    ),
+                  RegisterStep.verifyPhone => const RegisterVerifyPhoneStep(
+                      key: ValueKey(RegisterStep.verifyPhone),
                     ),
                 },
               ),
