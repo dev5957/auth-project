@@ -36,19 +36,12 @@ class _AuthEntryScreenState extends State<AuthEntryScreen> {
 
   bool get _isLast => _index >= onboardingSlides.length - 1;
 
-  void _goToRegister() {
-    context.push(AppRoutes.register);
+  void _goToLogin() {
+    context.push(AppRoutes.login);
   }
 
-  void _goNext() {
-    if (_isLast) {
-      _goToRegister();
-      return;
-    }
-    _pageController.nextPage(
-      duration: const Duration(milliseconds: 280),
-      curve: Curves.easeOutCubic,
-    );
+  void _goToRegister() {
+    context.push(AppRoutes.register);
   }
 
   @override
@@ -70,21 +63,9 @@ class _AuthEntryScreenState extends State<AuthEntryScreen> {
                   AppSpacing.xs,
                   0,
                 ),
-                child: Row(
-                  children: [
-                    AppLogo(size: compact ? 40 : 48),
-                    const Spacer(),
-                    if (!_isLast)
-                      TextButton(
-                        onPressed: _goToRegister,
-                        child: Text(
-                          'Skip',
-                          style: AppTextTheme.labelLarge.copyWith(
-                            color: colors.textSecondary,
-                          ),
-                        ),
-                      ),
-                  ],
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: AppLogo(size: compact ? 40 : 48),
                 ),
               ),
               Expanded(
@@ -111,8 +92,8 @@ class _AuthEntryScreenState extends State<AuthEntryScreen> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
                 child: AppButton(
-                  label: _isLast ? 'Get Started' : 'Next',
-                  onPressed: _goNext,
+                  label: _isLast ? 'Get Started' : 'Skip',
+                  onPressed: _isLast ? _goToRegister : _goToLogin,
                 ),
               ),
               const SizedBox(height: AppSpacing.xxl),
