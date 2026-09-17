@@ -3,10 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/config/app_config.dart';
+import '../../../../core/network/api_exception.dart';
+import '../../../../core/router/app_routes.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_text_theme.dart';
 import '../../../../core/widgets/app_logo.dart';
+import '../../providers/auth_controller.dart';
 import '../state/register_flow_controller.dart';
 import '../state/register_form_data.dart';
 import '../widgets/register_account_step.dart';
@@ -14,7 +17,7 @@ import '../widgets/register_personal_step.dart';
 import '../widgets/register_phone_step.dart';
 import '../widgets/register_verify_phone_step.dart';
 
-/// Coquille Sign Up multi-step. Personal + Account + Phone ; OTP plus tard.
+/// Coquille Sign Up multi-step. Personal + Account + Phone + Verify.
 class RegisterScreen extends ConsumerWidget {
   const RegisterScreen({super.key});
 
@@ -80,8 +83,28 @@ class RegisterScreen extends ConsumerWidget {
                         ref.read(registerFlowProvider.notifier).goToNextStep();
                       },
                     ),
-                  RegisterStep.verifyPhone => const RegisterVerifyPhoneStep(
-                      key: ValueKey(RegisterStep.verifyPhone),
+                  RegisterStep.verifyPhone => RegisterVerifyPhoneStep(
+                      key: const ValueKey(RegisterStep.verifyPhone),
+                      onSubmit: (code) async {
+                        final token =
+                            ref.read(registerFlowProvider).data.verificationToken;
+                        if (token == null || token.isEmpty) {
+                          throw const ApiException(
+                            message: 'Verification token is missing',
+                            statusCode: 400,
+                          );
+                        }
+                        await ref
+                            .read(authControllerProvider.notifier)
+                            .verifyRegisterPhone(
+                              verificationToken: token,
+                              code: code,
+                            );
+                      },
+                      onVerified: () => context.go(AppRoutes.login),
+                      onChangePhoneNumber: () {
+                        ref.read(registerFlowProvider.notifier).goToPreviousStep();
+                      },
                     ),
                 },
               ),

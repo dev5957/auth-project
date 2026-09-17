@@ -20,3 +20,15 @@ String? validateRegisterPhoneNumber(String raw) {
   }
   return null;
 }
+
+/// Masque partiel pour l’affichage Step 4 (dernier 4 caractères visibles).
+String maskRegisterPhoneNumber(String raw) {
+  final phone = normalizeRegisterPhoneNumber(raw);
+  if (phone.length <= 4) {
+    return phone;
+  }
+  final last4 = phone.substring(phone.length - 4);
+  final prefix = phone.startsWith('+') ? '+' : '';
+  final maskedCount = phone.length - prefix.length - 4;
+  return '$prefix${'•' * maskedCount}$last4';
+}

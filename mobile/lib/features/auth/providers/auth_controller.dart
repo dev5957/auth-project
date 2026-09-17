@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/api_exception.dart';
 import '../models/register_start_result.dart';
+import '../models/register_verify_result.dart';
 import '../repositories/auth_repository.dart';
 import '../state/auth_state.dart';
 import 'auth_providers.dart';
@@ -48,6 +49,17 @@ class AuthController extends Notifier<AuthState> {
       passwordConfirmation: passwordConfirmation,
       firstName: firstName,
       lastName: lastName,
+    );
+  }
+
+  /// Finalise l’inscription locale (`users` + téléphone vérifié). Pas une session.
+  Future<RegisterVerifyResult> verifyRegisterPhone({
+    required String verificationToken,
+    required String code,
+  }) {
+    return _repository.verifyRegisterPhone(
+      verificationToken: verificationToken,
+      code: code,
     );
   }
 
