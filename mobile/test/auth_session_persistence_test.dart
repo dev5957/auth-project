@@ -273,10 +273,19 @@ void main() {
     _expectSplashWithoutCarousel();
 
     await tester.pump(const Duration(milliseconds: 200));
-    await tester.pump();
+    var reachedHome = false;
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+      if (find.text('Home placeholder').evaluate().isNotEmpty &&
+          find.byType(SessionSplashScreen).evaluate().isEmpty) {
+        reachedHome = true;
+        break;
+      }
+    }
 
     expect(api.refreshCalls, 1);
     expect(api.lastRefreshToken, 'refresh-stored');
+    expect(reachedHome, isTrue);
     expect(find.text('Home placeholder'), findsOneWidget);
     expect(_carousel(), findsNothing);
     expect(find.byType(SessionSplashScreen), findsNothing);
