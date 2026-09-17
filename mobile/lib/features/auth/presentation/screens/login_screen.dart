@@ -76,16 +76,26 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       _submitting = true;
       _formError = null;
     });
+    debugPrint('[auth-http-diag][B] LoginScreen Sign in tapped');
     try {
       await ref.read(authControllerProvider.notifier).login(
             login: _loginController.text.trim(),
             password: _passwordController.text,
           );
+      debugPrint(
+        '[auth-http-diag][B] LoginScreen after login() '
+        'auth=${ref.read(authControllerProvider).runtimeType} mounted=$mounted',
+      );
       if (!mounted) {
+        debugPrint('[auth-http-diag][B] LoginScreen unmounted, skip context.go(/home)');
         return;
       }
+      debugPrint('[auth-http-diag][B] LoginScreen context.go(/home)');
       context.go(AppRoutes.home);
     } on ApiException catch (error) {
+      debugPrint(
+        '[auth-http-diag][B] LoginScreen ApiException statusCode=${error.statusCode}',
+      );
       if (!mounted) {
         return;
       }

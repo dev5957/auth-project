@@ -24,16 +24,17 @@ class ApiClient {
     dio.interceptors.add(
       InterceptorsWrapper(
         onError: (error, handler) {
-          // TEMP diagnostic — original cause, before ApiException wrapping.
+          // TEMP A — native cause only, before ApiException.fromDio.
+          final original = error.error;
           debugPrint(
-            '[auth-http-diag] interceptor original type=${error.type} '
+            '[auth-http-diag][A-NATIVE] type=${error.type} '
             'message=${error.message} '
-            'error.runtimeType=${error.error.runtimeType} '
-            'error=${error.error} '
+            'error.runtimeType=${original.runtimeType} '
+            'error=$original '
             'uri=${error.requestOptions.uri} '
             'response.statusCode=${error.response?.statusCode}',
           );
-          debugPrint('[auth-http-diag] interceptor stackTrace=${error.stackTrace}');
+          debugPrint('[auth-http-diag][A-NATIVE] stackTrace=${error.stackTrace}');
           handler.next(
             error.copyWith(error: ApiException.fromDio(error)),
           );

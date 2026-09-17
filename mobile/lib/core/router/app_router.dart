@@ -28,23 +28,26 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     redirect: (context, state) {
       final auth = ref.read(authControllerProvider);
       final location = state.matchedLocation;
-
+      String? target;
       if (auth is AuthLoading) {
         final onLoginFlow = location == AppRoutes.login || location == AppRoutes.register;
         if (onLoginFlow || location == AppRoutes.splash) {
-          return null;
+          target = null;
+        } else {
+          target = AppRoutes.splash;
         }
-        return AppRoutes.splash;
+      } else if (auth is AuthAuthenticated) {
+        target = location == AppRoutes.home ? null : AppRoutes.home;
+      } else if (location == AppRoutes.splash || location == AppRoutes.home) {
+        target = AppRoutes.entry;
+      } else {
+        target = null;
       }
-
-      if (auth is AuthAuthenticated) {
-        return location == AppRoutes.home ? null : AppRoutes.home;
-      }
-
-      if (location == AppRoutes.splash || location == AppRoutes.home) {
-        return AppRoutes.entry;
-      }
-      return null;
+      debugPrint(
+        '[auth-http-diag][B] GoRouter redirect auth=${auth.runtimeType} '
+        'from=$location to=${target ?? '(stay)'}',
+      );
+      return target;
     },
     routes: [
       GoRoute(

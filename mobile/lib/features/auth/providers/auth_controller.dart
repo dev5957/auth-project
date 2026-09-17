@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/api_exception.dart';
@@ -19,20 +20,33 @@ class AuthController extends Notifier<AuthState> {
 
   /// Cold start : `POST /auth/refresh` uniquement s’il existe un refresh token.
   Future<void> restore() async {
+    debugPrint('[auth-http-diag][B] AuthController.restore() start');
     try {
       final hasRefreshToken = await _repository.hasStoredRefreshToken();
+      debugPrint('[auth-http-diag][B] restore hasRefreshToken=$hasRefreshToken');
       if (!hasRefreshToken) {
         state = const AuthUnauthenticated();
+        debugPrint('[auth-http-diag][B] restore → AuthUnauthenticated (no refresh token)');
         return;
       }
       final session = await _repository.refreshSession();
       state = AuthAuthenticated(user: session.user);
-    } on ApiException {
+      debugPrint('[auth-http-diag][B] restore → AuthAuthenticated');
+    } on ApiException catch (error) {
       state = const AuthUnauthenticated();
+      debugPrint(
+        '[auth-http-diag][B] restore ApiException → AuthUnauthenticated '
+        'statusCode=${error.statusCode}',
+      );
     } on FormatException {
       state = const AuthUnauthenticated();
-    } catch (_) {
+      debugPrint('[auth-http-diag][B] restore FormatException → AuthUnauthenticated');
+    } catch (error) {
       state = const AuthUnauthenticated();
+      debugPrint(
+        '[auth-http-diag][B] restore other → AuthUnauthenticated '
+        'error.runtimeType=${error.runtimeType}',
+      );
     }
   }
 
@@ -74,15 +88,33 @@ class AuthController extends Notifier<AuthState> {
     required String login,
     required String password,
   }) async {
+    debugPrint('[auth-http-diag][B] AuthController.login() start → AuthLoading');
     state = const AuthLoading();
     try {
       final session = await _repository.login(login: login, password: password);
       state = AuthAuthenticated(user: session.user);
-    } on ApiException {
+      debugPrint(
+        '[auth-http-diag][B] AuthController.login() final state=${state.runtimeType}',
+      );
+    } on ApiException catch (error) {
       state = const AuthUnauthenticated();
+      debugPrint(
+        '[auth-http-diag][B] AuthController.login() ApiException → '
+        'AuthUnauthenticated statusCode=${error.statusCode}',
+      );
       rethrow;
-    } on FormatException {
+    } on FormatException catch (error) {
       state = const AuthUnauthenticated();
+      debugPrint(
+        '[auth-http-diag][B] AuthController.login() FormatException → '
+        'AuthUnauthenticated error=$error',
+      );
+      rethrow;
+    } catch (error) {
+      debugPrint(
+        '[auth-http-diag][B] AuthController.login() other error.runtimeType='
+        '${error.runtimeType} state remains ${state.runtimeType}',
+      );
       rethrow;
     }
   }

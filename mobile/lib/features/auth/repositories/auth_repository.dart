@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../../../core/network/api_exception.dart';
 import '../data/storage/auth_token_storage.dart';
 import '../models/auth_session.dart';
@@ -58,8 +60,20 @@ class AuthRepository {
     required String login,
     required String password,
   }) async {
+    debugPrint('[auth-http-diag][B] AuthRepository.login() start');
     final session = await _api.login(login: login, password: password);
-    await _persist(session.tokens);
+    debugPrint('[auth-http-diag][B] AuthRepository.login() HTTP OK, saveTokens start');
+    try {
+      await _persist(session.tokens);
+      debugPrint('[auth-http-diag][B] AuthRepository.login() saveTokens OK');
+    } catch (error, stackTrace) {
+      debugPrint(
+        '[auth-http-diag][B] AuthRepository.login() saveTokens FAILED '
+        'error.runtimeType=${error.runtimeType} error=$error',
+      );
+      debugPrint('[auth-http-diag][B] saveTokens stackTrace=$stackTrace');
+      rethrow;
+    }
     return session;
   }
 

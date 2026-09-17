@@ -63,6 +63,7 @@ class AuthApiService {
     required String login,
     required String password,
   }) async {
+    debugPrint('[auth-http-diag][B] AuthApiService.login() → POST /auth/login');
     final json = await _send(
       'POST',
       '/auth/login',
@@ -71,6 +72,7 @@ class AuthApiService {
         'password': password,
       },
     );
+    debugPrint('[auth-http-diag][B] AuthApiService.login() HTTP success (body not logged)');
     return AuthSession.fromJson(json);
   }
 
@@ -141,10 +143,9 @@ class AuthApiService {
       return asJsonMap(response.data);
     } on DioException catch (error) {
       debugPrint(
-        '[auth-http-diag] DioException type=${error.type} '
-        'message=${error.message} error=${error.error} '
-        'uri=${error.requestOptions.uri} '
-        'response.statusCode=${error.response?.statusCode}',
+        '[auth-http-diag][A-AFTER-WRAP] type=${error.type} '
+        'wrapped.error=${error.error} '
+        'uri=${error.requestOptions.uri}',
       );
       final mapped = error.error;
       if (mapped is ApiException) {
