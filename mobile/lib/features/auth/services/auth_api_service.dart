@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_exception.dart';
@@ -116,6 +117,9 @@ class AuthApiService {
     Map<String, dynamic>? data,
     String? accessToken,
   }) async {
+    final baseUrl = _client.dio.options.baseUrl;
+    final uri = Uri.parse('$baseUrl$path');
+    debugPrint('[auth-http-diag] request $method $uri');
     try {
       final response = await _client.dio.request<dynamic>(
         path,
@@ -127,11 +131,21 @@ class AuthApiService {
               : <String, dynamic>{'Authorization': 'Bearer $accessToken'},
         ),
       );
+      debugPrint(
+        '[auth-http-diag] response statusCode=${response.statusCode} '
+        'uri=${response.realUri}',
+      );
       if (response.data == null || response.data == '') {
         return <String, dynamic>{};
       }
       return asJsonMap(response.data);
     } on DioException catch (error) {
+      debugPrint(
+        '[auth-http-diag] DioException type=${error.type} '
+        'message=${error.message} error=${error.error} '
+        'uri=${error.requestOptions.uri} '
+        'response.statusCode=${error.response?.statusCode}',
+      );
       final mapped = error.error;
       if (mapped is ApiException) {
         throw mapped;
