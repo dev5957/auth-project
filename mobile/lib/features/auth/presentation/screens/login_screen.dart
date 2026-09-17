@@ -12,6 +12,7 @@ import '../../../../core/widgets/app_logo.dart';
 import '../../../../core/widgets/app_password_field.dart';
 import '../../../../core/widgets/app_text_field.dart';
 import '../../providers/auth_controller.dart';
+import '../state/register_flow_controller.dart';
 
 /// Écran Sign in. Passe uniquement par [AuthController.login].
 class LoginScreen extends ConsumerStatefulWidget {
@@ -188,7 +189,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     TextButton(
                       onPressed: _submitting
                           ? null
-                          : () => context.push(AppRoutes.register),
+                          : () => startNewRegisterFlow(ref, context),
                       child: Text(
                         'Sign up',
                         style: AppTextTheme.labelLarge.copyWith(color: colors.primary),

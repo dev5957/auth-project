@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/router/app_routes.dart';
@@ -8,17 +9,18 @@ import '../../../../core/theme/app_text_theme.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/app_logo.dart';
+import '../state/register_flow_controller.dart';
 import 'onboarding_slides.dart';
 
 /// Onboarding d’entrée Auth. Pas de logique métier ni de persistance.
-class AuthEntryScreen extends StatefulWidget {
+class AuthEntryScreen extends ConsumerStatefulWidget {
   const AuthEntryScreen({super.key});
 
   @override
-  State<AuthEntryScreen> createState() => _AuthEntryScreenState();
+  ConsumerState<AuthEntryScreen> createState() => _AuthEntryScreenState();
 }
 
-class _AuthEntryScreenState extends State<AuthEntryScreen> {
+class _AuthEntryScreenState extends ConsumerState<AuthEntryScreen> {
   late final PageController _pageController;
   int _index = 0;
 
@@ -41,7 +43,7 @@ class _AuthEntryScreenState extends State<AuthEntryScreen> {
   }
 
   void _goToRegister() {
-    context.push(AppRoutes.register);
+    startNewRegisterFlow(ref, context);
   }
 
   @override

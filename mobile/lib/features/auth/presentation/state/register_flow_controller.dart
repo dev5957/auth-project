@@ -1,5 +1,8 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../../core/router/app_routes.dart';
 import 'register_form_data.dart';
 
 /// État local du Sign Up multi-step. Pas d’appel API ici.
@@ -72,9 +75,21 @@ class RegisterFlowController extends Notifier<RegisterFlowState> {
     };
     state = state.copyWith(step: previous);
   }
+
+  /// Nouveau parcours Sign Up : étape Personal, formulaire vide.
+  /// Ne pas appeler lors d’un retour entre étapes.
+  void reset() {
+    state = const RegisterFlowState();
+  }
 }
 
 final registerFlowProvider =
     NotifierProvider<RegisterFlowController, RegisterFlowState>(
   RegisterFlowController.new,
 );
+
+/// Démarre un nouveau parcours Sign Up : formulaire vide, puis navigation.
+void startNewRegisterFlow(WidgetRef ref, BuildContext context) {
+  ref.read(registerFlowProvider.notifier).reset();
+  context.push(AppRoutes.register);
+}
