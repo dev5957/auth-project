@@ -13,6 +13,7 @@ import 'package:mobile/features/auth/presentation/screens/register_screen.dart';
 import 'package:mobile/features/auth/presentation/state/register_flow_controller.dart';
 import 'package:mobile/features/auth/presentation/state/register_form_data.dart';
 import 'package:mobile/features/auth/presentation/state/register_phone.dart';
+import 'package:mobile/features/auth/presentation/widgets/register_verify_phone_step.dart';
 import 'package:mobile/features/auth/providers/auth_controller.dart';
 import 'package:mobile/features/auth/state/auth_state.dart';
 
@@ -181,7 +182,7 @@ void main() {
     expect(probe.calls, 1);
     expect(probe.token, 'verify-token-1');
     expect(probe.code, '123456');
-    await tester.pump(const Duration(milliseconds: 1200));
+    await tester.pump(registerVerifySuccessPause);
     await tester.pumpAndSettle();
   });
 
@@ -211,7 +212,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
     expect(probe.calls, 1);
     await tester.pump(const Duration(milliseconds: 400));
-    await tester.pump(const Duration(milliseconds: 1200));
+    await tester.pump(registerVerifySuccessPause);
     await tester.pumpAndSettle();
   });
 
@@ -288,12 +289,22 @@ void main() {
     await tester.tap(find.text('Verify'));
     await tester.pump();
     expect(find.text('Phone verified'), findsOneWidget);
-    expect(find.text('Your account has been created.'), findsOneWidget);
+    expect(find.text('Your phone number has been confirmed.'), findsOneWidget);
+    expect(find.text('Your account is ready.'), findsOneWidget);
+    expect(find.text('You can now sign in.'), findsOneWidget);
+    expect(find.text('Sign In'), findsNothing);
+    expect(find.text('Verify'), findsNothing);
+    expect(find.byIcon(Icons.arrow_back), findsNothing);
     expect(container.read(authControllerProvider), isA<AuthUnauthenticated>());
 
-    await tester.pump(const Duration(milliseconds: 1200));
+    await tester.pump(const Duration(seconds: 2));
+    expect(find.text('Phone verified'), findsOneWidget);
+    expect(find.text('Sign In'), findsNothing);
+
+    await tester.pump(const Duration(seconds: 2));
     await tester.pumpAndSettle();
     expect(find.text('Sign In'), findsOneWidget);
+    expect(container.read(authControllerProvider), isA<AuthUnauthenticated>());
   });
 
   testWidgets('back to Phone keeps Personal, Account and Phone data', (tester) async {

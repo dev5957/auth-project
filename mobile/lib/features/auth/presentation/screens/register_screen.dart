@@ -18,25 +18,37 @@ import '../widgets/register_phone_step.dart';
 import '../widgets/register_verify_phone_step.dart';
 
 /// Coquille Sign Up multi-step. Personal + Account + Phone + Verify.
-class RegisterScreen extends ConsumerWidget {
+class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<RegisterScreen> createState() => _RegisterScreenState();
+}
+
+class _RegisterScreenState extends ConsumerState<RegisterScreen> {
+  bool _lockVerifySuccess = false;
+
+  @override
+  Widget build(BuildContext context) {
     final colors = context.luminaColors;
     final step = ref.watch(registerFlowProvider.select((state) => state.step));
 
-    return Scaffold(
-      backgroundColor: colors.bgBase,
-      appBar: AppBar(
+    return PopScope(
+      canPop: !_lockVerifySuccess,
+      child: Scaffold(
         backgroundColor: colors.bgBase,
-        foregroundColor: colors.textPrimary,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => _onBack(context, ref, step),
+        appBar: AppBar(
+          backgroundColor: colors.bgBase,
+          foregroundColor: colors.textPrimary,
+          elevation: 0,
+          automaticallyImplyLeading: !_lockVerifySuccess,
+          leading: _lockVerifySuccess
+              ? null
+              : IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: () => _onBack(context, step),
+                ),
         ),
-      ),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xxl),
@@ -102,6 +114,9 @@ class RegisterScreen extends ConsumerWidget {
                             );
                       },
                       onVerified: () => context.go(AppRoutes.login),
+                      onSuccessDisplay: () {
+                        setState(() => _lockVerifySuccess = true);
+                      },
                       onChangePhoneNumber: () {
                         ref.read(registerFlowProvider.notifier).goToPreviousStep();
                       },
@@ -113,10 +128,14 @@ class RegisterScreen extends ConsumerWidget {
           ),
         ),
       ),
+      ),
     );
   }
 
-  void _onBack(BuildContext context, WidgetRef ref, RegisterStep step) {
+  void _onBack(BuildContext context, RegisterStep step) {
+    if (_lockVerifySuccess) {
+      return;
+    }
     if (step == RegisterStep.personal) {
       context.pop();
       return;

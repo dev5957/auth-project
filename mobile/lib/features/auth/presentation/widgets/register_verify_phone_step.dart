@@ -11,7 +11,7 @@ import '../state/register_flow_controller.dart';
 import '../state/register_phone.dart';
 
 const int _otpLength = 6;
-const Duration _successPause = Duration(milliseconds: 1200);
+const Duration registerVerifySuccessPause = Duration(seconds: 4);
 
 /// Étape 4 — Verify phone. La requête passe par [onSubmit] (AuthController).
 class RegisterVerifyPhoneStep extends ConsumerStatefulWidget {
@@ -20,11 +20,13 @@ class RegisterVerifyPhoneStep extends ConsumerStatefulWidget {
     required this.onSubmit,
     required this.onVerified,
     required this.onChangePhoneNumber,
+    this.onSuccessDisplay,
   });
 
   final Future<void> Function(String code) onSubmit;
   final VoidCallback onVerified;
   final VoidCallback onChangePhoneNumber;
+  final VoidCallback? onSuccessDisplay;
 
   @override
   ConsumerState<RegisterVerifyPhoneStep> createState() =>
@@ -41,6 +43,7 @@ class _RegisterVerifyPhoneStepState extends ConsumerState<RegisterVerifyPhoneSte
   bool _submitting = false;
   bool _success = false;
   bool _applying = false;
+  bool _didNavigate = false;
   String? _error;
 
   @override
@@ -199,10 +202,12 @@ class _RegisterVerifyPhoneStepState extends ConsumerState<RegisterVerifyPhoneSte
         _submitting = false;
         _success = true;
       });
-      await Future<void>.delayed(_successPause);
-      if (!mounted) {
+      widget.onSuccessDisplay?.call();
+      await Future<void>.delayed(registerVerifySuccessPause);
+      if (!mounted || _didNavigate) {
         return;
       }
+      _didNavigate = true;
       widget.onVerified();
     } on ApiException catch (error) {
       if (!mounted) {
@@ -234,24 +239,7 @@ class _RegisterVerifyPhoneStepState extends ConsumerState<RegisterVerifyPhoneSte
         : maskRegisterPhoneNumber(phone);
 
     if (_success) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Icon(Icons.check_circle_outline, size: 56, color: colors.success),
-          const SizedBox(height: AppSpacing.lg),
-          Text(
-            'Phone verified',
-            textAlign: TextAlign.center,
-            style: AppTextTheme.titleLarge.copyWith(color: colors.textPrimary),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            'Your account has been created.',
-            textAlign: TextAlign.center,
-            style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
-          ),
-        ],
-      );
+      return _SuccessConfirmation(colors: colors);
     }
 
     return Column(
@@ -339,6 +327,60 @@ class _RegisterVerifyPhoneStepState extends ConsumerState<RegisterVerifyPhoneSte
           ),
         ),
       ],
+    );
+  }
+}
+
+class _SuccessConfirmation extends StatelessWidget {
+  const _SuccessConfirmation({required this.colors});
+
+  final LuminaColors colors;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 480),
+      curve: Curves.easeOutCubic,
+      builder: (context, value, child) {
+        return Opacity(
+          opacity: value,
+          child: Transform.translate(
+            offset: Offset(0, 12 * (1 - value)),
+            child: child,
+          ),
+        );
+      },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Icon(Icons.check_circle, size: 72, color: colors.success),
+          const SizedBox(height: AppSpacing.xxl),
+          Text(
+            'Phone verified',
+            textAlign: TextAlign.center,
+            style: AppTextTheme.titleLarge.copyWith(color: colors.textPrimary),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            'Your phone number has been confirmed.',
+            textAlign: TextAlign.center,
+            style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
+          ),
+          const SizedBox(height: AppSpacing.xxl),
+          Text(
+            'Your account is ready.',
+            textAlign: TextAlign.center,
+            style: AppTextTheme.titleSmall.copyWith(color: colors.textPrimary),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'You can now sign in.',
+            textAlign: TextAlign.center,
+            style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
+          ),
+        ],
+      ),
     );
   }
 }
