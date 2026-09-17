@@ -7,9 +7,10 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/widgets/app_logo.dart';
 import '../state/register_flow_controller.dart';
 import '../state/register_form_data.dart';
+import '../widgets/register_account_step.dart';
 import '../widgets/register_personal_step.dart';
 
-/// Coquille Sign Up multi-step. Seule l’étape Personal est implémentée.
+/// Coquille Sign Up multi-step. Personal + Account ; Phone/OTP plus tard.
 class RegisterScreen extends ConsumerWidget {
   const RegisterScreen({super.key});
 
@@ -50,14 +51,23 @@ class RegisterScreen extends ConsumerWidget {
                     child: SlideTransition(position: offset, child: child),
                   );
                 },
-                child: KeyedSubtree(
-                  key: ValueKey(step),
-                  child: RegisterPersonalStep(
-                    onContinue: () {
-                      // Étape Account : branchée à la prochaine itération.
-                    },
-                  ),
-                ),
+                child: switch (step) {
+                  RegisterStep.personal => RegisterPersonalStep(
+                      key: const ValueKey(RegisterStep.personal),
+                      onContinue: () {
+                        ref.read(registerFlowProvider.notifier).goToNextStep();
+                      },
+                    ),
+                  RegisterStep.account ||
+                  RegisterStep.phone ||
+                  RegisterStep.verifyPhone =>
+                    RegisterAccountStep(
+                      key: const ValueKey(RegisterStep.account),
+                      onContinue: () {
+                        // Étape Phone : branchée à la prochaine itération.
+                      },
+                    ),
+                },
               ),
               const SizedBox(height: AppSpacing.xxl),
             ],
