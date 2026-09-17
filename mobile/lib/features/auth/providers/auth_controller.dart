@@ -19,17 +19,19 @@ class AuthController extends Notifier<AuthState> {
 
   /// Cold start : `POST /auth/refresh` uniquement s’il existe un refresh token.
   Future<void> restore() async {
-    final hasRefreshToken = await _repository.hasStoredRefreshToken();
-    if (!hasRefreshToken) {
-      state = const AuthUnauthenticated();
-      return;
-    }
     try {
+      final hasRefreshToken = await _repository.hasStoredRefreshToken();
+      if (!hasRefreshToken) {
+        state = const AuthUnauthenticated();
+        return;
+      }
       final session = await _repository.refreshSession();
       state = AuthAuthenticated(user: session.user);
     } on ApiException {
       state = const AuthUnauthenticated();
     } on FormatException {
+      state = const AuthUnauthenticated();
+    } catch (_) {
       state = const AuthUnauthenticated();
     }
   }

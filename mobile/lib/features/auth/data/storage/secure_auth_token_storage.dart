@@ -5,7 +5,12 @@ import 'auth_token_storage.dart';
 /// Keychain / Keystore. Les jetons survivent à un kill complet de l’app.
 class SecureAuthTokenStorage implements AuthTokenStorage {
   SecureAuthTokenStorage({FlutterSecureStorage? storage})
-      : _storage = storage ?? const FlutterSecureStorage();
+      : _storage = storage ??
+            const FlutterSecureStorage(
+              aOptions: AndroidOptions(
+                encryptedSharedPreferences: true,
+              ),
+            );
 
   static const _accessTokenKey = 'auth.access_token';
   static const _refreshTokenKey = 'auth.refresh_token';

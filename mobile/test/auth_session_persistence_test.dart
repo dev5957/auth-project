@@ -1,9 +1,11 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:mobile/core/config/app_config.dart';
 import 'package:mobile/core/network/api_client.dart';
 import 'package:mobile/core/network/api_exception.dart';
+import 'package:mobile/core/router/session_splash_screen.dart';
 import 'package:mobile/features/auth/data/storage/auth_token_storage.dart';
 import 'package:mobile/features/auth/models/auth_account.dart';
 import 'package:mobile/features/auth/models/auth_session.dart';
@@ -12,6 +14,7 @@ import 'package:mobile/features/auth/providers/auth_controller.dart';
 import 'package:mobile/features/auth/providers/auth_providers.dart';
 import 'package:mobile/features/auth/services/auth_api_service.dart';
 import 'package:mobile/features/auth/state/auth_state.dart';
+import 'package:mobile/main.dart';
 
 class InMemoryAuthTokenStorage implements AuthTokenStorage {
   String? _accessToken;
@@ -52,6 +55,7 @@ class _FakeAuthApi extends AuthApiService {
   String? lastRefreshToken;
   bool failRefresh = false;
   bool failLogout = false;
+  Duration refreshDelay = Duration.zero;
 
   AuthSession _session({
     required String accessToken,
@@ -90,6 +94,9 @@ class _FakeAuthApi extends AuthApiService {
   Future<AuthSession> refresh({required String refreshToken}) async {
     refreshCalls += 1;
     lastRefreshToken = refreshToken;
+    if (refreshDelay > Duration.zero) {
+      await Future<void>.delayed(refreshDelay);
+    }
     if (failRefresh) {
       throw const ApiException(message: 'Invalid refresh token', statusCode: 401);
     }
@@ -230,4 +237,110 @@ void main() {
     expect(await storage.hasRefreshToken(), isFalse);
     expect(container.read(authControllerProvider), isA<AuthUnauthenticated>());
   });
+
+  testWidgets('AuthLoading shows splash and never the onboarding carousel', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authControllerProvider.overrideWith(_StuckLoadingAuthController.new),
+        ],
+        child: const LuminaApp(),
+      ),
+    );
+    await tester.pump();
+
+    _expectSplashWithoutCarousel();
+  });
+
+  testWidgets('cold start with refresh_token shows splash then Home', (tester) async {
+    final storage = InMemoryAuthTokenStorage();
+    await storage.saveTokens(
+      accessToken: 'access-stale',
+      refreshToken: 'refresh-stored',
+    );
+    final api = _FakeAuthApi()..refreshDelay = const Duration(milliseconds: 200);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authTokenStorageProvider.overrideWithValue(storage),
+          authApiServiceProvider.overrideWithValue(api),
+        ],
+        child: const LuminaApp(),
+      ),
+    );
+    await tester.pump();
+    _expectSplashWithoutCarousel();
+
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pump();
+
+    expect(api.refreshCalls, 1);
+    expect(api.lastRefreshToken, 'refresh-stored');
+    expect(find.text('Home placeholder'), findsOneWidget);
+    expect(_carousel(), findsNothing);
+    expect(find.byType(SessionSplashScreen), findsNothing);
+  });
+
+  testWidgets('cold start without refresh_token skips refresh and shows Welcome', (tester) async {
+    final storage = InMemoryAuthTokenStorage();
+    final api = _FakeAuthApi();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authTokenStorageProvider.overrideWithValue(storage),
+          authApiServiceProvider.overrideWithValue(api),
+        ],
+        child: const LuminaApp(),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(api.refreshCalls, 0);
+    expect(find.text('Discover'), findsOneWidget);
+    expect(find.text('Home placeholder'), findsNothing);
+  });
+
+  testWidgets('failed refresh on cold start clears tokens and shows Welcome', (tester) async {
+    final storage = InMemoryAuthTokenStorage();
+    await storage.saveTokens(
+      accessToken: 'access-stale',
+      refreshToken: 'refresh-invalid',
+    );
+    final api = _FakeAuthApi()..failRefresh = true;
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authTokenStorageProvider.overrideWithValue(storage),
+          authApiServiceProvider.overrideWithValue(api),
+        ],
+        child: const LuminaApp(),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(api.refreshCalls, 1);
+    expect(await storage.hasRefreshToken(), isFalse);
+    expect(find.text('Discover'), findsOneWidget);
+    expect(find.text('Home placeholder'), findsNothing);
+  });
+}
+
+class _StuckLoadingAuthController extends AuthController {
+  @override
+  AuthState build() => const AuthLoading();
+}
+
+Finder _carousel() => find.text('Discover');
+
+void _expectSplashWithoutCarousel() {
+  expect(find.byType(SessionSplashScreen), findsOneWidget);
+  expect(find.byType(CircularProgressIndicator), findsOneWidget);
+  expect(_carousel(), findsNothing);
+  expect(find.text('Welcome to Lumina'), findsNothing);
+  expect(find.text('Home placeholder'), findsNothing);
 }

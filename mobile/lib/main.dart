@@ -7,11 +7,12 @@ import 'core/theme/app_theme.dart';
 import 'features/auth/providers/auth_controller.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const ProviderScope(child: LuminaApp()));
 }
 
-/// Point d’entrée UI. La restore de session est déclenchée par [authControllerProvider] ;
-/// [appRouterProvider] redirige Welcome/Login ↔ Home selon l’état.
+/// Point d’entrée UI. Restore via [authControllerProvider] ; le router reste
+/// sur le splash tant que l’état est [AuthLoading].
 class LuminaApp extends ConsumerWidget {
   const LuminaApp({super.key});
 
