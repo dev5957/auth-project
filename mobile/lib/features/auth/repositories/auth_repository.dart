@@ -1,5 +1,5 @@
 import '../../../core/network/api_exception.dart';
-import '../../../core/storage/token_storage.dart';
+import '../data/storage/auth_token_storage.dart';
 import '../models/auth_session.dart';
 import '../models/auth_user.dart';
 import '../models/register_start_result.dart';
@@ -11,12 +11,16 @@ import '../services/auth_api_service.dart';
 class AuthRepository {
   AuthRepository({
     required AuthApiService api,
-    required TokenStorage tokenStorage,
+    required AuthTokenStorage tokenStorage,
   })  : _api = api,
         _tokenStorage = tokenStorage;
 
   final AuthApiService _api;
-  final TokenStorage _tokenStorage;
+  final AuthTokenStorage _tokenStorage;
+
+  Future<bool> hasStoredRefreshToken() {
+    return _tokenStorage.hasRefreshToken();
+  }
 
   Future<RegisterStartResult> startRegister({
     required String email,
@@ -76,10 +80,8 @@ class AuthRepository {
       final session = await _api.refresh(refreshToken: refreshToken);
       await _persist(session.tokens);
       return session;
-    } on ApiException catch (error) {
-      if (error.statusCode == 401) {
-        await _tokenStorage.clear();
-      }
+    } catch (_) {
+      await _tokenStorage.clearTokens();
       rethrow;
     }
   }
@@ -94,16 +96,17 @@ class AuthRepository {
           refreshToken.isNotEmpty) {
         await _api.logout(accessToken: accessToken, refreshToken: refreshToken);
       }
-    } on ApiException catch (error) {
-      if (error.statusCode != 401 && error.statusCode != 400) {
-        rethrow;
-      }
+    } on ApiException {
+      // Erreurs attendues (401/400) ou réseau : le nettoyage local continue.
+    } finally {
+      await _tokenStorage.clearTokens();
     }
-    await _tokenStorage.clear();
   }
 
-  Future<void> _persist(SessionTokens tokens) async {
-    await _tokenStorage.saveAccessToken(tokens.accessToken);
-    await _tokenStorage.saveRefreshToken(tokens.refreshToken);
+  Future<void> _persist(SessionTokens tokens) {
+    return _tokenStorage.saveTokens(
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+    );
   }
 }
