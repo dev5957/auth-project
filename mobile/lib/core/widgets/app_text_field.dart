@@ -25,7 +25,9 @@ class AppTextField extends StatelessWidget {
     this.suffixIcon,
     this.onChanged,
     this.onSubmitted,
+    this.onTap,
     this.inputFormatters,
+    this.readOnly = false,
   });
 
   final String? label;
@@ -44,13 +46,16 @@ class AppTextField extends StatelessWidget {
   final Widget? suffixIcon;
   final ValueChanged<String>? onChanged;
   final ValueChanged<String>? onSubmitted;
+  final VoidCallback? onTap;
   final List<TextInputFormatter>? inputFormatters;
+  final bool readOnly;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.luminaColors;
+    final rawError = errorText;
     final resolvedError =
-        (errorText == null || errorText.isEmpty) ? null : errorText;
+        (rawError == null || rawError.isEmpty) ? null : rawError;
 
     final border = OutlineInputBorder(
       borderRadius: BorderRadius.circular(AppSpacing.lg),
@@ -71,6 +76,8 @@ class AppTextField extends StatelessWidget {
       inputFormatters: inputFormatters,
       onChanged: onChanged,
       onSubmitted: onSubmitted,
+      onTap: onTap,
+      readOnly: readOnly,
       style: AppTextTheme.bodyLarge.copyWith(color: colors.textPrimary),
       cursorColor: colors.borderFocus,
       decoration: InputDecoration(
