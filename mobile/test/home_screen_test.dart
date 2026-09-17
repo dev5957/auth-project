@@ -58,19 +58,17 @@ class _SeededHomeAuthController extends AuthController {
   _SeededHomeAuthController(
     this.probe, {
     this.logoutDelay = Duration.zero,
-    this.login = 'tgjjk',
   });
 
   final _LogoutProbe probe;
   final Duration logoutDelay;
-  final String login;
 
   @override
   AuthState build() {
-    return AuthAuthenticated(
+    return const AuthAuthenticated(
       user: AuthAccount(
         id: 1,
-        login: login,
+        login: 'tgjjk',
         authProvider: 'local',
         email: 'ada@example.com',
         phoneVerified: true,
@@ -148,11 +146,19 @@ void main() {
     expect(container.read(authControllerProvider), isA<AuthAuthenticated>());
 
     await tester.tap(find.text('Logout'));
-    await tester.pump();
-    await tester.pump();
+    var leftHome = false;
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+      if (find.text('Discover').evaluate().isNotEmpty &&
+          find.byType(HomeScreen).evaluate().isEmpty) {
+        leftHome = true;
+        break;
+      }
+    }
 
     expect(probe.calls, 1);
     expect(container.read(authControllerProvider), isA<AuthUnauthenticated>());
+    expect(leftHome, isTrue);
     expect(find.text('Discover'), findsOneWidget);
     expect(find.byType(HomeScreen), findsNothing);
     expect(api.meCalls, 0);

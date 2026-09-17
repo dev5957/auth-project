@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/branding/app_brand.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/theme/app_text_theme.dart';
-import '../../../core/widgets/app_logo.dart';
-import 'home_user_initials.dart';
+import '../../../../core/branding/app_brand.dart';
+import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_spacing.dart';
+import '../../../../core/theme/app_text_theme.dart';
+import '../../../../core/widgets/app_logo.dart';
+import '../home_user_initials.dart';
 
 /// Bandeau Home : identité Lumina + initiales du login Auth.
 class HomeHeader extends StatelessWidget {

@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/widgets/app_button.dart';
-import '../../../core/widgets/app_loading.dart';
-import '../../auth/providers/auth_controller.dart';
-import '../../auth/state/auth_state.dart';
-import 'widgets/home_header.dart';
-import 'widgets/home_space_card.dart';
-import 'widgets/home_welcome.dart';
+import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_spacing.dart';
+import '../../../../core/widgets/app_button.dart';
+import '../../../../core/widgets/app_loading.dart';
+import '../../../auth/providers/auth_controller.dart';
+import '../../../auth/state/auth_state.dart';
+import '../widgets/home_header.dart';
+import '../widgets/home_space_card.dart';
+import '../widgets/home_welcome.dart';
 
 /// Home authentifié V1. Données : [AuthAuthenticated.user] uniquement.
 class HomeScreen extends ConsumerStatefulWidget {
