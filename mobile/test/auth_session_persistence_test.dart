@@ -276,7 +276,7 @@ void main() {
     var reachedHome = false;
     for (var i = 0; i < 20; i++) {
       await tester.pump(const Duration(milliseconds: 50));
-      if (find.text('Home placeholder').evaluate().isNotEmpty &&
+      if (find.text('Welcome back').evaluate().isNotEmpty &&
           find.byType(SessionSplashScreen).evaluate().isEmpty) {
         reachedHome = true;
         break;
@@ -286,7 +286,7 @@ void main() {
     expect(api.refreshCalls, 1);
     expect(api.lastRefreshToken, 'refresh-stored');
     expect(reachedHome, isTrue);
-    expect(find.text('Home placeholder'), findsOneWidget);
+    expect(find.text('Welcome back'), findsOneWidget);
     expect(_carousel(), findsNothing);
     expect(find.byType(SessionSplashScreen), findsNothing);
   });
@@ -309,7 +309,7 @@ void main() {
 
     expect(api.refreshCalls, 0);
     expect(find.text('Discover'), findsOneWidget);
-    expect(find.text('Home placeholder'), findsNothing);
+    expect(find.text('Welcome back'), findsNothing);
   });
 
   testWidgets('failed refresh on cold start clears tokens and shows Welcome', (tester) async {
@@ -335,7 +335,7 @@ void main() {
     expect(api.refreshCalls, 1);
     expect(await storage.hasRefreshToken(), isFalse);
     expect(find.text('Discover'), findsOneWidget);
-    expect(find.text('Home placeholder'), findsNothing);
+    expect(find.text('Welcome back'), findsNothing);
   });
 }
 
@@ -351,5 +351,5 @@ void _expectSplashWithoutCarousel() {
   expect(find.byType(CircularProgressIndicator), findsOneWidget);
   expect(_carousel(), findsNothing);
   expect(find.text('Welcome to Lumina'), findsNothing);
-  expect(find.text('Home placeholder'), findsNothing);
+  expect(find.text('Welcome back'), findsNothing);
 }

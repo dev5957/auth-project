@@ -7,8 +7,8 @@ import '../../features/auth/presentation/screens/login_screen.dart';
 import '../../features/auth/presentation/screens/register_screen.dart';
 import '../../features/auth/providers/auth_controller.dart';
 import '../../features/auth/state/auth_state.dart';
+import '../../features/home/presentation/screens/home_screen.dart';
 import 'app_routes.dart';
-import 'placeholder_screen.dart';
 import 'session_splash_screen.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
@@ -65,7 +65,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: AppRoutes.home,
-        builder: (context, state) => const RouterPlaceholderScreen(title: 'Home placeholder'),
+        builder: (context, state) => const HomeScreen(),
       ),
     ],
   );
