@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 
 import '../config/app_config.dart';
 import 'api_exception.dart';
@@ -23,6 +24,16 @@ class ApiClient {
     dio.interceptors.add(
       InterceptorsWrapper(
         onError: (error, handler) {
+          // TEMP diagnostic — original cause, before ApiException wrapping.
+          debugPrint(
+            '[auth-http-diag] interceptor original type=${error.type} '
+            'message=${error.message} '
+            'error.runtimeType=${error.error.runtimeType} '
+            'error=${error.error} '
+            'uri=${error.requestOptions.uri} '
+            'response.statusCode=${error.response?.statusCode}',
+          );
+          debugPrint('[auth-http-diag] interceptor stackTrace=${error.stackTrace}');
           handler.next(
             error.copyWith(error: ApiException.fromDio(error)),
           );
