@@ -61,7 +61,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
     switch (error.statusCode) {
       case 401:
-        return 'Invalid credentials';
+        return 'Incorrect login or password';
       case 403:
         return 'Phone number is not verified';
       case 429:

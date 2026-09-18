@@ -55,6 +55,7 @@ class _FakeAuthApi extends AuthApiService {
   String? lastRefreshToken;
   bool failRefresh = false;
   bool failLogout = false;
+  bool failLogin = false;
   Duration refreshDelay = Duration.zero;
 
   AuthSession _session({
@@ -83,6 +84,9 @@ class _FakeAuthApi extends AuthApiService {
     required String login,
     required String password,
   }) async {
+    if (failLogin) {
+      throw const ApiException(message: 'Invalid credentials', statusCode: 401);
+    }
     return _session(
       accessToken: 'access-login',
       refreshToken: 'refresh-login',
@@ -142,6 +146,32 @@ Future<void> _waitUntilSettled(ProviderContainer container) async {
 }
 
 void main() {
+  test('failed login keeps AuthUnauthenticated and does not persist tokens', () async {
+    final storage = InMemoryAuthTokenStorage();
+    final api = _FakeAuthApi()..failLogin = true;
+    final container = _container(storage: storage, api: api);
+    addTearDown(container.dispose);
+
+    await _waitUntilSettled(container);
+    expect(container.read(authControllerProvider), isA<AuthUnauthenticated>());
+    expect(api.refreshCalls, 0);
+
+    await expectLater(
+      container.read(authControllerProvider.notifier).login(
+            login: 'ada',
+            password: 'wrong',
+          ),
+      throwsA(
+        isA<ApiException>().having((e) => e.statusCode, 'statusCode', 401),
+      ),
+    );
+
+    expect(await storage.readAccessToken(), isNull);
+    expect(await storage.readRefreshToken(), isNull);
+    expect(container.read(authControllerProvider), isA<AuthUnauthenticated>());
+    expect(api.refreshCalls, 0);
+  });
+
   test('login persists access_token and refresh_token', () async {
     final storage = InMemoryAuthTokenStorage();
     final api = _FakeAuthApi();

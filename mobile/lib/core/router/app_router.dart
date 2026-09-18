@@ -41,9 +41,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         }
       } else if (auth is AuthAuthenticated) {
         target = location == AppRoutes.home ? null : AppRoutes.home;
-      } else if (location == AppRoutes.splash || location == AppRoutes.home) {
+      } else if (location == AppRoutes.splash) {
+        // Cas 1 / 5 : premier lancement ou refresh invalide au cold start → carousel.
         target = AppRoutes.entry;
+      } else if (location == AppRoutes.home) {
+        // Cas 4 : logout (ou session tombée pendant Home) → formulaire Login.
+        target = AppRoutes.login;
       } else {
+        // Cas 2 : /auth/login (ou register / carousel) reste en place.
         target = null;
       }
       debugPrint(

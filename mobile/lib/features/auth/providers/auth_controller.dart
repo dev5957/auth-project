@@ -88,6 +88,8 @@ class AuthController extends Notifier<AuthState> {
     );
   }
 
+  /// Soumission Login : erreur = locale (formulaire). Succès = [AuthAuthenticated].
+  /// Ne pas passer par [AuthLoading] / [AuthUnauthenticated] (redirect Carousel).
   Future<void> login({
     required String login,
     required String password,
@@ -96,11 +98,9 @@ class AuthController extends Notifier<AuthState> {
       '[auth-login-diag] AuthController.login() entered '
       'state=${state.runtimeType}',
     );
-    debugPrint('[auth-http-diag][B] AuthController.login() start → AuthLoading');
-    state = const AuthLoading();
     debugPrint(
-      '[auth-login-diag] AuthController.login() state set to '
-      '${state.runtimeType} before repository.login()',
+      '[auth-http-diag][B] AuthController.login() start '
+      '(no global AuthLoading — form loading only)',
     );
     try {
       debugPrint('[auth-login-diag] AuthController.login() calling repository.login()');
@@ -114,25 +114,23 @@ class AuthController extends Notifier<AuthState> {
         'state=${state.runtimeType}',
       );
     } on ApiException catch (error) {
-      state = const AuthUnauthenticated();
       debugPrint(
-        '[auth-http-diag][B] AuthController.login() ApiException → '
-        'AuthUnauthenticated statusCode=${error.statusCode}',
+        '[auth-http-diag][B] AuthController.login() ApiException '
+        'statusCode=${error.statusCode} state stays ${state.runtimeType}',
       );
       debugPrint(
-        '[auth-login-diag] AuthController.login() ApiException captured → '
-        'AuthUnauthenticated statusCode=${error.statusCode}',
+        '[auth-login-diag] AuthController.login() ApiException captured, '
+        'global auth unchanged (${state.runtimeType}) statusCode=${error.statusCode}',
       );
       rethrow;
     } on FormatException catch (error) {
-      state = const AuthUnauthenticated();
       debugPrint(
         '[auth-http-diag][B] AuthController.login() FormatException → '
-        'AuthUnauthenticated error=$error',
+        'state stays ${state.runtimeType} error=$error',
       );
       debugPrint(
-        '[auth-login-diag] AuthController.login() FormatException captured → '
-        'AuthUnauthenticated',
+        '[auth-login-diag] AuthController.login() FormatException captured, '
+        'global auth unchanged (${state.runtimeType})',
       );
       rethrow;
     } catch (error) {
