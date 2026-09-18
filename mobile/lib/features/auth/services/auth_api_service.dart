@@ -88,6 +88,9 @@ class AuthApiService {
 
   /// `POST /auth/refresh` — pas de Bearer.
   Future<AuthSession> refresh({required String refreshToken}) async {
+    debugPrint(
+      '[auth-restore-diag] AuthApiService.refresh() → POST /auth/refresh (token not logged)',
+    );
     final json = await _send(
       'POST',
       '/auth/refresh',
@@ -95,6 +98,7 @@ class AuthApiService {
         'refresh_token': refreshToken,
       },
     );
+    debugPrint('[auth-restore-diag] AuthApiService.refresh() HTTP parsed OK (body not logged)');
     return AuthSession.fromJson(json);
   }
 

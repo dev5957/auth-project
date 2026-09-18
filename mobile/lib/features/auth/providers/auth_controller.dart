@@ -12,6 +12,9 @@ import 'auth_providers.dart';
 class AuthController extends Notifier<AuthState> {
   @override
   AuthState build() {
+    debugPrint(
+      '[auth-restore-diag] AuthController.build() → AuthLoading, scheduling restore()',
+    );
     Future<void>.microtask(restore);
     return const AuthLoading();
   }
@@ -20,31 +23,32 @@ class AuthController extends Notifier<AuthState> {
 
   /// Cold start : `POST /auth/refresh` uniquement s’il existe un refresh token.
   Future<void> restore() async {
-    debugPrint('[auth-http-diag][B] AuthController.restore() start');
+    debugPrint('[auth-restore-diag] restore() entered');
     try {
       final hasRefreshToken = await _repository.hasStoredRefreshToken();
-      debugPrint('[auth-http-diag][B] restore hasRefreshToken=$hasRefreshToken');
+      debugPrint('[auth-restore-diag] hasRefreshToken=$hasRefreshToken');
       if (!hasRefreshToken) {
         state = const AuthUnauthenticated();
-        debugPrint('[auth-http-diag][B] restore → AuthUnauthenticated (no refresh token)');
+        debugPrint('[auth-restore-diag] skip refreshSession() → AuthUnauthenticated');
         return;
       }
+      debugPrint('[auth-restore-diag] calling refreshSession()');
       final session = await _repository.refreshSession();
       state = AuthAuthenticated(user: session.user);
-      debugPrint('[auth-http-diag][B] restore → AuthAuthenticated');
+      debugPrint('[auth-restore-diag] refreshSession() OK → AuthAuthenticated');
     } on ApiException catch (error) {
       state = const AuthUnauthenticated();
       debugPrint(
-        '[auth-http-diag][B] restore ApiException → AuthUnauthenticated '
+        '[auth-restore-diag] refresh/restore ApiException → AuthUnauthenticated '
         'statusCode=${error.statusCode}',
       );
     } on FormatException {
       state = const AuthUnauthenticated();
-      debugPrint('[auth-http-diag][B] restore FormatException → AuthUnauthenticated');
+      debugPrint('[auth-restore-diag] restore FormatException → AuthUnauthenticated');
     } catch (error) {
       state = const AuthUnauthenticated();
       debugPrint(
-        '[auth-http-diag][B] restore other → AuthUnauthenticated '
+        '[auth-restore-diag] restore other → AuthUnauthenticated '
         'error.runtimeType=${error.runtimeType}',
       );
     }

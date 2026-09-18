@@ -15,7 +15,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   final refresh = ValueNotifier<int>(0);
   ref.listen<AuthState>(
     authControllerProvider,
-    (_, __) {
+    (previous, next) {
+      debugPrint(
+        '[auth-restore-diag] auth listen previous=${previous.runtimeType} next=${next.runtimeType}',
+      );
       refresh.value++;
     },
     fireImmediately: true,
@@ -44,7 +47,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         target = null;
       }
       debugPrint(
-        '[auth-http-diag][B] GoRouter redirect auth=${auth.runtimeType} '
+        '[auth-restore-diag] GoRouter redirect auth=${auth.runtimeType} '
         'from=$location to=${target ?? '(stay)'}',
       );
       return target;

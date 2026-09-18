@@ -86,15 +86,23 @@ class AuthRepository {
   }
 
   Future<AuthSession> refreshSession() async {
+    debugPrint('[auth-restore-diag] AuthRepository.refreshSession() entered');
     final refreshToken = await _tokenStorage.readRefreshToken();
     if (refreshToken == null || refreshToken.isEmpty) {
+      debugPrint('[auth-restore-diag] refreshSession() abort: no refresh token in storage');
       throw const ApiException(message: 'refresh_token is required', statusCode: 400);
     }
     try {
+      debugPrint('[auth-restore-diag] refreshSession() → AuthApiService.refresh()');
       final session = await _api.refresh(refreshToken: refreshToken);
+      debugPrint('[auth-restore-diag] refreshSession() HTTP OK, saveTokens start');
       await _persist(session.tokens);
+      debugPrint('[auth-restore-diag] refreshSession() saveTokens OK');
       return session;
-    } catch (_) {
+    } catch (error) {
+      debugPrint(
+        '[auth-restore-diag] refreshSession() FAILED error.runtimeType=${error.runtimeType}',
+      );
       await _tokenStorage.clearTokens();
       rethrow;
     }
