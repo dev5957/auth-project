@@ -22,12 +22,16 @@ final class GoogleStartExisting extends GoogleStartResult {
 
 /// Identité Google valide, profil application incomplet. Pas une erreur.
 final class GoogleStartPending extends GoogleStartResult {
-  const GoogleStartPending({required this.email});
+  const GoogleStartPending({
+    required this.email,
+    required this.oauthVerificationToken,
+  });
 
   final String email;
+  final String oauthVerificationToken;
 
   @override
-  String toString() => 'GoogleStartPending(email: $email)';
+  String toString() => 'GoogleStartPending(email: $email, token: (omitted))';
 }
 
 /// Suite repository / controller après Google Sign-In.
@@ -45,9 +49,16 @@ final class ContinueWithGoogleAuthenticated extends ContinueWithGoogleResult {
 }
 
 final class ContinueWithGooglePending extends ContinueWithGoogleResult {
-  const ContinueWithGooglePending({required this.email});
+  const ContinueWithGooglePending({
+    required this.email,
+    required this.oauthVerificationToken,
+  });
 
   final String email;
+  final String oauthVerificationToken;
+
+  @override
+  String toString() => 'ContinueWithGooglePending(email: $email, token: (omitted))';
 }
 
 final class ContinueWithGoogleCanceled extends ContinueWithGoogleResult {

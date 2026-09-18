@@ -14,10 +14,21 @@ void main() {
   });
 
   test('pending Google payload is a result, not an error type', () {
-    const pending = GoogleStartPending(email: 'ada@example.com');
+    const pending = GoogleStartPending(
+      email: 'ada@example.com',
+      oauthVerificationToken: 'oauth-pending-token',
+    );
     expect(pending, isA<GoogleStartResult>());
     expect(pending, isNot(isA<GoogleStartExisting>()));
     expect(pending.toString(), contains('ada@example.com'));
-    expect(pending.toString(), isNot(contains('oauth')));
+    expect(pending.toString(), isNot(contains('oauth-pending-token')));
+  });
+
+  test('pending ContinueWithGoogle omits the verification token', () {
+    const pending = ContinueWithGooglePending(
+      email: 'ada@example.com',
+      oauthVerificationToken: 'oauth-pending-token',
+    );
+    expect(pending.toString(), isNot(contains('oauth-pending-token')));
   });
 }

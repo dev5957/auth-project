@@ -185,6 +185,46 @@ class AuthController extends Notifier<AuthState> {
     }
   }
 
+  Future<String> startOAuthPhone({
+    required String oauthVerificationToken,
+    required String phoneNumber,
+  }) {
+    return _repository.startOAuthPhone(
+      oauthVerificationToken: oauthVerificationToken,
+      phoneNumber: phoneNumber,
+    );
+  }
+
+  /// Succès uniquement → [AuthAuthenticated]. Erreurs locales, pas d’[AuthLoading].
+  Future<void> continueOAuthProfile({
+    required String oauthVerificationToken,
+    required String code,
+    required String birthDate,
+    required String login,
+  }) async {
+    try {
+      final session = await _repository.continueOAuthProfile(
+        oauthVerificationToken: oauthVerificationToken,
+        code: code,
+        birthDate: birthDate,
+        login: login,
+      );
+      state = AuthAuthenticated(user: session.user);
+    } on ApiException catch (error) {
+      debugPrint(
+        '[google-identity] continueOAuthProfile ApiException '
+        'statusCode=${error.statusCode} state stays ${state.runtimeType}',
+      );
+      rethrow;
+    } on FormatException {
+      debugPrint(
+        '[google-identity] continueOAuthProfile FormatException '
+        'state stays ${state.runtimeType}',
+      );
+      rethrow;
+    }
+  }
+
   Future<void> logout() async {
     try {
       await _repository.logout();
