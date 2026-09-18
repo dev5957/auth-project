@@ -10,6 +10,7 @@ import 'package:mobile/features/auth/models/auth_user.dart';
 import 'package:mobile/features/auth/models/google_start_result.dart';
 import 'package:mobile/features/auth/models/session_tokens.dart';
 import 'package:mobile/features/auth/presentation/screens/login_screen.dart';
+import 'package:mobile/features/auth/presentation/screens/oauth_complete_screen.dart';
 import 'package:mobile/features/auth/providers/auth_controller.dart';
 import 'package:mobile/features/auth/providers/auth_providers.dart';
 import 'package:mobile/features/auth/services/auth_api_service.dart';
@@ -162,6 +163,7 @@ void main() {
     expect(find.byType(HomeScreen), findsOneWidget);
     expect(find.text('ada'), findsOneWidget);
     expect(find.byType(LoginScreen), findsNothing);
+    expect(find.byType(OAuthCompleteScreen), findsNothing);
     expect(_carousel, findsNothing);
     final auth = container.read(authControllerProvider);
     expect(auth, isA<AuthAuthenticated>());
@@ -171,7 +173,10 @@ void main() {
 
   testWidgets('unknown Google account stays pending without Home or tokens', (tester) async {
     final api = _GoogleApi()
-      ..startResult = const GoogleStartPending(email: 'ada@example.com');
+      ..startResult = const GoogleStartPending(
+        email: 'ada@example.com',
+        oauthVerificationToken: 'oauth-pending-token',
+      );
     final storage = InMemoryAuthTokenStorage();
     final google = _ScriptedGoogleIdentity(identity);
     final container = await _openLogin(
@@ -188,8 +193,8 @@ void main() {
     expect(api.meCalls, 0);
     expect(api.loginCalls, 0);
     expect(await storage.readAccessToken(), isNull);
-    expect(find.byType(LoginScreen), findsOneWidget);
-    expect(_loginCopy, findsOneWidget);
+    expect(find.byType(OAuthCompleteScreen), findsOneWidget);
+    expect(find.text('Your phone number'), findsOneWidget);
     expect(find.byType(HomeScreen), findsNothing);
     expect(_carousel, findsNothing);
     expect(container.read(authControllerProvider), isA<AuthUnauthenticated>());

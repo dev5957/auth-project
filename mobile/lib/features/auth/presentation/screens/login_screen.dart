@@ -13,6 +13,7 @@ import '../../../../core/widgets/app_password_field.dart';
 import '../../../../core/widgets/app_text_field.dart';
 import '../../models/google_start_result.dart';
 import '../../providers/auth_controller.dart';
+import '../state/oauth_complete_flow_controller.dart';
 import '../state/register_flow_controller.dart';
 
 /// Écran Sign in. Passe uniquement par [AuthController.login].
@@ -152,7 +153,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 
-  /// Google existant → session. Pending / cancel → rester Login. Pas d’AuthController.loading.
+  /// Google existant → session. Pending → `/auth/oauth/complete`. Cancel → rester Login.
   Future<void> _continueWithGoogle() async {
     if (_submitting || _googleSigningIn) {
       return;
@@ -170,10 +171,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       switch (result) {
         case ContinueWithGoogleAuthenticated():
           context.go(AppRoutes.home);
-        case ContinueWithGooglePending(:final email):
-          debugPrint(
-            '[google-identity] Google account pending profile email=$email',
-          );
+        case ContinueWithGooglePending(
+              :final email,
+              :final oauthVerificationToken,
+            ):
+          ref.read(oauthCompleteFlowProvider.notifier).start(
+                email: email,
+                oauthVerificationToken: oauthVerificationToken,
+              );
+          context.push(AppRoutes.oauthComplete);
         case ContinueWithGoogleCanceled():
           debugPrint('[google-identity] Google Sign-In canceled');
       }

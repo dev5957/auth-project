@@ -87,11 +87,14 @@ class AuthRepository {
   }) async {
     final start = await _api.googleStart(idToken: idToken);
     switch (start) {
-      case GoogleStartPending(:final email):
+      case GoogleStartPending(:final email, :final oauthVerificationToken):
         debugPrint(
           '[google-identity] AuthRepository Google start pending email=$email',
         );
-        return ContinueWithGooglePending(email: email);
+        return ContinueWithGooglePending(
+          email: email,
+          oauthVerificationToken: oauthVerificationToken,
+        );
       case GoogleStartExisting(:final message, :final tokens):
         await _persist(tokens);
         debugPrint('[google-identity] AuthRepository Google tokens saved');
@@ -108,6 +111,42 @@ class AuthRepository {
           ),
         );
     }
+  }
+
+  Future<String> startOAuthPhone({
+    required String oauthVerificationToken,
+    required String phoneNumber,
+  }) {
+    return _api.oauthStartPhone(
+      oauthVerificationToken: oauthVerificationToken,
+      phoneNumber: phoneNumber,
+    );
+  }
+
+  /// Finalise le profil OAuth : verify → persist → `me`.
+  Future<AuthSession> continueOAuthProfile({
+    required String oauthVerificationToken,
+    required String code,
+    required String birthDate,
+    required String login,
+  }) async {
+    final tokens = await _api.oauthVerifyPhone(
+      oauthVerificationToken: oauthVerificationToken,
+      code: code,
+      birthDate: birthDate,
+      login: login,
+    );
+    await _persist(tokens);
+    final me = await this.me();
+    return AuthSession(
+      message: 'Account created',
+      tokens: tokens,
+      user: AuthAccount(
+        id: me.userId,
+        login: me.login,
+        authProvider: me.authProvider,
+      ),
+    );
   }
 
   Future<AuthUser> me() async {

@@ -110,6 +110,7 @@ class AuthApiService {
       final email = json['email'];
       return GoogleStartPending(
         email: email is String ? email : '',
+        oauthVerificationToken: oauthToken,
       );
     }
     throw const FormatException('Invalid Google start payload');
@@ -153,6 +154,59 @@ class AuthApiService {
       data: {
         'refresh_token': refreshToken,
       },
+    );
+  }
+
+  /// `POST /auth/oauth/start-phone`
+  Future<String> oauthStartPhone({
+    required String oauthVerificationToken,
+    required String phoneNumber,
+  }) async {
+    debugPrint('[google-identity] AuthApiService.oauthStartPhone()');
+    final json = await _send(
+      'POST',
+      '/auth/oauth/start-phone',
+      data: {
+        'oauth_verification_token': oauthVerificationToken,
+        'phone_number': phoneNumber,
+      },
+    );
+    final next = json['oauth_verification_token'];
+    if (next is String && next.isNotEmpty) {
+      return next;
+    }
+    throw const FormatException('Invalid OAuth start-phone payload');
+  }
+
+  /// `POST /auth/oauth/verify-phone` — tokens uniquement.
+  Future<SessionTokens> oauthVerifyPhone({
+    required String oauthVerificationToken,
+    required String code,
+    required String birthDate,
+    required String login,
+  }) async {
+    debugPrint('[google-identity] AuthApiService.oauthVerifyPhone()');
+    final json = await _send(
+      'POST',
+      '/auth/oauth/verify-phone',
+      data: {
+        'oauth_verification_token': oauthVerificationToken,
+        'code': code,
+        'birth_date': birthDate,
+        'login': login,
+      },
+    );
+    final accessToken = json['access_token'];
+    final refreshToken = json['refresh_token'];
+    if (accessToken is! String ||
+        accessToken.isEmpty ||
+        refreshToken is! String ||
+        refreshToken.isEmpty) {
+      throw const FormatException('Invalid OAuth verify-phone payload');
+    }
+    return SessionTokens(
+      accessToken: accessToken,
+      refreshToken: refreshToken,
     );
   }
 

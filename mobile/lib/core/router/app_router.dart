@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../features/auth/presentation/screens/auth_entry_screen.dart';
 import '../../features/auth/presentation/screens/login_screen.dart';
+import '../../features/auth/presentation/screens/oauth_complete_screen.dart';
 import '../../features/auth/presentation/screens/register_screen.dart';
 import '../../features/auth/providers/auth_controller.dart';
 import '../../features/auth/state/auth_state.dart';
@@ -33,7 +34,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final location = state.matchedLocation;
       String? target;
       if (auth is AuthLoading) {
-        final onLoginFlow = location == AppRoutes.login || location == AppRoutes.register;
+        final onLoginFlow = location == AppRoutes.login ||
+            location == AppRoutes.register ||
+            location == AppRoutes.oauthComplete;
         if (onLoginFlow || location == AppRoutes.splash) {
           target = null;
         } else {
@@ -77,6 +80,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.register,
         builder: (context, state) => const RegisterScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.oauthComplete,
+        builder: (context, state) => const OAuthCompleteScreen(),
       ),
       GoRoute(
         path: AppRoutes.home,
