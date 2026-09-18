@@ -5,7 +5,7 @@ sealed class AuthState {
   const AuthState();
 }
 
-/// Restauration ou opération session en cours.
+/// Restauration de session au cold start. Pas les soumissions de formulaire Login.
 final class AuthLoading extends AuthState {
   const AuthLoading();
 }
@@ -17,7 +17,8 @@ final class AuthAuthenticated extends AuthState {
   final AuthAccount user;
 }
 
-/// Pas de session, pas de refresh_token, refresh en échec, ou logout.
+/// Pas de session (premier lancement, refresh invalide, ou logout).
+/// Une erreur de formulaire Login ne doit pas passer par cet état.
 final class AuthUnauthenticated extends AuthState {
   const AuthUnauthenticated();
 }

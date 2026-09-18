@@ -123,7 +123,7 @@ void main() {
     expect(api.logoutCalls, 0);
   });
 
-  testWidgets('Logout uses AuthController and returns to the public entry', (tester) async {
+  testWidgets('Logout uses AuthController and returns to Login, not the carousel', (tester) async {
     final api = _ApiProbe();
     final probe = _LogoutProbe();
     await tester.pumpWidget(
@@ -149,7 +149,7 @@ void main() {
     var leftHome = false;
     for (var i = 0; i < 20; i++) {
       await tester.pump(const Duration(milliseconds: 50));
-      if (find.text('Discover').evaluate().isNotEmpty &&
+      if (find.text('Sign in to continue to Lumina.').evaluate().isNotEmpty &&
           find.byType(HomeScreen).evaluate().isEmpty) {
         leftHome = true;
         break;
@@ -159,7 +159,8 @@ void main() {
     expect(probe.calls, 1);
     expect(container.read(authControllerProvider), isA<AuthUnauthenticated>());
     expect(leftHome, isTrue);
-    expect(find.text('Discover'), findsOneWidget);
+    expect(find.text('Sign in to continue to Lumina.'), findsOneWidget);
+    expect(find.text('Discover'), findsNothing);
     expect(find.byType(HomeScreen), findsNothing);
     expect(api.meCalls, 0);
   });
