@@ -2,8 +2,10 @@ import 'package:flutter/foundation.dart';
 
 import '../../../core/network/api_exception.dart';
 import '../data/storage/auth_token_storage.dart';
+import '../models/auth_account.dart';
 import '../models/auth_session.dart';
 import '../models/auth_user.dart';
+import '../models/google_start_result.dart';
 import '../models/register_start_result.dart';
 import '../models/register_verify_result.dart';
 import '../models/session_tokens.dart';
@@ -77,6 +79,35 @@ class AuthRepository {
       rethrow;
     }
     return session;
+  }
+
+  /// Google existant : persist + `me`. Pending : aucun token, pas une erreur.
+  Future<ContinueWithGoogleResult> continueWithGoogle({
+    required String idToken,
+  }) async {
+    final start = await _api.googleStart(idToken: idToken);
+    switch (start) {
+      case GoogleStartPending(:final email):
+        debugPrint(
+          '[google-identity] AuthRepository Google start pending email=$email',
+        );
+        return ContinueWithGooglePending(email: email);
+      case GoogleStartExisting(:final message, :final tokens):
+        await _persist(tokens);
+        debugPrint('[google-identity] AuthRepository Google tokens saved');
+        final me = await this.me();
+        return ContinueWithGoogleAuthenticated(
+          session: AuthSession(
+            message: message,
+            tokens: tokens,
+            user: AuthAccount(
+              id: me.userId,
+              login: me.login,
+              authProvider: me.authProvider,
+            ),
+          ),
+        );
+    }
   }
 
   Future<AuthUser> me() async {
