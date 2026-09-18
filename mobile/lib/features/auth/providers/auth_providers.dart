@@ -7,6 +7,7 @@ import '../data/storage/auth_token_storage.dart';
 import '../data/storage/secure_auth_token_storage.dart';
 import '../repositories/auth_repository.dart';
 import '../services/auth_api_service.dart';
+import '../services/google_identity_service.dart';
 
 final appConfigProvider = Provider<AppConfig>((ref) {
   debugPrint('[auth-restore-diag] appConfigProvider created');
@@ -26,6 +27,12 @@ final apiClientProvider = Provider<ApiClient>((ref) {
 final authApiServiceProvider = Provider<AuthApiService>((ref) {
   debugPrint('[auth-restore-diag] authApiServiceProvider created');
   return AuthApiService(ref.watch(apiClientProvider));
+});
+
+final googleIdentityServiceProvider = Provider<GoogleIdentityService>((ref) {
+  return GoogleIdentityService(
+    serverClientId: ref.watch(appConfigProvider).googleServerClientId,
+  );
 });
 
 final authRepositoryProvider = Provider<AuthRepository>((ref) {

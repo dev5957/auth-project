@@ -12,6 +12,8 @@ import '../../../../core/widgets/app_logo.dart';
 import '../../../../core/widgets/app_password_field.dart';
 import '../../../../core/widgets/app_text_field.dart';
 import '../../providers/auth_controller.dart';
+import '../../providers/auth_providers.dart';
+import '../../services/google_identity_service.dart';
 import '../state/register_flow_controller.dart';
 
 /// Écran Sign in. Passe uniquement par [AuthController.login].
@@ -30,6 +32,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   String? _passwordError;
   String? _formError;
   bool _submitting = false;
+  bool _googleSigningIn = false;
 
   @override
   void dispose() {
@@ -147,6 +150,33 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         _submitting = false;
         _formError = 'Unexpected error';
       });
+    }
+  }
+
+  /// Étape 1 : identité Google seulement. Pas d’API, pas d’AuthController.
+  Future<void> _continueWithGoogle() async {
+    if (_submitting || _googleSigningIn) {
+      return;
+    }
+    setState(() => _googleSigningIn = true);
+    try {
+      final result = await ref.read(googleIdentityServiceProvider).signIn();
+      if (!mounted) {
+        return;
+      }
+      switch (result) {
+        case GoogleIdentitySuccess(:final email):
+          debugPrint('[google-identity] Google Sign-In success');
+          debugPrint('[google-identity] Google account email: ${email ?? '(none)'}');
+        case GoogleIdentityCanceled():
+          debugPrint('[google-identity] Google Sign-In canceled');
+        case GoogleIdentityFailure(:final message):
+          debugPrint('[google-identity] Google Sign-In error: $message');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _googleSigningIn = false);
+      }
     }
   }
 
@@ -269,7 +299,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 AppButton(
                   label: 'Continue with Google',
                   variant: AppButtonVariant.secondary,
-                  onPressed: _submitting ? null : () {},
+                  isLoading: _googleSigningIn,
+                  onPressed: (_submitting || _googleSigningIn) ? null : _continueWithGoogle,
                 ),
                 const SizedBox(height: AppSpacing.md),
                 AppButton(
