@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../../../core/network/api_exception.dart';
 import '../data/storage/auth_token_storage.dart';
 import '../models/auth_session.dart';
@@ -58,8 +60,22 @@ class AuthRepository {
     required String login,
     required String password,
   }) async {
+    debugPrint('[auth-http-diag][B] AuthRepository.login() start');
+    debugPrint('[auth-login-diag] AuthRepository.login() entered');
+    debugPrint('[auth-login-diag] AuthRepository.login() calling AuthApiService.login()');
     final session = await _api.login(login: login, password: password);
-    await _persist(session.tokens);
+    debugPrint('[auth-http-diag][B] AuthRepository.login() HTTP OK, saveTokens start');
+    try {
+      await _persist(session.tokens);
+      debugPrint('[auth-http-diag][B] AuthRepository.login() saveTokens OK');
+    } catch (error, stackTrace) {
+      debugPrint(
+        '[auth-http-diag][B] AuthRepository.login() saveTokens FAILED '
+        'error.runtimeType=${error.runtimeType} error=$error',
+      );
+      debugPrint('[auth-http-diag][B] saveTokens stackTrace=$stackTrace');
+      rethrow;
+    }
     return session;
   }
 
@@ -72,15 +88,23 @@ class AuthRepository {
   }
 
   Future<AuthSession> refreshSession() async {
+    debugPrint('[auth-restore-diag] AuthRepository.refreshSession() entered');
     final refreshToken = await _tokenStorage.readRefreshToken();
     if (refreshToken == null || refreshToken.isEmpty) {
+      debugPrint('[auth-restore-diag] refreshSession() abort: no refresh token in storage');
       throw const ApiException(message: 'refresh_token is required', statusCode: 400);
     }
     try {
+      debugPrint('[auth-restore-diag] refreshSession() → AuthApiService.refresh()');
       final session = await _api.refresh(refreshToken: refreshToken);
+      debugPrint('[auth-restore-diag] refreshSession() HTTP OK, saveTokens start');
       await _persist(session.tokens);
+      debugPrint('[auth-restore-diag] refreshSession() saveTokens OK');
       return session;
-    } catch (_) {
+    } catch (error) {
+      debugPrint(
+        '[auth-restore-diag] refreshSession() FAILED error.runtimeType=${error.runtimeType}',
+      );
       await _tokenStorage.clearTokens();
       rethrow;
     }

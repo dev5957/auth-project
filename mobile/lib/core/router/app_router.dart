@@ -7,15 +7,18 @@ import '../../features/auth/presentation/screens/login_screen.dart';
 import '../../features/auth/presentation/screens/register_screen.dart';
 import '../../features/auth/providers/auth_controller.dart';
 import '../../features/auth/state/auth_state.dart';
+import '../../features/home/presentation/screens/home_screen.dart';
 import 'app_routes.dart';
-import 'placeholder_screen.dart';
 import 'session_splash_screen.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   final refresh = ValueNotifier<int>(0);
   ref.listen<AuthState>(
     authControllerProvider,
-    (_, __) {
+    (previous, next) {
+      debugPrint(
+        '[auth-restore-diag] auth listen previous=${previous.runtimeType} next=${next.runtimeType}',
+      );
       refresh.value++;
     },
     fireImmediately: true,
@@ -28,23 +31,30 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     redirect: (context, state) {
       final auth = ref.read(authControllerProvider);
       final location = state.matchedLocation;
-
+      String? target;
       if (auth is AuthLoading) {
         final onLoginFlow = location == AppRoutes.login || location == AppRoutes.register;
         if (onLoginFlow || location == AppRoutes.splash) {
-          return null;
+          target = null;
+        } else {
+          target = AppRoutes.splash;
         }
-        return AppRoutes.splash;
+      } else if (auth is AuthAuthenticated) {
+        target = location == AppRoutes.home ? null : AppRoutes.home;
+      } else if (location == AppRoutes.splash || location == AppRoutes.home) {
+        target = AppRoutes.entry;
+      } else {
+        target = null;
       }
-
-      if (auth is AuthAuthenticated) {
-        return location == AppRoutes.home ? null : AppRoutes.home;
-      }
-
-      if (location == AppRoutes.splash || location == AppRoutes.home) {
-        return AppRoutes.entry;
-      }
-      return null;
+      debugPrint(
+        '[auth-restore-diag] GoRouter redirect auth=${auth.runtimeType} '
+        'from=$location to=${target ?? '(stay)'}',
+      );
+      debugPrint(
+        '[auth-login-diag] GoRouter redirect location=$location '
+        'auth=${auth.runtimeType} destination=${target ?? '(stay)'}',
+      );
+      return target;
     },
     routes: [
       GoRoute(
@@ -65,7 +75,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: AppRoutes.home,
-        builder: (context, state) => const RouterPlaceholderScreen(title: 'Home placeholder'),
+        builder: (context, state) => const HomeScreen(),
       ),
     ],
   );

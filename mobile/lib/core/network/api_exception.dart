@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 
 /// Erreur API alignée sur `{ "error": "<message>" }` du backend.
 class ApiException implements Exception {
@@ -21,6 +22,11 @@ class ApiException implements Exception {
   }
 
   factory ApiException.fromDio(DioException error) {
+    // TEMP diagnostic — no body, tokens, or passwords.
+    debugPrint(
+      '[auth-http-diag] fromDio response==null=${error.response == null} '
+      'type=${error.type} uri=${error.requestOptions.uri}',
+    );
     if (error.response != null) {
       return ApiException.fromResponse(
         statusCode: error.response?.statusCode,

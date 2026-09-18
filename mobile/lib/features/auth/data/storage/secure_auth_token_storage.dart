@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'auth_token_storage.dart';
@@ -22,8 +23,18 @@ class SecureAuthTokenStorage implements AuthTokenStorage {
     required String accessToken,
     required String refreshToken,
   }) async {
-    await _storage.write(key: _accessTokenKey, value: accessToken);
-    await _storage.write(key: _refreshTokenKey, value: refreshToken);
+    debugPrint('[auth-http-diag][B] SecureAuthTokenStorage.saveTokens start');
+    try {
+      await _storage.write(key: _accessTokenKey, value: accessToken);
+      await _storage.write(key: _refreshTokenKey, value: refreshToken);
+      debugPrint('[auth-http-diag][B] SecureAuthTokenStorage.saveTokens OK');
+    } catch (error) {
+      debugPrint(
+        '[auth-http-diag][B] SecureAuthTokenStorage.saveTokens FAILED '
+        'error.runtimeType=${error.runtimeType} error=$error',
+      );
+      rethrow;
+    }
   }
 
   @override

@@ -33,6 +33,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   void dispose() {
+    debugPrint(
+      '[auth-login-diag] LoginScreen.dispose() isLoading=$_submitting',
+    );
     _loginController.dispose();
     _passwordController.dispose();
     super.dispose();
@@ -69,23 +72,65 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _submit() async {
-    if (_submitting || !_validate()) {
+    debugPrint(
+      '[auth-login-diag] LoginScreen._submit() entered '
+      'isLoading=$_submitting mounted=$mounted',
+    );
+    if (_submitting) {
+      debugPrint(
+        '[auth-login-diag] LoginScreen._submit() aborted already submitting '
+        'isLoading=$_submitting',
+      );
+      return;
+    }
+    if (!_validate()) {
+      debugPrint(
+        '[auth-login-diag] LoginScreen._submit() aborted validation failed '
+        'isLoading=$_submitting',
+      );
       return;
     }
     setState(() {
       _submitting = true;
       _formError = null;
     });
+    debugPrint(
+      '[auth-login-diag] LoginScreen button pressed → isLoading before=false after=$_submitting',
+    );
+    debugPrint('[auth-http-diag][B] LoginScreen Sign in tapped');
+    debugPrint('[auth-login-diag] LoginScreen calling AuthController.login()');
     try {
       await ref.read(authControllerProvider.notifier).login(
             login: _loginController.text.trim(),
             password: _passwordController.text,
           );
+      debugPrint(
+        '[auth-http-diag][B] LoginScreen after login() '
+        'auth=${ref.read(authControllerProvider).runtimeType} mounted=$mounted',
+      );
+      debugPrint(
+        '[auth-login-diag] LoginScreen after AuthController.login() '
+        'auth=${ref.read(authControllerProvider).runtimeType} '
+        'isLoading=$_submitting mounted=$mounted',
+      );
       if (!mounted) {
+        debugPrint('[auth-http-diag][B] LoginScreen unmounted, skip context.go(/home)');
+        debugPrint(
+          '[auth-login-diag] LoginScreen unmounted after login() — flow left Login',
+        );
         return;
       }
+      debugPrint('[auth-http-diag][B] LoginScreen context.go(/home)');
+      debugPrint('[auth-login-diag] LoginScreen context.go(${AppRoutes.home})');
       context.go(AppRoutes.home);
     } on ApiException catch (error) {
+      debugPrint(
+        '[auth-http-diag][B] LoginScreen ApiException statusCode=${error.statusCode}',
+      );
+      debugPrint(
+        '[auth-login-diag] LoginScreen caught ApiException '
+        'statusCode=${error.statusCode} mounted=$mounted',
+      );
       if (!mounted) {
         return;
       }
@@ -94,6 +139,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         _formError = _messageFor(error);
       });
     } on FormatException {
+      debugPrint('[auth-login-diag] LoginScreen caught FormatException mounted=$mounted');
       if (!mounted) {
         return;
       }
@@ -175,7 +221,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 AppButton(
                   label: 'Sign in',
                   isLoading: _submitting,
-                  onPressed: _submitting ? null : _submit,
+                  onPressed: _submitting
+                      ? null
+                      : () {
+                          debugPrint(
+                            '[auth-login-diag] LoginScreen Sign in onPressed '
+                            'isLoading=$_submitting',
+                          );
+                          _submit();
+                        },
                 ),
                 const SizedBox(height: AppSpacing.lg),
                 Wrap(

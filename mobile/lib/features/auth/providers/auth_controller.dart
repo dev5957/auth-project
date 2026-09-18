@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/api_exception.dart';
@@ -11,6 +12,9 @@ import 'auth_providers.dart';
 class AuthController extends Notifier<AuthState> {
   @override
   AuthState build() {
+    debugPrint(
+      '[auth-restore-diag] AuthController.build() → AuthLoading, scheduling restore()',
+    );
     Future<void>.microtask(restore);
     return const AuthLoading();
   }
@@ -19,20 +23,34 @@ class AuthController extends Notifier<AuthState> {
 
   /// Cold start : `POST /auth/refresh` uniquement s’il existe un refresh token.
   Future<void> restore() async {
+    debugPrint('[auth-restore-diag] restore() entered');
     try {
       final hasRefreshToken = await _repository.hasStoredRefreshToken();
+      debugPrint('[auth-restore-diag] hasRefreshToken=$hasRefreshToken');
       if (!hasRefreshToken) {
         state = const AuthUnauthenticated();
+        debugPrint('[auth-restore-diag] skip refreshSession() → AuthUnauthenticated');
         return;
       }
+      debugPrint('[auth-restore-diag] calling refreshSession()');
       final session = await _repository.refreshSession();
       state = AuthAuthenticated(user: session.user);
-    } on ApiException {
+      debugPrint('[auth-restore-diag] refreshSession() OK → AuthAuthenticated');
+    } on ApiException catch (error) {
       state = const AuthUnauthenticated();
+      debugPrint(
+        '[auth-restore-diag] refresh/restore ApiException → AuthUnauthenticated '
+        'statusCode=${error.statusCode}',
+      );
     } on FormatException {
       state = const AuthUnauthenticated();
-    } catch (_) {
+      debugPrint('[auth-restore-diag] restore FormatException → AuthUnauthenticated');
+    } catch (error) {
       state = const AuthUnauthenticated();
+      debugPrint(
+        '[auth-restore-diag] restore other → AuthUnauthenticated '
+        'error.runtimeType=${error.runtimeType}',
+      );
     }
   }
 
@@ -74,15 +92,59 @@ class AuthController extends Notifier<AuthState> {
     required String login,
     required String password,
   }) async {
+    debugPrint(
+      '[auth-login-diag] AuthController.login() entered '
+      'state=${state.runtimeType}',
+    );
+    debugPrint('[auth-http-diag][B] AuthController.login() start → AuthLoading');
     state = const AuthLoading();
+    debugPrint(
+      '[auth-login-diag] AuthController.login() state set to '
+      '${state.runtimeType} before repository.login()',
+    );
     try {
+      debugPrint('[auth-login-diag] AuthController.login() calling repository.login()');
       final session = await _repository.login(login: login, password: password);
       state = AuthAuthenticated(user: session.user);
-    } on ApiException {
+      debugPrint(
+        '[auth-http-diag][B] AuthController.login() final state=${state.runtimeType}',
+      );
+      debugPrint(
+        '[auth-login-diag] AuthController.login() repository returned → '
+        'state=${state.runtimeType}',
+      );
+    } on ApiException catch (error) {
       state = const AuthUnauthenticated();
+      debugPrint(
+        '[auth-http-diag][B] AuthController.login() ApiException → '
+        'AuthUnauthenticated statusCode=${error.statusCode}',
+      );
+      debugPrint(
+        '[auth-login-diag] AuthController.login() ApiException captured → '
+        'AuthUnauthenticated statusCode=${error.statusCode}',
+      );
       rethrow;
-    } on FormatException {
+    } on FormatException catch (error) {
       state = const AuthUnauthenticated();
+      debugPrint(
+        '[auth-http-diag][B] AuthController.login() FormatException → '
+        'AuthUnauthenticated error=$error',
+      );
+      debugPrint(
+        '[auth-login-diag] AuthController.login() FormatException captured → '
+        'AuthUnauthenticated',
+      );
+      rethrow;
+    } catch (error) {
+      debugPrint(
+        '[auth-http-diag][B] AuthController.login() other error.runtimeType='
+        '${error.runtimeType} state remains ${state.runtimeType}',
+      );
+      debugPrint(
+        '[auth-login-diag] AuthController.login() other error captured '
+        'error.runtimeType=${error.runtimeType} state=${state.runtimeType} '
+        '(not converted to AuthUnauthenticated here)',
+      );
       rethrow;
     }
   }
