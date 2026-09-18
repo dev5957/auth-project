@@ -11,9 +11,8 @@ import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_logo.dart';
 import '../../../../core/widgets/app_password_field.dart';
 import '../../../../core/widgets/app_text_field.dart';
+import '../../models/google_start_result.dart';
 import '../../providers/auth_controller.dart';
-import '../../providers/auth_providers.dart';
-import '../../services/google_identity_service.dart';
 import '../state/register_flow_controller.dart';
 
 /// Écran Sign in. Passe uniquement par [AuthController.login].
@@ -153,26 +152,45 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 
-  /// Étape 1 : identité Google seulement. Pas d’API, pas d’AuthController.
+  /// Google existant → session. Pending / cancel → rester Login. Pas d’AuthController.loading.
   Future<void> _continueWithGoogle() async {
     if (_submitting || _googleSigningIn) {
       return;
     }
-    setState(() => _googleSigningIn = true);
+    setState(() {
+      _googleSigningIn = true;
+      _formError = null;
+    });
     try {
-      final result = await ref.read(googleIdentityServiceProvider).signIn();
+      final result =
+          await ref.read(authControllerProvider.notifier).continueWithGoogle();
       if (!mounted) {
         return;
       }
       switch (result) {
-        case GoogleIdentitySuccess(:final email):
-          debugPrint('[google-identity] Google Sign-In success');
-          debugPrint('[google-identity] Google account email: ${email ?? '(none)'}');
-        case GoogleIdentityCanceled():
+        case ContinueWithGoogleAuthenticated():
+          context.go(AppRoutes.home);
+        case ContinueWithGooglePending(:final email):
+          debugPrint(
+            '[google-identity] Google account pending profile email=$email',
+          );
+        case ContinueWithGoogleCanceled():
           debugPrint('[google-identity] Google Sign-In canceled');
-        case GoogleIdentityFailure(:final message):
-          debugPrint('[google-identity] Google Sign-In error: $message');
       }
+    } on ApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _formError = _messageFor(error);
+      });
+    } on FormatException {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _formError = 'Unexpected error';
+      });
     } finally {
       if (mounted) {
         setState(() => _googleSigningIn = false);

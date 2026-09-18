@@ -5,10 +5,12 @@ import '../../../core/network/api_client.dart';
 import '../../../core/network/api_exception.dart';
 import '../models/auth_session.dart';
 import '../models/auth_user.dart';
+import '../models/google_start_result.dart';
 import '../models/register_start_result.dart';
 import '../models/register_verify_result.dart';
+import '../models/session_tokens.dart';
 
-/// Appels HTTP du contrat Auth local + session. Pas de Google / Apple ici.
+/// Appels HTTP Auth local, session, et Google start.
 class AuthApiService {
   AuthApiService(this._client);
 
@@ -76,6 +78,41 @@ class AuthApiService {
     );
     debugPrint('[auth-http-diag][B] AuthApiService.login() HTTP success (body not logged)');
     return AuthSession.fromJson(json);
+  }
+
+  /// `POST /auth/google/start` — tokens existants ou pending. Jamais [AuthSession.fromJson].
+  Future<GoogleStartResult> googleStart({required String idToken}) async {
+    debugPrint('[google-identity] AuthApiService.googleStart() → POST /auth/google/start');
+    final json = await _send(
+      'POST',
+      '/auth/google/start',
+      data: {
+        'id_token': idToken,
+      },
+    );
+    final accessToken = json['access_token'];
+    final refreshToken = json['refresh_token'];
+    if (accessToken is String &&
+        accessToken.isNotEmpty &&
+        refreshToken is String &&
+        refreshToken.isNotEmpty) {
+      final message = json['message'];
+      return GoogleStartExisting(
+        message: message is String && message.isNotEmpty ? message : 'Login successful',
+        tokens: SessionTokens(
+          accessToken: accessToken,
+          refreshToken: refreshToken,
+        ),
+      );
+    }
+    final oauthToken = json['oauth_verification_token'];
+    if (oauthToken is String && oauthToken.isNotEmpty) {
+      final email = json['email'];
+      return GoogleStartPending(
+        email: email is String ? email : '',
+      );
+    }
+    throw const FormatException('Invalid Google start payload');
   }
 
   /// `GET /auth/me`

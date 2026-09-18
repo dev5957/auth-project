@@ -2,9 +2,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/api_exception.dart';
+import '../models/google_start_result.dart';
 import '../models/register_start_result.dart';
 import '../models/register_verify_result.dart';
 import '../repositories/auth_repository.dart';
+import '../services/google_identity_service.dart';
 import '../state/auth_state.dart';
 import 'auth_providers.dart';
 
@@ -144,6 +146,42 @@ class AuthController extends Notifier<AuthState> {
         '(not converted to AuthUnauthenticated here)',
       );
       rethrow;
+    }
+  }
+
+  /// Google existant → session. Pending → pas une erreur. Pas d’[AuthLoading].
+  Future<ContinueWithGoogleResult> continueWithGoogle() async {
+    final identity = await ref.read(googleIdentityServiceProvider).signIn();
+    switch (identity) {
+      case GoogleIdentityCanceled():
+        return const ContinueWithGoogleCanceled();
+      case GoogleIdentityFailure(:final message):
+        throw ApiException(message: message);
+      case GoogleIdentitySuccess(:final idToken):
+        try {
+          final result = await _repository.continueWithGoogle(idToken: idToken);
+          switch (result) {
+            case ContinueWithGoogleAuthenticated(:final session):
+              state = AuthAuthenticated(user: session.user);
+              return result;
+            case ContinueWithGooglePending():
+              return result;
+            case ContinueWithGoogleCanceled():
+              return result;
+          }
+        } on ApiException catch (error) {
+          debugPrint(
+            '[google-identity] AuthController.continueWithGoogle ApiException '
+            'statusCode=${error.statusCode} state stays ${state.runtimeType}',
+          );
+          rethrow;
+        } on FormatException {
+          debugPrint(
+            '[google-identity] AuthController.continueWithGoogle FormatException '
+            'state stays ${state.runtimeType}',
+          );
+          rethrow;
+        }
     }
   }
 

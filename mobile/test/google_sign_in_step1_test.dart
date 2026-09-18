@@ -78,26 +78,6 @@ Future<ProviderContainer> _openLogin(
 }
 
 void main() {
-  testWidgets('Google success stays on Login and does not open Home', (tester) async {
-    final google = _ScriptedGoogleIdentity(
-      const GoogleIdentitySuccess(
-        idToken: 'secret-id-token',
-        email: 'ada@example.com',
-      ),
-    );
-    final container = await _openLogin(tester, google: google);
-
-    await tester.tap(find.text('Continue with Google'));
-    await tester.pumpAndSettle();
-
-    expect(google.calls, 1);
-    expect(find.byType(LoginScreen), findsOneWidget);
-    expect(_loginCopy, findsOneWidget);
-    expect(find.byType(HomeScreen), findsNothing);
-    expect(_carousel, findsNothing);
-    expect(container.read(authControllerProvider), isA<AuthUnauthenticated>());
-  });
-
   testWidgets('Google cancel stays on Login without Auth or carousel redirect', (tester) async {
     final google = _ScriptedGoogleIdentity(const GoogleIdentityCanceled());
     final container = await _openLogin(tester, google: google);
