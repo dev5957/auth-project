@@ -160,7 +160,16 @@ Future<ProviderContainer> _openPendingComplete(WidgetTester tester, _OAuthApi ap
   return ProviderScope.containerOf(tester.element(find.byType(LuminaApp)));
 }
 
-Future<void> _fillProfileThroughLogin(
+String _eighteenYearsAgoIso() {
+  final now = DateTime.now();
+  final date = DateTime(now.year - 18, now.month, now.day);
+  final year = date.year.toString().padLeft(4, '0');
+  final month = date.month.toString().padLeft(2, '0');
+  final day = date.day.toString().padLeft(2, '0');
+  return '$year-$month-$day';
+}
+
+Future<void> _goToBirthDateStep(
   WidgetTester tester, {
   String otp = '123456',
 }) async {
@@ -173,8 +182,23 @@ Future<void> _fillProfileThroughLogin(
   await tester.tap(find.text('Continue'));
   await tester.pumpAndSettle();
   expect(find.textContaining('Required by the app'), findsOneWidget);
+}
 
-  await tester.enterText(find.byType(TextField), '2000-01-15');
+Future<void> _pickDefaultBirthDate(WidgetTester tester) async {
+  await tester.tap(find.byTooltip('Choose date'));
+  await tester.pumpAndSettle();
+  expect(find.byType(DatePickerDialog), findsOneWidget);
+  await tester.tap(find.text('OK'));
+  await tester.pumpAndSettle();
+  expect(find.byType(DatePickerDialog), findsNothing);
+}
+
+Future<void> _fillProfileThroughLogin(
+  WidgetTester tester, {
+  String otp = '123456',
+}) async {
+  await _goToBirthDateStep(tester, otp: otp);
+  await _pickDefaultBirthDate(tester);
   await tester.tap(find.text('Continue'));
   await tester.pumpAndSettle();
   expect(find.textContaining('This is how you appear'), findsOneWidget);
@@ -197,7 +221,8 @@ void main() {
     expect(api.verifyPhoneCalls, 1);
     expect(api.lastVerifyToken, 'oauth-phone-token');
     expect(api.lastVerifyCode, '123456');
-    expect(api.lastBirthDate, '2000-01-15');
+    expect(api.lastBirthDate, _eighteenYearsAgoIso());
+    expect(api.lastBirthDate, matches(RegExp(r'^\d{4}-\d{2}-\d{2}$')));
     expect(api.lastLogin, 'ada-public');
     expect(api.meCalls, 1);
     expect(api.loginCalls, 0);
@@ -224,6 +249,30 @@ void main() {
     expect(find.byType(HomeScreen), findsNothing);
     expect(_carousel, findsNothing);
     expect(container.read(authControllerProvider), isA<AuthUnauthenticated>());
+  });
+
+  testWidgets('birth date picker opens and empty date keeps YYYY-MM-DD validation', (tester) async {
+    await _openPendingComplete(tester, _OAuthApi());
+    await _goToBirthDateStep(tester);
+
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+    expect(find.text('Use YYYY-MM-DD'), findsOneWidget);
+    expect(find.textContaining('This is how you appear'), findsNothing);
+
+    await _pickDefaultBirthDate(tester);
+    final readable = MaterialLocalizations.of(
+      tester.element(find.byType(OAuthCompleteScreen)),
+    ).formatMediumDate(
+      DateTime(DateTime.now().year - 18, DateTime.now().month, DateTime.now().day),
+    );
+    expect(find.text(readable), findsOneWidget);
+    expect(find.text(_eighteenYearsAgoIso()), findsNothing);
+
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+    expect(find.text('Use YYYY-MM-DD'), findsNothing);
+    expect(find.textContaining('This is how you appear'), findsOneWidget);
   });
 
   test('OAuth complete flow toString omits the verification token', () {

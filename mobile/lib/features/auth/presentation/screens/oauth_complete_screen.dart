@@ -297,14 +297,22 @@ class _OAuthBirthDateStep extends ConsumerStatefulWidget {
 
 class _OAuthBirthDateStepState extends ConsumerState<_OAuthBirthDateStep> {
   late final TextEditingController _birthController;
+  DateTime? _picked;
+  String? _isoBirthDate;
   String? _error;
 
   @override
   void initState() {
     super.initState();
-    _birthController = TextEditingController(
-      text: ref.read(oauthCompleteFlowProvider).birthDate ?? '',
-    );
+    _isoBirthDate = ref.read(oauthCompleteFlowProvider).birthDate;
+    _picked = _parseIsoBirthDate(_isoBirthDate);
+    _birthController = TextEditingController();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncDisplay();
   }
 
   @override
@@ -313,8 +321,52 @@ class _OAuthBirthDateStepState extends ConsumerState<_OAuthBirthDateStep> {
     super.dispose();
   }
 
+  void _syncDisplay() {
+    final picked = _picked;
+    if (picked == null) {
+      return;
+    }
+    final next = MaterialLocalizations.of(context).formatMediumDate(picked);
+    if (_birthController.text != next) {
+      _birthController.text = next;
+    }
+  }
+
+  Future<void> _pickBirthDate() async {
+    final colors = context.luminaColors;
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _picked ?? DateTime(now.year - 18, now.month, now.day),
+      firstDate: DateTime(1900, 1, 1),
+      lastDate: DateTime(now.year, now.month, now.day),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: Theme.of(context).colorScheme.copyWith(
+                  primary: colors.primary,
+                  onPrimary: colors.textOnPrimary,
+                  surface: colors.bgSurface,
+                  onSurface: colors.textPrimary,
+                ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked == null || !mounted) {
+      return;
+    }
+    setState(() {
+      _picked = picked;
+      _isoBirthDate = _formatIsoBirthDate(picked);
+      _error = null;
+    });
+    _syncDisplay();
+  }
+
   void _continue() {
-    final value = _birthController.text.trim();
+    final value = _isoBirthDate?.trim() ?? '';
     if (!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(value)) {
       setState(() => _error = 'Use YYYY-MM-DD');
       return;
@@ -340,23 +392,20 @@ class _OAuthBirthDateStepState extends ConsumerState<_OAuthBirthDateStep> {
         const SizedBox(height: AppSpacing.lg),
         AppTextField(
           label: 'Date of birth',
-          hint: '2000-01-15',
+          hint: 'Choose a date',
           controller: _birthController,
-          keyboardType: TextInputType.datetime,
-          onChanged: (_) {
-            if (_error != null) {
-              setState(() => _error = null);
-            }
-          },
-        ),
-        if (_error != null) ...[
-          const SizedBox(height: AppSpacing.md),
-          Text(
-            _error!,
-            textAlign: TextAlign.center,
-            style: AppTextTheme.labelSmall.copyWith(color: colors.danger),
+          errorText: _error,
+          readOnly: true,
+          onTap: _pickBirthDate,
+          suffixIcon: IconButton(
+            onPressed: _pickBirthDate,
+            tooltip: 'Choose date',
+            icon: Icon(
+              Icons.calendar_today_outlined,
+              color: colors.primary,
+            ),
           ),
-        ],
+        ),
         const SizedBox(height: AppSpacing.xxl),
         AppButton(
           label: 'Continue',
@@ -365,6 +414,26 @@ class _OAuthBirthDateStepState extends ConsumerState<_OAuthBirthDateStep> {
       ],
     );
   }
+}
+
+DateTime? _parseIsoBirthDate(String? raw) {
+  final value = raw?.trim() ?? '';
+  if (!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(value)) {
+    return null;
+  }
+  final parts = value.split('-');
+  return DateTime(
+    int.parse(parts[0]),
+    int.parse(parts[1]),
+    int.parse(parts[2]),
+  );
+}
+
+String _formatIsoBirthDate(DateTime date) {
+  final year = date.year.toString().padLeft(4, '0');
+  final month = date.month.toString().padLeft(2, '0');
+  final day = date.day.toString().padLeft(2, '0');
+  return '$year-$month-$day';
 }
 
 class _OAuthPublicLoginStep extends ConsumerStatefulWidget {
