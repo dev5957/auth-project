@@ -92,18 +92,35 @@ class AuthController extends Notifier<AuthState> {
     required String login,
     required String password,
   }) async {
+    debugPrint(
+      '[auth-login-diag] AuthController.login() entered '
+      'state=${state.runtimeType}',
+    );
     debugPrint('[auth-http-diag][B] AuthController.login() start → AuthLoading');
     state = const AuthLoading();
+    debugPrint(
+      '[auth-login-diag] AuthController.login() state set to '
+      '${state.runtimeType} before repository.login()',
+    );
     try {
+      debugPrint('[auth-login-diag] AuthController.login() calling repository.login()');
       final session = await _repository.login(login: login, password: password);
       state = AuthAuthenticated(user: session.user);
       debugPrint(
         '[auth-http-diag][B] AuthController.login() final state=${state.runtimeType}',
       );
+      debugPrint(
+        '[auth-login-diag] AuthController.login() repository returned → '
+        'state=${state.runtimeType}',
+      );
     } on ApiException catch (error) {
       state = const AuthUnauthenticated();
       debugPrint(
         '[auth-http-diag][B] AuthController.login() ApiException → '
+        'AuthUnauthenticated statusCode=${error.statusCode}',
+      );
+      debugPrint(
+        '[auth-login-diag] AuthController.login() ApiException captured → '
         'AuthUnauthenticated statusCode=${error.statusCode}',
       );
       rethrow;
@@ -113,11 +130,20 @@ class AuthController extends Notifier<AuthState> {
         '[auth-http-diag][B] AuthController.login() FormatException → '
         'AuthUnauthenticated error=$error',
       );
+      debugPrint(
+        '[auth-login-diag] AuthController.login() FormatException captured → '
+        'AuthUnauthenticated',
+      );
       rethrow;
     } catch (error) {
       debugPrint(
         '[auth-http-diag][B] AuthController.login() other error.runtimeType='
         '${error.runtimeType} state remains ${state.runtimeType}',
+      );
+      debugPrint(
+        '[auth-login-diag] AuthController.login() other error captured '
+        'error.runtimeType=${error.runtimeType} state=${state.runtimeType} '
+        '(not converted to AuthUnauthenticated here)',
       );
       rethrow;
     }

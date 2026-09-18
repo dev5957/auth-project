@@ -61,6 +61,8 @@ class AuthRepository {
     required String password,
   }) async {
     debugPrint('[auth-http-diag][B] AuthRepository.login() start');
+    debugPrint('[auth-login-diag] AuthRepository.login() entered');
+    debugPrint('[auth-login-diag] AuthRepository.login() calling AuthApiService.login()');
     final session = await _api.login(login: login, password: password);
     debugPrint('[auth-http-diag][B] AuthRepository.login() HTTP OK, saveTokens start');
     try {

@@ -64,6 +64,8 @@ class AuthApiService {
     required String password,
   }) async {
     debugPrint('[auth-http-diag][B] AuthApiService.login() → POST /auth/login');
+    debugPrint('[auth-login-diag] AuthApiService.login() entered');
+    debugPrint('[auth-login-diag] AuthApiService.login() about to POST /auth/login');
     final json = await _send(
       'POST',
       '/auth/login',

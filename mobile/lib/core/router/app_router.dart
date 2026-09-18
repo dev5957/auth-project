@@ -50,6 +50,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         '[auth-restore-diag] GoRouter redirect auth=${auth.runtimeType} '
         'from=$location to=${target ?? '(stay)'}',
       );
+      debugPrint(
+        '[auth-login-diag] GoRouter redirect location=$location '
+        'auth=${auth.runtimeType} destination=${target ?? '(stay)'}',
+      );
       return target;
     },
     routes: [
