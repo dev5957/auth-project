@@ -2,12 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../../core/config/app_config.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/router/app_routes.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
-import '../../../../core/theme/app_text_theme.dart';
 import '../../../../core/widgets/app_logo.dart';
 import '../../providers/auth_controller.dart';
 import '../state/register_flow_controller.dart';
@@ -55,12 +53,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
           child: Column(
             children: [
               const AppLogo(size: 56),
-              const SizedBox(height: AppSpacing.sm),
-              Text(
-                'API: ${AppConfig.fromEnvironment().apiBaseUrl}',
-                textAlign: TextAlign.center,
-                style: AppTextTheme.bodyMedium.copyWith(color: colors.textPrimary),
-              ),
               const SizedBox(height: AppSpacing.xxl),
               AnimatedSwitcher(
                 duration: const Duration(milliseconds: 280),

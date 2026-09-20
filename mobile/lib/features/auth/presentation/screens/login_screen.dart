@@ -11,9 +11,8 @@ import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_logo.dart';
 import '../../../../core/widgets/app_password_field.dart';
 import '../../../../core/widgets/app_text_field.dart';
-import '../../models/google_start_result.dart';
 import '../../providers/auth_controller.dart';
-import '../state/oauth_complete_flow_controller.dart';
+import '../continue_with_google.dart';
 import '../state/register_flow_controller.dart';
 
 /// Écran Sign in. Passe uniquement par [AuthController.login].
@@ -163,40 +162,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       _formError = null;
     });
     try {
-      final result =
-          await ref.read(authControllerProvider.notifier).continueWithGoogle();
-      if (!mounted) {
-        return;
-      }
-      switch (result) {
-        case ContinueWithGoogleAuthenticated():
-          context.go(AppRoutes.home);
-        case ContinueWithGooglePending(
-              :final email,
-              :final oauthVerificationToken,
-            ):
-          ref.read(oauthCompleteFlowProvider.notifier).start(
-                email: email,
-                oauthVerificationToken: oauthVerificationToken,
-              );
-          context.push(AppRoutes.oauthComplete);
-        case ContinueWithGoogleCanceled():
-          debugPrint('[google-identity] Google Sign-In canceled');
-      }
-    } on ApiException catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _formError = _messageFor(error);
-      });
-    } on FormatException {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _formError = 'Unexpected error';
-      });
+      await continueWithGoogleFromUi(
+        ref: ref,
+        context: context,
+        onLocalError: (message) {
+          setState(() => _formError = message);
+        },
+      );
     } finally {
       if (mounted) {
         setState(() => _googleSigningIn = false);

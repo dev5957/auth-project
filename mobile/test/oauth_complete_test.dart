@@ -10,7 +10,6 @@ import 'package:mobile/features/auth/models/auth_session.dart';
 import 'package:mobile/features/auth/models/auth_user.dart';
 import 'package:mobile/features/auth/models/google_start_result.dart';
 import 'package:mobile/features/auth/models/session_tokens.dart';
-import 'package:mobile/features/auth/presentation/screens/login_screen.dart';
 import 'package:mobile/features/auth/presentation/screens/oauth_complete_screen.dart';
 import 'package:mobile/features/auth/presentation/state/oauth_complete_flow_controller.dart';
 import 'package:mobile/features/auth/providers/auth_controller.dart';
