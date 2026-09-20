@@ -14,6 +14,7 @@ import '../../../../core/widgets/app_password_field.dart';
 import '../../../../core/widgets/app_text_field.dart';
 import '../../providers/auth_controller.dart';
 import '../state/forgot_password_flow_controller.dart';
+import '../state/register_phone.dart';
 
 class ForgotPasswordScreen extends ConsumerWidget {
   const ForgotPasswordScreen({super.key});
@@ -33,7 +34,7 @@ class ForgotPasswordScreen extends ConsumerWidget {
           icon: const Icon(Icons.arrow_back),
           onPressed: () {
             final current = ref.read(forgotPasswordFlowProvider).step;
-            if (current == ForgotPasswordStep.email) {
+            if (current == ForgotPasswordStep.phone) {
               context.pop();
               return;
             }
@@ -56,7 +57,7 @@ class ForgotPasswordScreen extends ConsumerWidget {
               ),
               const SizedBox(height: AppSpacing.xxl),
               switch (step) {
-                ForgotPasswordStep.email => const _ForgotEmailStep(),
+                ForgotPasswordStep.phone => const _ForgotPhoneStep(),
                 ForgotPasswordStep.code => const _ForgotCodeStep(),
                 ForgotPasswordStep.password => const _ForgotPasswordStep(),
               },
@@ -80,51 +81,52 @@ String _apiMessage(ApiException error) {
   return 'Unexpected error';
 }
 
-class _ForgotEmailStep extends ConsumerStatefulWidget {
-  const _ForgotEmailStep();
+class _ForgotPhoneStep extends ConsumerStatefulWidget {
+  const _ForgotPhoneStep();
 
   @override
-  ConsumerState<_ForgotEmailStep> createState() => _ForgotEmailStepState();
+  ConsumerState<_ForgotPhoneStep> createState() => _ForgotPhoneStepState();
 }
 
-class _ForgotEmailStepState extends ConsumerState<_ForgotEmailStep> {
-  late final TextEditingController _emailController;
+class _ForgotPhoneStepState extends ConsumerState<_ForgotPhoneStep> {
+  late final TextEditingController _phoneController;
   bool _submitting = false;
   String? _formError;
 
   @override
   void initState() {
     super.initState();
-    _emailController = TextEditingController(
-      text: ref.read(forgotPasswordFlowProvider).email,
+    _phoneController = TextEditingController(
+      text: ref.read(forgotPasswordFlowProvider).phoneNumber,
     );
   }
 
   @override
   void dispose() {
-    _emailController.dispose();
+    _phoneController.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
-    final email = _emailController.text.trim().toLowerCase();
-    if (email.isEmpty) {
-      setState(() => _formError = 'Email is required');
+    final error = validateRegisterPhoneNumber(_phoneController.text);
+    if (error != null) {
+      setState(() => _formError = error);
       return;
     }
+    final phoneNumber = normalizeRegisterPhoneNumber(_phoneController.text);
     setState(() {
       _submitting = true;
       _formError = null;
     });
     try {
       final message = await ref.read(authControllerProvider.notifier).requestPasswordReset(
-            email: email,
+            phoneNumber: phoneNumber,
           );
       if (!mounted) {
         return;
       }
-      ref.read(forgotPasswordFlowProvider.notifier).saveEmail(
-            email: email,
+      ref.read(forgotPasswordFlowProvider.notifier).savePhone(
+            phoneNumber: phoneNumber,
             genericMessage: message,
           );
     } on ApiException catch (error) {
@@ -151,15 +153,15 @@ class _ForgotEmailStepState extends ConsumerState<_ForgotEmailStep> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          'Enter the email of your Lumina account. If an account exists, we will send a reset code.',
+          'Enter the phone number of your Lumina account. If an account exists, we will send a reset code.',
           style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
         ),
         const SizedBox(height: AppSpacing.lg),
         AppTextField(
-          label: 'Email',
-          hint: 'you@example.com',
-          controller: _emailController,
-          keyboardType: TextInputType.emailAddress,
+          label: 'Phone number',
+          hint: '+33612345678',
+          controller: _phoneController,
+          keyboardType: TextInputType.phone,
           enabled: !_submitting,
           onChanged: (_) {
             if (_formError != null) {
@@ -313,7 +315,7 @@ class _ForgotPasswordStepState extends ConsumerState<_ForgotPasswordStep> {
     }
     final flow = ref.read(forgotPasswordFlowProvider);
     final code = flow.code;
-    if (code == null || flow.email.isEmpty) {
+    if (code == null || flow.phoneNumber.isEmpty) {
       setState(() => _formError = 'Complete the previous steps');
       return;
     }
@@ -323,7 +325,7 @@ class _ForgotPasswordStepState extends ConsumerState<_ForgotPasswordStep> {
     });
     try {
       await ref.read(authControllerProvider.notifier).confirmPasswordReset(
-            email: flow.email,
+            phoneNumber: flow.phoneNumber,
             code: code,
             password: password,
             passwordConfirmation: confirm,

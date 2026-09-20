@@ -54,29 +54,29 @@ class _ForgotApi extends AuthApiService {
   int forgotCalls = 0;
   int resetCalls = 0;
   int loginCalls = 0;
-  String? lastEmail;
+  String? lastPhoneNumber;
   String? lastCode;
   String? lastPassword;
   bool failCode = false;
 
   @override
-  Future<PasswordResetResult> requestPasswordReset({required String email}) async {
+  Future<PasswordResetResult> requestPasswordReset({required String phoneNumber}) async {
     forgotCalls += 1;
-    lastEmail = email;
+    lastPhoneNumber = phoneNumber;
     return const PasswordResetResult(
-      message: 'If an account exists for this email, a reset code has been sent.',
+      message: 'If an account exists for this phone number, a reset code has been sent.',
     );
   }
 
   @override
   Future<PasswordResetResult> confirmPasswordReset({
-    required String email,
+    required String phoneNumber,
     required String code,
     required String password,
     required String passwordConfirmation,
   }) async {
     resetCalls += 1;
-    lastEmail = email;
+    lastPhoneNumber = phoneNumber;
     lastCode = code;
     lastPassword = password;
     if (failCode || code != '123456') {
@@ -122,6 +122,8 @@ void main() {
   testWidgets('Login opens Forgot password without leaving Sign in copy behind', (tester) async {
     await _openForgot(tester, _ForgotApi());
     expect(find.text('Forgot password'), findsOneWidget);
+    expect(find.text('Phone number'), findsOneWidget);
+    expect(find.text('Email'), findsNothing);
     expect(find.text('Send reset code'), findsOneWidget);
     expect(_carousel, findsNothing);
   });
@@ -130,14 +132,14 @@ void main() {
     final api = _ForgotApi();
     final container = await _openForgot(tester, api);
 
-    await tester.enterText(find.byType(TextField), 'Ada@Example.com');
+    await tester.enterText(find.byType(TextField), '+33 6 12-34-56-78');
     await tester.tap(find.text('Send reset code'));
     await tester.pumpAndSettle();
 
     expect(api.forgotCalls, 1);
-    expect(api.lastEmail, 'ada@example.com');
+    expect(api.lastPhoneNumber, '+33612345678');
     expect(
-      find.text('If an account exists for this email, a reset code has been sent.'),
+      find.text('If an account exists for this phone number, a reset code has been sent.'),
       findsOneWidget,
     );
     expect(find.text('Enter the code'), findsOneWidget);
@@ -155,6 +157,7 @@ void main() {
     expect(api.resetCalls, 1);
     expect(api.lastCode, '123456');
     expect(api.lastPassword, 'newpass12');
+    expect(api.lastPhoneNumber, '+33612345678');
     expect(api.loginCalls, 0);
     expect(find.byType(LoginScreen), findsOneWidget);
     expect(find.byType(ForgotPasswordScreen), findsNothing);
@@ -163,11 +166,28 @@ void main() {
     expect(container.read(authControllerProvider), isA<AuthUnauthenticated>());
   });
 
+  testWidgets('local invalid code stays on the code step', (tester) async {
+    final api = _ForgotApi();
+    await _openForgot(tester, api);
+
+    await tester.enterText(find.byType(TextField), '+33612345678');
+    await tester.tap(find.text('Send reset code'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '12');
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Enter the 6-digit code'), findsOneWidget);
+    expect(find.text('Enter the code'), findsOneWidget);
+    expect(api.resetCalls, 0);
+    expect(find.byType(HomeScreen), findsNothing);
+  });
+
   testWidgets('wrong reset code stays in Forgot password without carousel', (tester) async {
     final api = _ForgotApi()..failCode = true;
     final container = await _openForgot(tester, api);
 
-    await tester.enterText(find.byType(TextField), 'ada@example.com');
+    await tester.enterText(find.byType(TextField), '+33612345678');
     await tester.tap(find.text('Send reset code'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), '123456');

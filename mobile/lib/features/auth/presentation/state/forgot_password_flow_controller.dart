@@ -1,28 +1,28 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-enum ForgotPasswordStep { email, code, password }
+enum ForgotPasswordStep { phone, code, password }
 
 class ForgotPasswordFlowState {
   const ForgotPasswordFlowState({
-    this.email = '',
+    this.phoneNumber = '',
     this.code,
     this.genericMessage,
-    this.step = ForgotPasswordStep.email,
+    this.step = ForgotPasswordStep.phone,
   });
 
-  final String email;
+  final String phoneNumber;
   final String? code;
   final String? genericMessage;
   final ForgotPasswordStep step;
 
   ForgotPasswordFlowState copyWith({
-    String? email,
+    String? phoneNumber,
     String? code,
     String? genericMessage,
     ForgotPasswordStep? step,
   }) {
     return ForgotPasswordFlowState(
-      email: email ?? this.email,
+      phoneNumber: phoneNumber ?? this.phoneNumber,
       code: code ?? this.code,
       genericMessage: genericMessage ?? this.genericMessage,
       step: step ?? this.step,
@@ -38,9 +38,9 @@ class ForgotPasswordFlowController extends Notifier<ForgotPasswordFlowState> {
     state = const ForgotPasswordFlowState();
   }
 
-  void saveEmail({required String email, required String genericMessage}) {
+  void savePhone({required String phoneNumber, required String genericMessage}) {
     state = ForgotPasswordFlowState(
-      email: email,
+      phoneNumber: phoneNumber,
       genericMessage: genericMessage,
       step: ForgotPasswordStep.code,
     );
@@ -52,8 +52,8 @@ class ForgotPasswordFlowController extends Notifier<ForgotPasswordFlowState> {
 
   void goToPreviousStep() {
     final previous = switch (state.step) {
-      ForgotPasswordStep.email => ForgotPasswordStep.email,
-      ForgotPasswordStep.code => ForgotPasswordStep.email,
+      ForgotPasswordStep.phone => ForgotPasswordStep.phone,
+      ForgotPasswordStep.code => ForgotPasswordStep.phone,
       ForgotPasswordStep.password => ForgotPasswordStep.code,
     };
     state = state.copyWith(step: previous);

@@ -173,21 +173,21 @@ Un login trop long (> 64) ou un mot de passe > 72 caractères au login renvoient
 
 ## POST `/auth/password/forgot`
 
-Demande un code de réinitialisation (6 chiffres) pour un compte **local**. La réponse est **identique** si l’email est inconnu, Google ou Apple. Aucun compte OAuth ne reçoit de code. Le code n’est stocké qu’en bcrypt (`password_reset_requests.code_hash`). TTL 10 minutes, cooldown 60 s par email, rate limit 5 / 15 min / IP.
+Demande un code de réinitialisation SMS (6 chiffres) pour un compte **local** dont le téléphone est **vérifié**. La réponse est **identique** si le numéro est inconnu, non vérifié, Google ou Apple. Aucun compte OAuth ne reçoit de code. L’email n’est pas un facteur de récupération. Le code n’est stocké qu’en bcrypt (`password_reset_requests.code_hash`). Envoi via `smsService` (mock pour l’instant, Twilio plus tard). TTL 10 minutes, cooldown 60 s par numéro normalisé, rate limit 5 / 15 min / IP.
 
-`sql/006_create_password_reset_requests.sql` s’exécute **manuellement dans Neon**. Le serveur ne l’applique pas.
+`sql/006_create_password_reset_requests.sql` a déjà été appliqué (colonne `email`). `sql/007_password_reset_requests_phone.sql` s’exécute **manuellement dans Neon** (ALTER vers `phone_number`). Le serveur ne l’applique pas.
 
 ### Corps
 
 ```json
-{ "email": "ada@example.com" }
+{ "phone_number": "+33612345678" }
 ```
 
 ### Succès — `200`
 
 ```json
 {
-  "message": "If an account exists for this email, a reset code has been sent."
+  "message": "If an account exists for this phone number, a reset code has been sent."
 }
 ```
 
@@ -195,8 +195,8 @@ Demande un code de réinitialisation (6 chiffres) pour un compte **local**. La r
 
 | HTTP | `error` |
 |---|---|
-| 400 | `email is required` |
-| 400 | `email is invalid` |
+| 400 | `phone_number is required` |
+| 400 | `phone_number is invalid` |
 | 429 | `Too many requests` |
 | 503 | `Database is not configured` |
 
@@ -212,7 +212,7 @@ Consomme le code (transaction `SELECT … FOR UPDATE` + `UPDATE … used_at IS N
 
 ```json
 {
-  "email": "ada@example.com",
+  "phone_number": "+33612345678",
   "code": "123456",
   "password": "new-password",
   "password_confirmation": "new-password"
@@ -231,7 +231,7 @@ Consomme le code (transaction `SELECT … FOR UPDATE` + `UPDATE … used_at IS N
 
 | HTTP | `error` |
 |---|---|
-| 400 | `email is required` |
+| 400 | `phone_number is required` |
 | 400 | `code is required` |
 | 400 | `password is required` |
 | 400 | `Password must be between 8 and 72 characters` |

@@ -86,6 +86,7 @@ async function main() {
   assert(mocked.result && mocked.result.mocked === true, 'mock provider should simulate success');
   assert(mocked.result.skipped === false, 'mock provider is a successful send, not a skip');
   assert(mockProviderCalls.length === 0, 'mock provider must not call Twilio');
+  assert(mocked.logs.includes('[DEV] SMS provider: mock'), 'mock provider should log mock mode');
   assertLogsSafe(mocked.logs, [
     '+33612345678',
     '999111',
@@ -145,6 +146,31 @@ async function main() {
   assertLogsSafe(failed.logs, ['+33612345678', '000000']);
   assert(!failed.logs.includes('Twilio exploded'), 'Twilio error body must not be logged');
   console.log('OK erreur Twilio: 503 générique, pas de secret ni numéro complet dans les logs');
+
+  const dnsFailing = {
+    messages: {
+      create: async () => {
+        const err = new Error('getaddrinfo ENOTFOUND api.twilio.com');
+        err.code = 'ENOTFOUND';
+        throw err;
+      },
+    },
+  };
+  const dnsFailed = await captureLogs(async () => {
+    try {
+      await smsService.sendSms('+33612345678', 'Your verification code is 000000', {
+        client: dnsFailing,
+      });
+      throw new Error('expected SMS ENOTFOUND failure');
+    } catch (err) {
+      assert(err.statusCode === 503, `expected 503, got ${err.statusCode}`);
+      assert(err.message === 'SMS could not be sent', `unexpected client message: ${err.message}`);
+    }
+  });
+  assert(dnsFailed.logs.includes('ENOTFOUND'), 'SMS layer should record the network code');
+  assert(!dnsFailed.logs.includes('Unhandled error'), 'SMS errors must not be unhandled');
+  assertLogsSafe(dnsFailed.logs, ['+33612345678', '000000', 'api.twilio.com']);
+  console.log('OK ENOTFOUND Twilio: 503 géré par smsService');
 
   const originalSend = smsService.sendSms;
   let registerCalledSms = false;

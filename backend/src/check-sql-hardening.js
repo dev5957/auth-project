@@ -27,8 +27,10 @@ function inspectSqlFiles() {
   const refresh = readSql('004_create_refresh_tokens.sql');
   const harden = readSql('005_harden_users.sql');
   const reset = readSql('006_create_password_reset_requests.sql');
+  const resetPhone = readSql('007_password_reset_requests_phone.sql');
   const hardenCode = stripSqlComments(harden);
   const resetCode = stripSqlComments(reset);
+  const resetPhoneCode = stripSqlComments(resetPhone);
 
   assert(users.includes('CONSTRAINT users_email_key UNIQUE (email)'), 'C: users.email UNIQUE missing in 001');
   assert(users.includes('CONSTRAINT users_login_key UNIQUE (login)'), 'D: users.login UNIQUE missing in 001');
@@ -87,7 +89,16 @@ function inspectSqlFiles() {
   assert(/MANUELLEMENT/i.test(reset), '006 must be documented as manual');
   assert(!/DROP\s+TABLE/i.test(resetCode), '006 must not DROP TABLE');
 
-  console.log('SQL files OK (001–006 inspected, 005–006 non-destructive / manual).');
+  assert(resetPhone.includes('phone_number'), '007 must add phone_number');
+  assert(resetPhone.includes('code_hash'), '007 must keep hashed codes');
+  assert(resetPhone.includes('password_reset_requests_phone_number_created_at_idx'), '007 phone index missing');
+  assert(/MANUELLEMENT/i.test(resetPhone), '007 must be documented as manual');
+  assert(/ALTER\s+TABLE/i.test(resetPhoneCode), '007 must ALTER existing table');
+  assert(!/DROP\s+TABLE/i.test(resetPhoneCode), '007 must not DROP TABLE');
+  assert(!/phone_verifications/i.test(resetPhoneCode), '007 must not use phone_verifications');
+  assert(!/CREATE TABLE[\s\S]*\bcode TEXT\b/i.test(resetPhoneCode), '007 must not store plaintext code');
+
+  console.log('SQL files OK (001–007 inspected, 005–007 non-destructive / manual).');
 }
 
 function printCount(label, count) {

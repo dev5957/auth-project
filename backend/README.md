@@ -166,7 +166,7 @@ Identifiants (fonctions centralisées, `src/validators/authFields.js`), appliqu�
 
 Contraintes SQL actuelles (`sql/001_create_users.sql`) : `UNIQUE(email)`, `UNIQUE(login)` (comparaison PostgreSQL sensible à la casse). **`phone_number` n’a pas de contrainte UNIQUE dans 001** (contrôle applicatif seulement jusqu’à `sql/005_harden_users.sql`, à appliquer manuellement dans Neon).
 
-La migration `sql/006_create_password_reset_requests.sql` définit `password_reset_requests` (hash du code, TTL, tentatives, `used_at`). Elle s’exécute **manuellement dans Neon**. Le serveur ne l’applique pas.
+Les migrations `sql/006_create_password_reset_requests.sql` (table initiale, colonne `email`) et `sql/007_password_reset_requests_phone.sql` (ALTER vers `phone_number`) s’exécutent **manuellement dans Neon**. Le serveur ne les applique pas. 006 a déjà été appliqué : ne pas la réécrire. 007 n’est **pas** appliquée automatiquement.
 
 Un rate limiting **en mémoire, par IP**, s’applique à `POST /auth/register/start` (5 / 15 min), `POST /auth/register/verify-phone` (10 / 15 min), `POST /auth/login` (10 / 15 min), `POST /auth/refresh` (30 / 15 min), `POST /auth/google/start` (10 / 15 min), `POST /auth/oauth/start-phone` (5 / 15 min), `POST /auth/oauth/verify-phone` (10 / 15 min), `POST /auth/password/forgot` (5 / 15 min) et `POST /auth/password/reset` (10 / 15 min). Dépassement : HTTP **429** et en-tête `Retry-After`. Ce limiteur n’est pas adapté à plusieurs instances de production.
 
@@ -237,7 +237,7 @@ En cas de succès, le backend retourne un **access token JWT** (15 minutes) et u
 
 ### Mot de passe oublié (comptes locaux)
 
-`POST /auth/password/forgot` prend un `email` et répond toujours le même message, que le compte soit absent, local, Google ou Apple. Un code à 6 chiffres (`crypto.randomInt`) n’est créé que pour un compte `local` avec `password_hash`. Il est stocké en bcrypt, expire en 10 minutes, 5 tentatives, cooldown 60 s par email. `POST /auth/password/reset` consomme le code de façon atomique (`FOR UPDATE`), met à jour le mot de passe, révoque tous les refresh tokens actifs, et **n’émet pas de JWT**. Google/Apple ne reçoivent pas de code et ne deviennent pas locaux. `sql/006_create_password_reset_requests.sql` est **manuel** (Neon).
+`POST /auth/password/forgot` prend un `phone_number` (normalisé comme à l’inscription) et répond toujours le même message, que le numéro soit inconnu, local, Google ou Apple. Un code SMS à 6 chiffres (`crypto.randomInt`, `smsService` / mock, pas Twilio à cette étape) n’est créé que pour un compte **local** avec `phone_verified = true` et `password_hash` non null. L’email n’est **pas** un facteur de récupération. Le code est stocké en bcrypt, expire en 10 minutes, 5 tentatives, cooldown 60 s par numéro normalisé. `DEV_LOG_RESET_CODE=true` affiche `[DEV] Password reset code: 123456` dans les logs serveur uniquement (jamais en base, jamais dans la réponse HTTP). `POST /auth/password/reset` consomme le code de façon atomique (`FOR UPDATE`), met à jour le mot de passe, révoque tous les refresh tokens actifs, et **n’émet pas de JWT**. Google/Apple ne reçoivent pas de code et ne deviennent pas locaux. `sql/007_password_reset_requests_phone.sql` est **manuel** (Neon) et n’est pas appliqué par le serveur.
 
 ```bash
 curl -sS -X POST http://localhost:3000/auth/login \
@@ -458,7 +458,7 @@ npm run test:auth-hardening
 
 ### Vérifier le durcissement SQL (SELECT uniquement)
 
-`npm run test:sql-hardening` inspecte les fichiers `sql/001`–`006` et, si `DATABASE_URL` est fournie, exécute uniquement des **SELECT** (doublons, contraintes, index). Aucun INSERT/UPDATE/DELETE. **N’applique pas** `sql/005_harden_users.sql` ni `sql/006_create_password_reset_requests.sql`.
+`npm run test:sql-hardening` inspecte les fichiers `sql/001`–`007` et, si `DATABASE_URL` est fournie, exécute uniquement des **SELECT** (doublons, contraintes, index). Aucun INSERT/UPDATE/DELETE. **N’applique pas** `sql/005_harden_users.sql`, `sql/006_create_password_reset_requests.sql` ni `sql/007_password_reset_requests_phone.sql`.
 
 ```bash
 cd backend
@@ -495,7 +495,7 @@ npm run test:logout
 
 ### Vérifier Forgot Password
 
-`npm run test:password-reset` n’applique pas `sql/006_create_password_reset_requests.sql` à Neon.
+`npm run test:password-reset` n’applique pas `sql/006_create_password_reset_requests.sql` ni `sql/007_password_reset_requests_phone.sql` à Neon.
 
 ```bash
 cd backend
