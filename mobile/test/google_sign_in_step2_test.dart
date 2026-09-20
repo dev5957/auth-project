@@ -155,6 +155,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(google.calls, 1);
+    expect(find.text('Google id_token is missing'), findsNothing);
+    expect(find.text('Google Sign-In failed'), findsNothing);
     expect(api.googleStartCalls, 1);
     expect(api.meCalls, 1);
     expect(api.loginCalls, 0);

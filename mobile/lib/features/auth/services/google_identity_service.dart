@@ -48,6 +48,10 @@ class GoogleIdentityService {
   final String? serverClientId;
   final GoogleSignIn _plugin;
 
+  /// Ne pas appeler [GoogleSignIn.signOut] avant [GoogleSignIn.signIn] :
+  /// sur Android le premier clic échoue souvent (erreur plateforme / id_token
+  /// manquant) alors que le second réussit. Google peut réutiliser une session
+  /// déjà autorisée sans nouvel écran de consentement.
   Future<GoogleIdentityResult> signIn() async {
     final clientId = serverClientId?.trim();
     if (clientId == null || clientId.isEmpty) {
@@ -55,21 +59,49 @@ class GoogleIdentityService {
       return const GoogleIdentityFailure('Google Sign-In is not configured');
     }
 
+    debugPrint(
+      '[google-identity] signIn() start configured=true clientIdLength=${clientId.length}',
+    );
+
     try {
+      GoogleSignInAccount? account;
       try {
-        await _plugin.signOut();
-      } catch (_) {
-        // Continuer : l’écran de compte Google s’affichera quand même.
+        account = await _plugin.signInSilently();
+        debugPrint('[google-identity] silent hasAccount=${account != null}');
+      } catch (error) {
+        debugPrint(
+          '[google-identity] silent skipped runtimeType=${error.runtimeType}',
+        );
+        account = null;
       }
 
-      final account = await _plugin.signIn();
+      if (account == null) {
+        debugPrint('[google-identity] interactive signIn()');
+        account = await _plugin.signIn();
+      }
+
       if (account == null) {
         debugPrint('[google-identity] Google Sign-In canceled');
         return const GoogleIdentityCanceled();
       }
 
-      final authentication = await account.authentication;
-      final idToken = authentication.idToken;
+      var authentication = await account.authentication;
+      var idToken = authentication.idToken;
+      if (idToken == null || idToken.isEmpty) {
+        debugPrint('[google-identity] id_token missing after sign-in, silent retry');
+        try {
+          account = await _plugin.signInSilently();
+        } catch (error) {
+          debugPrint(
+            '[google-identity] silent retry skipped runtimeType=${error.runtimeType}',
+          );
+        }
+        if (account != null) {
+          authentication = await account.authentication;
+          idToken = authentication.idToken;
+        }
+      }
+
       if (idToken == null || idToken.isEmpty) {
         debugPrint('[google-identity] Google Sign-In missing id_token');
         return const GoogleIdentityFailure('Google id_token is missing');
@@ -77,6 +109,7 @@ class GoogleIdentityService {
 
       final email = account.email.trim().isEmpty ? null : account.email.trim();
       final displayName = account.displayName?.trim();
+      debugPrint('[google-identity] signIn() success hasEmail=${email != null}');
       return GoogleIdentitySuccess(
         idToken: idToken,
         email: email,
