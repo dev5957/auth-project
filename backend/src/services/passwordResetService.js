@@ -3,8 +3,8 @@ const bcrypt = require('bcrypt');
 const pool = require('../db');
 const AppError = require('../errors/AppError');
 const { validatePasswordForRegistration } = require('../validators/passwordValidator');
-const { normalizeEmail } = require('../validators/authFields');
-const emailService = require('./emailService');
+const { normalizePhoneNumber } = require('../validators/authFields');
+const smsService = require('./smsService');
 
 const BCRYPT_ROUNDS = 10;
 const CODE_TTL_MS = 10 * 60 * 1000;
@@ -12,7 +12,7 @@ const MAX_ATTEMPTS = 5;
 const COOLDOWN_MS = 60 * 1000;
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync('dummy-timing-password', BCRYPT_ROUNDS);
 const GENERIC_FORGOT_MESSAGE =
-  'If an account exists for this email, a reset code has been sent.';
+  'If an account exists for this phone number, a reset code has been sent.';
 const GENERIC_RESET_ERROR = 'Invalid or expired reset code';
 const RESET_SUCCESS_MESSAGE = 'Password has been reset. You can sign in.';
 
@@ -27,10 +27,11 @@ function generateResetCode() {
   return crypto.randomInt(0, 1_000_000).toString().padStart(6, '0');
 }
 
-function isLocalPasswordAccount(user) {
+function isRecoverableLocalAccount(user) {
   return (
     user &&
     user.auth_provider === 'local' &&
+    user.phone_verified === true &&
     typeof user.password_hash === 'string' &&
     user.password_hash.length > 0
   );
@@ -44,26 +45,26 @@ async function dummyCompare(code) {
 async function requestPasswordReset(body, deps = {}) {
   const db = deps.db || pool;
   const nowMs = deps.nowMs || Date.now();
-  const sendEmail = deps.sendEmail || emailService.sendResetEmail;
+  const sendSms = deps.sendSms || smsService.sendSms;
   const createCode = deps.generateCode || generateResetCode;
 
   const payload = body && typeof body === 'object' ? body : {};
-  const email = normalizeEmail(payload.email);
+  const phone_number = normalizePhoneNumber(payload.phone_number);
 
   if (!process.env.DATABASE_URL) {
     throw new AppError(503, 'Database is not configured');
   }
 
   const found = await db.query(
-    `SELECT id, auth_provider, password_hash
+    `SELECT id, auth_provider, password_hash, phone_verified
      FROM users
-     WHERE email = $1
+     WHERE phone_number = $1
      LIMIT 1`,
-    [email]
+    [phone_number]
   );
   const user = found.rows[0];
 
-  if (!isLocalPasswordAccount(user)) {
+  if (!isRecoverableLocalAccount(user)) {
     await dummyCompare('000000');
     return { message: GENERIC_FORGOT_MESSAGE };
   }
@@ -71,10 +72,10 @@ async function requestPasswordReset(body, deps = {}) {
   const latest = await db.query(
     `SELECT created_at
      FROM password_reset_requests
-     WHERE email = $1
+     WHERE phone_number = $1
      ORDER BY created_at DESC, id DESC
      LIMIT 1`,
-    [email]
+    [phone_number]
   );
   const lastCreated = latest.rows[0] && latest.rows[0].created_at;
   if (lastCreated && nowMs - new Date(lastCreated).getTime() < COOLDOWN_MS) {
@@ -88,25 +89,25 @@ async function requestPasswordReset(body, deps = {}) {
   await db.query(
     `INSERT INTO password_reset_requests (
        user_id,
-       email,
+       phone_number,
        code_hash,
        expires_at,
        attempts
      ) VALUES ($1, $2, $3, $4, 0)`,
-    [user.id, email, code_hash, expires_at]
+    [user.id, phone_number, code_hash, expires_at]
   );
 
   if (process.env.DEV_LOG_RESET_CODE === 'true') {
     console.log('[DEV] Password reset code generated');
   }
 
-  await sendEmail(email, code);
+  await sendSms(phone_number, `Your verification code is ${code}`);
   return { message: GENERIC_FORGOT_MESSAGE };
 }
 
 function validateResetPayload(body) {
   const payload = body && typeof body === 'object' ? body : {};
-  const email = normalizeEmail(payload.email);
+  const phone_number = normalizePhoneNumber(payload.phone_number);
   const code = requiredString(payload.code, 'code');
   const password = validatePasswordForRegistration(payload.password);
   if (typeof payload.password_confirmation !== 'string' || payload.password_confirmation === '') {
@@ -115,13 +116,13 @@ function validateResetPayload(body) {
   if (payload.password !== payload.password_confirmation) {
     throw new AppError(400, 'password and password_confirmation do not match');
   }
-  return { email, code, password };
+  return { phone_number, code, password };
 }
 
 async function confirmPasswordReset(body, deps = {}) {
   const db = deps.db || pool;
   const nowMs = deps.nowMs || Date.now();
-  const { email, code, password } = validateResetPayload(body);
+  const { phone_number, code, password } = validateResetPayload(body);
 
   if (!process.env.DATABASE_URL) {
     throw new AppError(503, 'Database is not configured');
@@ -134,13 +135,13 @@ async function confirmPasswordReset(body, deps = {}) {
     await client.query('BEGIN');
 
     const found = await client.query(
-      `SELECT id, user_id, email, code_hash, expires_at, attempts, used_at
+      `SELECT id, user_id, phone_number, code_hash, expires_at, attempts, used_at
        FROM password_reset_requests
-       WHERE email = $1 AND used_at IS NULL
+       WHERE phone_number = $1 AND used_at IS NULL
        ORDER BY created_at DESC, id DESC
        LIMIT 1
        FOR UPDATE`,
-      [email]
+      [phone_number]
     );
 
     if (found.rowCount === 0) {

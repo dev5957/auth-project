@@ -159,13 +159,13 @@ class AuthApiService {
   }
 
   /// `POST /auth/password/forgot` — message générique, pas de token.
-  Future<PasswordResetResult> requestPasswordReset({required String email}) async {
+  Future<PasswordResetResult> requestPasswordReset({required String phoneNumber}) async {
     debugPrint('[auth-http-diag] AuthApiService.requestPasswordReset()');
     final json = await _send(
       'POST',
       '/auth/password/forgot',
       data: {
-        'email': email,
+        'phone_number': phoneNumber,
       },
     );
     return PasswordResetResult.fromJson(json);
@@ -173,7 +173,7 @@ class AuthApiService {
 
   /// `POST /auth/password/reset` — pas de JWT.
   Future<PasswordResetResult> confirmPasswordReset({
-    required String email,
+    required String phoneNumber,
     required String code,
     required String password,
     required String passwordConfirmation,
@@ -183,7 +183,7 @@ class AuthApiService {
       'POST',
       '/auth/password/reset',
       data: {
-        'email': email,
+        'phone_number': phoneNumber,
         'code': code,
         'password': password,
         'password_confirmation': passwordConfirmation,

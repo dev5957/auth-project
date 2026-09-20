@@ -33,7 +33,7 @@ const EXPECTED = {
   password_reset_requests: [
     'id',
     'user_id',
-    'email',
+    'phone_number',
     'code_hash',
     'expires_at',
     'attempts',
@@ -103,6 +103,13 @@ async function checkSchema() {
     }
 
     console.log('  columns found:', actual.join(', ') || '(none)');
+    if (
+      tableName === 'password_reset_requests' &&
+      actual.includes('email') &&
+      !actual.includes('phone_number')
+    ) {
+      console.log('  hint: apply sql/007_password_reset_requests_phone.sql manually in Neon');
+    }
     if (missingColumns.length) {
       console.log('  columns missing:', missingColumns.join(', '));
       hasDifference = true;

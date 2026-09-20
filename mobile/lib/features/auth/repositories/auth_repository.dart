@@ -149,19 +149,19 @@ class AuthRepository {
     );
   }
 
-  Future<String> requestPasswordReset({required String email}) async {
-    final result = await _api.requestPasswordReset(email: email);
+  Future<String> requestPasswordReset({required String phoneNumber}) async {
+    final result = await _api.requestPasswordReset(phoneNumber: phoneNumber);
     return result.message;
   }
 
   Future<String> confirmPasswordReset({
-    required String email,
+    required String phoneNumber,
     required String code,
     required String password,
     required String passwordConfirmation,
   }) async {
     final result = await _api.confirmPasswordReset(
-      email: email,
+      phoneNumber: phoneNumber,
       code: code,
       password: password,
       passwordConfirmation: passwordConfirmation,

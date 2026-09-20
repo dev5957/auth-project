@@ -8,8 +8,10 @@ const {
 } = require('./services/passwordResetService');
 
 const CODE = '123456';
-const EMAIL = 'ada@example.com';
+const PHONE = '+33612345678';
+const OLD_PASSWORD = 'oldpass12';
 const NEW_PASSWORD = 'newpass12';
+const LOGIN = 'ada';
 
 function assert(condition, message) {
   if (!condition) {
@@ -36,10 +38,12 @@ function sqlKey(sql) {
 function localUser(overrides = {}) {
   return {
     id: 1,
-    email: EMAIL,
-    login: 'ada',
+    email: 'ada@example.com',
+    login: LOGIN,
+    phone_number: PHONE,
+    phone_verified: true,
     auth_provider: 'local',
-    password_hash: bcrypt.hashSync('oldpass12', 4),
+    password_hash: bcrypt.hashSync(OLD_PASSWORD, 4),
     ...overrides,
   };
 }
@@ -84,21 +88,28 @@ function createMemoryDb({ users = [], resets = [], tokens = [] } = {}) {
       return { rows: [], rowCount: 0 };
     }
 
-    if (key.includes('FROM USERS') && key.includes('AUTH_PROVIDER') && key.includes('PASSWORD_HASH')) {
-      const email = params[0];
-      const user = state.users.find((item) => item.email === email);
+    if (key.includes('FROM USERS') && key.includes('PHONE_VERIFIED') && key.includes('PHONE_NUMBER')) {
+      const phone_number = params[0];
+      const user = state.users.find((item) => item.phone_number === phone_number);
       return {
         rowCount: user ? 1 : 0,
         rows: user
-          ? [{ id: user.id, auth_provider: user.auth_provider, password_hash: user.password_hash }]
+          ? [
+              {
+                id: user.id,
+                auth_provider: user.auth_provider,
+                password_hash: user.password_hash,
+                phone_verified: user.phone_verified,
+              },
+            ]
           : [],
       };
     }
 
     if (key.includes('FROM PASSWORD_RESET_REQUESTS') && key.includes('CREATED_AT') && !key.includes('FOR UPDATE')) {
-      const email = params[0];
+      const phone_number = params[0];
       const rows = state.resets
-        .filter((row) => row.email === email)
+        .filter((row) => row.phone_number === phone_number)
         .sort((a, b) => new Date(b.created_at) - new Date(a.created_at) || b.id - a.id);
       return {
         rowCount: rows.length ? 1 : 0,
@@ -110,7 +121,7 @@ function createMemoryDb({ users = [], resets = [], tokens = [] } = {}) {
       const row = {
         id: state.nextResetId,
         user_id: params[0],
-        email: params[1],
+        phone_number: params[1],
         code_hash: params[2],
         expires_at: params[3],
         attempts: 0,
@@ -124,9 +135,9 @@ function createMemoryDb({ users = [], resets = [], tokens = [] } = {}) {
 
     if (key.includes('FROM PASSWORD_RESET_REQUESTS') && key.includes('FOR UPDATE')) {
       await acquireLock();
-      const email = params[0];
+      const phone_number = params[0];
       const rows = state.resets
-        .filter((row) => row.email === email && row.used_at == null)
+        .filter((row) => row.phone_number === phone_number && row.used_at == null)
         .sort((a, b) => new Date(b.created_at) - new Date(a.created_at) || b.id - a.id);
       const row = rows[0];
       return {
@@ -136,7 +147,7 @@ function createMemoryDb({ users = [], resets = [], tokens = [] } = {}) {
               {
                 id: row.id,
                 user_id: row.user_id,
-                email: row.email,
+                phone_number: row.phone_number,
                 code_hash: row.code_hash,
                 expires_at: row.expires_at,
                 attempts: row.attempts,
@@ -225,9 +236,17 @@ function depsFor(db, extras = {}) {
   return {
     db,
     generateCode: () => CODE,
-    sendEmail: extras.sendEmail || (async () => ({ mocked: true })),
+    sendSms: extras.sendSms || (async () => ({ mocked: true })),
     nowMs: extras.nowMs || Date.now(),
   };
+}
+
+async function assertLocalLoginWouldSucceed(user, password) {
+  assert(user.auth_provider === 'local', 'login: still local');
+  assert(user.phone_verified === true, 'login: phone_verified');
+  assert(typeof user.password_hash === 'string' && user.password_hash.length > 0, 'login: hash');
+  assert(await bcrypt.compare(password, user.password_hash), 'login: new password matches');
+  assert(!(await bcrypt.compare(OLD_PASSWORD, user.password_hash)), 'login: old password rejected');
 }
 
 async function main() {
@@ -237,9 +256,9 @@ async function main() {
   process.env.DEV_LOG_RESET_CODE = 'true';
 
   try {
-    const forgotBody = { email: 'Ada@Example.com' };
+    const forgotBody = { phone_number: '+33 6 12-34-56-78' };
     const resetBody = {
-      email: EMAIL,
+      phone_number: PHONE,
       code: CODE,
       password: NEW_PASSWORD,
       password_confirmation: NEW_PASSWORD,
@@ -254,28 +273,36 @@ async function main() {
       const apple = createMemoryDb({
         users: [localUser({ auth_provider: 'apple', password_hash: null, id: 2 })],
       });
+      const unverified = createMemoryDb({
+        users: [localUser({ phone_verified: false })],
+      });
       const local = createMemoryDb({ users: [localUser()] });
-      const sendEmail = async (email, code) => {
-        sends.push({ email, code });
+      const sendSms = async (phone_number, message) => {
+        sends.push({ phone_number, message });
         return { mocked: true };
       };
 
-      const unknownResult = await requestPasswordReset(forgotBody, depsFor(unknown, { sendEmail }));
-      const googleResult = await requestPasswordReset(forgotBody, depsFor(google, { sendEmail }));
-      const appleResult = await requestPasswordReset(forgotBody, depsFor(apple, { sendEmail }));
-      const localResult = await requestPasswordReset(forgotBody, depsFor(local, { sendEmail }));
+      const unknownResult = await requestPasswordReset(forgotBody, depsFor(unknown, { sendSms }));
+      const googleResult = await requestPasswordReset(forgotBody, depsFor(google, { sendSms }));
+      const appleResult = await requestPasswordReset(forgotBody, depsFor(apple, { sendSms }));
+      const unverifiedResult = await requestPasswordReset(forgotBody, depsFor(unverified, { sendSms }));
+      const localResult = await requestPasswordReset(forgotBody, depsFor(local, { sendSms }));
 
       assert(unknownResult.message === GENERIC_FORGOT_MESSAGE, 'unknown message');
       assert(googleResult.message === localResult.message, 'google same message');
       assert(appleResult.message === localResult.message, 'apple same message');
+      assert(unverifiedResult.message === localResult.message, 'unverified same message');
       assert(unknown.state.resets.length === 0, 'unknown must not insert');
       assert(google.state.resets.length === 0, 'google must not insert');
       assert(apple.state.resets.length === 0, 'apple must not insert');
-      assert(local.state.resets.length === 1, 'local must insert');
+      assert(unverified.state.resets.length === 0, 'unverified local must not insert');
+      assert(local.state.resets.length === 1, 'local verified must insert');
       assert(local.state.resets[0].code_hash !== CODE, 'code must be hashed');
-      assert(sends.length === 1, 'only local receives a code');
-      assert(sends[0].email === EMAIL, 'normalized email');
-      console.log('OK forgot: même 200 générique, code seulement pour local');
+      assert(!Object.prototype.hasOwnProperty.call(local.state.resets[0], 'code'), 'no plaintext code column');
+      assert(sends.length === 1, 'only recoverable local receives a code');
+      assert(sends[0].phone_number === PHONE, 'normalized phone');
+      assert(sends[0].message.includes(CODE), 'sms body includes code');
+      console.log('OK forgot: même 200 générique, code seulement pour local + téléphone vérifié');
     })();
 
     await (async () => {
@@ -298,7 +325,8 @@ async function main() {
       assert(db.state.tokens[0].revoked_at, 'refresh 1 revoked');
       assert(db.state.tokens[1].revoked_at, 'refresh 2 revoked');
       assert(db.state.tokens[2].revoked_at == null, 'other user refresh stays');
-      console.log('OK reset local: password + révocation refresh, pas de JWT');
+      await assertLocalLoginWouldSucceed(db.state.users[0], NEW_PASSWORD);
+      console.log('OK reset local: password + révocation refresh, pas de JWT, login nouveau mot de passe');
     })();
 
     await (async () => {
@@ -334,7 +362,7 @@ async function main() {
           {
             id: 8,
             user_id: 1,
-            email: EMAIL,
+            phone_number: PHONE,
             code_hash: await bcrypt.hash(CODE, 4),
             expires_at: new Date(Date.now() - 1000),
             attempts: 0,
@@ -354,7 +382,7 @@ async function main() {
           {
             id: 9,
             user_id: 1,
-            email: EMAIL,
+            phone_number: PHONE,
             code_hash: await bcrypt.hash(CODE, 4),
             expires_at: new Date(Date.now() + 10 * 60 * 1000),
             attempts: 5,
@@ -409,7 +437,7 @@ async function main() {
       assert(db.state.resets.length === 1, 'cooldown 60s');
       await requestPasswordReset(forgotBody, depsFor(db, { nowMs: t0 + 61 * 1000 }));
       assert(db.state.resets.length === 2, 'after cooldown a new row is inserted');
-      console.log('OK cooldown 60s par email');
+      console.log('OK cooldown 60s par téléphone normalisé');
     })();
 
     await (async () => {
@@ -433,6 +461,7 @@ async function main() {
       const captured = await captureLogs(() => requestPasswordReset(forgotBody, depsFor(db)));
       assert(!captured.logs.includes(CODE), 'logs must not contain reset code');
       assert(!captured.logs.includes(NEW_PASSWORD), 'logs must not contain password');
+      assert(!captured.logs.includes(OLD_PASSWORD), 'logs must not contain old password');
       assert(!captured.logs.includes(db.state.resets[0].code_hash), 'logs must not contain hash');
       console.log('OK logs sans code ni mot de passe');
     })();
