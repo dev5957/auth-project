@@ -85,20 +85,22 @@ class GoogleIdentityService {
         return const GoogleIdentityCanceled();
       }
 
-      var authentication = await account.authentication;
+      var signedInAccount = account;
+      var authentication = await signedInAccount.authentication;
       var idToken = authentication.idToken;
       if (idToken == null || idToken.isEmpty) {
         debugPrint('[google-identity] id_token missing after sign-in, silent retry');
         try {
-          account = await _plugin.signInSilently();
+          final retry = await _plugin.signInSilently();
+          if (retry != null) {
+            signedInAccount = retry;
+            authentication = await retry.authentication;
+            idToken = authentication.idToken;
+          }
         } catch (error) {
           debugPrint(
             '[google-identity] silent retry skipped runtimeType=${error.runtimeType}',
           );
-        }
-        if (account != null) {
-          authentication = await account.authentication;
-          idToken = authentication.idToken;
         }
       }
 
@@ -107,8 +109,9 @@ class GoogleIdentityService {
         return const GoogleIdentityFailure('Google id_token is missing');
       }
 
-      final email = account.email.trim().isEmpty ? null : account.email.trim();
-      final displayName = account.displayName?.trim();
+      final email =
+          signedInAccount.email.trim().isEmpty ? null : signedInAccount.email.trim();
+      final displayName = signedInAccount.displayName?.trim();
       debugPrint('[google-identity] signIn() success hasEmail=${email != null}');
       return GoogleIdentitySuccess(
         idToken: idToken,

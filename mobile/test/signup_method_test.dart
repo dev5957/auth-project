@@ -5,7 +5,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/core/config/app_config.dart';
 import 'package:mobile/core/network/api_client.dart';
 import 'package:mobile/features/auth/data/storage/auth_token_storage.dart';
-import 'package:mobile/features/auth/models/auth_session.dart';
 import 'package:mobile/features/auth/models/auth_user.dart';
 import 'package:mobile/features/auth/models/google_start_result.dart';
 import 'package:mobile/features/auth/models/session_tokens.dart';
