@@ -225,6 +225,25 @@ class AuthController extends Notifier<AuthState> {
     }
   }
 
+  /// Forgot password : pas de session. Erreurs locales, pas d’[AuthLoading].
+  Future<String> requestPasswordReset({required String email}) {
+    return _repository.requestPasswordReset(email: email);
+  }
+
+  Future<String> confirmPasswordReset({
+    required String email,
+    required String code,
+    required String password,
+    required String passwordConfirmation,
+  }) {
+    return _repository.confirmPasswordReset(
+      email: email,
+      code: code,
+      password: password,
+      passwordConfirmation: passwordConfirmation,
+    );
+  }
+
   Future<void> logout() async {
     try {
       await _repository.logout();

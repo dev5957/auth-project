@@ -171,6 +171,78 @@ Un login trop long (> 64) ou un mot de passe > 72 caractères au login renvoient
 
 ---
 
+## POST `/auth/password/forgot`
+
+Demande un code de réinitialisation (6 chiffres) pour un compte **local**. La réponse est **identique** si l’email est inconnu, Google ou Apple. Aucun compte OAuth ne reçoit de code. Le code n’est stocké qu’en bcrypt (`password_reset_requests.code_hash`). TTL 10 minutes, cooldown 60 s par email, rate limit 5 / 15 min / IP.
+
+`sql/006_create_password_reset_requests.sql` s’exécute **manuellement dans Neon**. Le serveur ne l’applique pas.
+
+### Corps
+
+```json
+{ "email": "ada@example.com" }
+```
+
+### Succès — `200`
+
+```json
+{
+  "message": "If an account exists for this email, a reset code has been sent."
+}
+```
+
+### Erreurs
+
+| HTTP | `error` |
+|---|---|
+| 400 | `email is required` |
+| 400 | `email is invalid` |
+| 429 | `Too many requests` |
+| 503 | `Database is not configured` |
+
+---
+
+## POST `/auth/password/reset`
+
+Consomme le code (transaction `SELECT … FOR UPDATE` + `UPDATE … used_at IS NULL`). Met à jour `password_hash` d’un compte **local** uniquement. Révoque **tous** les refresh tokens actifs. **Aucun JWT**. Google/Apple ne sont pas convertis en comptes locaux.
+
+**Rate limit :** 10 requêtes / 15 min / IP.
+
+### Corps
+
+```json
+{
+  "email": "ada@example.com",
+  "code": "123456",
+  "password": "new-password",
+  "password_confirmation": "new-password"
+}
+```
+
+### Succès — `200`
+
+```json
+{
+  "message": "Password has been reset. You can sign in."
+}
+```
+
+### Erreurs
+
+| HTTP | `error` |
+|---|---|
+| 400 | `email is required` |
+| 400 | `code is required` |
+| 400 | `password is required` |
+| 400 | `Password must be between 8 and 72 characters` |
+| 400 | `password_confirmation is required` |
+| 400 | `password and password_confirmation do not match` |
+| 400 | `Invalid or expired reset code` |
+| 429 | `Too many requests` |
+| 503 | `Database is not configured` |
+
+---
+
 ## GET `/auth/profile`
 
 Profil SQL de l’utilisateur authentifié. Identifiant : claim JWT `userId` (`req.user.userId`).

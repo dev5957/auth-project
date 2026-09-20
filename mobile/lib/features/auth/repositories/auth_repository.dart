@@ -149,6 +149,26 @@ class AuthRepository {
     );
   }
 
+  Future<String> requestPasswordReset({required String email}) async {
+    final result = await _api.requestPasswordReset(email: email);
+    return result.message;
+  }
+
+  Future<String> confirmPasswordReset({
+    required String email,
+    required String code,
+    required String password,
+    required String passwordConfirmation,
+  }) async {
+    final result = await _api.confirmPasswordReset(
+      email: email,
+      code: code,
+      password: password,
+      passwordConfirmation: passwordConfirmation,
+    );
+    return result.message;
+  }
+
   Future<AuthUser> me() async {
     final accessToken = await _tokenStorage.readAccessToken();
     if (accessToken == null || accessToken.isEmpty) {

@@ -26,7 +26,9 @@ function inspectSqlFiles() {
   const registration = readSql('003_add_registration_data_to_phone_verifications.sql');
   const refresh = readSql('004_create_refresh_tokens.sql');
   const harden = readSql('005_harden_users.sql');
+  const reset = readSql('006_create_password_reset_requests.sql');
   const hardenCode = stripSqlComments(harden);
+  const resetCode = stripSqlComments(reset);
 
   assert(users.includes('CONSTRAINT users_email_key UNIQUE (email)'), 'C: users.email UNIQUE missing in 001');
   assert(users.includes('CONSTRAINT users_login_key UNIQUE (login)'), 'D: users.login UNIQUE missing in 001');
@@ -75,7 +77,17 @@ function inspectSqlFiles() {
   assert(!/\bTRUNCATE\b/i.test(hardenCode), '005 must not TRUNCATE');
   assert(!/\bUPDATE\b/i.test(hardenCode), '005 must not UPDATE rows');
 
-  console.log('SQL files OK (001–005 inspected, 005 non-destructive).');
+  assert(reset.includes('code_hash TEXT NOT NULL'), '006 must hash reset codes');
+  assert(!/CREATE TABLE[\s\S]*\bcode TEXT\b/i.test(resetCode), '006 must not store plaintext code');
+  assert(!reset.includes('verification_token'), '006 must not store a raw token column');
+  assert(reset.includes('ON DELETE CASCADE'), '006 must CASCADE on user delete');
+  assert(reset.includes('CONSTRAINT password_reset_requests_user_id_fkey'), '006 user_id FK missing');
+  assert(reset.includes('password_reset_requests_email_created_at_idx'), '006 email index missing');
+  assert(reset.includes('WHERE used_at IS NULL'), '006 active index must be partial');
+  assert(/MANUELLEMENT/i.test(reset), '006 must be documented as manual');
+  assert(!/DROP\s+TABLE/i.test(resetCode), '006 must not DROP TABLE');
+
+  console.log('SQL files OK (001–006 inspected, 005–006 non-destructive / manual).');
 }
 
 function printCount(label, count) {

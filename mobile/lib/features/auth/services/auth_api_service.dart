@@ -6,6 +6,7 @@ import '../../../core/network/api_exception.dart';
 import '../models/auth_session.dart';
 import '../models/auth_user.dart';
 import '../models/google_start_result.dart';
+import '../models/password_reset_result.dart';
 import '../models/register_start_result.dart';
 import '../models/register_verify_result.dart';
 import '../models/session_tokens.dart';
@@ -155,6 +156,40 @@ class AuthApiService {
         'refresh_token': refreshToken,
       },
     );
+  }
+
+  /// `POST /auth/password/forgot` — message générique, pas de token.
+  Future<PasswordResetResult> requestPasswordReset({required String email}) async {
+    debugPrint('[auth-http-diag] AuthApiService.requestPasswordReset()');
+    final json = await _send(
+      'POST',
+      '/auth/password/forgot',
+      data: {
+        'email': email,
+      },
+    );
+    return PasswordResetResult.fromJson(json);
+  }
+
+  /// `POST /auth/password/reset` — pas de JWT.
+  Future<PasswordResetResult> confirmPasswordReset({
+    required String email,
+    required String code,
+    required String password,
+    required String passwordConfirmation,
+  }) async {
+    debugPrint('[auth-http-diag] AuthApiService.confirmPasswordReset()');
+    final json = await _send(
+      'POST',
+      '/auth/password/reset',
+      data: {
+        'email': email,
+        'code': code,
+        'password': password,
+        'password_confirmation': passwordConfirmation,
+      },
+    );
+    return PasswordResetResult.fromJson(json);
   }
 
   /// `POST /auth/oauth/start-phone`

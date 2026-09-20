@@ -54,6 +54,8 @@ const authRateLimit = {
   appleStart: createRateLimiter({ windowMs: FIFTEEN_MINUTES_MS, max: 10 }),
   oauthStartPhone: createRateLimiter({ windowMs: FIFTEEN_MINUTES_MS, max: 5 }),
   oauthVerifyPhone: createRateLimiter({ windowMs: FIFTEEN_MINUTES_MS, max: 10 }),
+  passwordForgot: createRateLimiter({ windowMs: FIFTEEN_MINUTES_MS, max: 5 }),
+  passwordReset: createRateLimiter({ windowMs: FIFTEEN_MINUTES_MS, max: 10 }),
 };
 
 module.exports = {

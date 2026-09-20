@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/auth/presentation/screens/auth_entry_screen.dart';
+import '../../features/auth/presentation/screens/forgot_password_screen.dart';
 import '../../features/auth/presentation/screens/login_screen.dart';
 import '../../features/auth/presentation/screens/oauth_complete_screen.dart';
 import '../../features/auth/presentation/screens/register_screen.dart';
@@ -35,7 +36,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final location = state.matchedLocation;
       String? target;
       if (auth is AuthLoading) {
-        final onLoginFlow =             location == AppRoutes.login ||
+        final onLoginFlow = location == AppRoutes.login ||
+            location == AppRoutes.forgotPassword ||
             location == AppRoutes.registerChoose ||
             location == AppRoutes.register ||
             location == AppRoutes.oauthComplete;
@@ -78,6 +80,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.login,
         builder: (context, state) => const LoginScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.forgotPassword,
+        builder: (context, state) => const ForgotPasswordScreen(),
       ),
       GoRoute(
         path: AppRoutes.registerChoose,

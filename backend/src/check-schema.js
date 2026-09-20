@@ -30,6 +30,15 @@ const EXPECTED = {
     'expires_at',
     'revoked_at',
   ],
+  password_reset_requests: [
+    'id',
+    'user_id',
+    'email',
+    'code_hash',
+    'expires_at',
+    'attempts',
+    'used_at',
+  ],
 };
 
 const TABLE_NAMES = Object.keys(EXPECTED);

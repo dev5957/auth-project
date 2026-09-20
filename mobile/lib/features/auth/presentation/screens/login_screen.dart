@@ -13,6 +13,7 @@ import '../../../../core/widgets/app_password_field.dart';
 import '../../../../core/widgets/app_text_field.dart';
 import '../../providers/auth_controller.dart';
 import '../continue_with_google.dart';
+import '../state/forgot_password_flow_controller.dart';
 import '../state/register_flow_controller.dart';
 
 /// Écran Sign in. Passe uniquement par [AuthController.login].
@@ -234,6 +235,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       setState(() => _passwordError = null);
                     }
                   },
+                ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: (_submitting || _googleSigningIn)
+                        ? null
+                        : () {
+                            ref.read(forgotPasswordFlowProvider.notifier).reset();
+                            context.push(AppRoutes.forgotPassword);
+                          },
+                    child: Text(
+                      'Forgot password?',
+                      style: AppTextTheme.labelLarge.copyWith(color: colors.primary),
+                    ),
+                  ),
                 ),
                 if (_formError != null) ...[
                   const SizedBox(height: AppSpacing.md),

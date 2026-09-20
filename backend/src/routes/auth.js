@@ -11,6 +11,8 @@ const {
   startApple,
   startOAuthPhone,
   verifyOAuthPhone,
+  forgotPassword,
+  resetPassword,
 } = require('../controllers/authController');
 const { authRateLimit } = require('../middleware/rateLimit');
 const { requireAuth } = require('../middleware/authMiddleware');
@@ -28,5 +30,7 @@ router.post('/google/start', authRateLimit.googleStart, startGoogle);
 router.post('/apple/start', authRateLimit.appleStart, startApple);
 router.post('/oauth/start-phone', authRateLimit.oauthStartPhone, startOAuthPhone);
 router.post('/oauth/verify-phone', authRateLimit.oauthVerifyPhone, verifyOAuthPhone);
+router.post('/password/forgot', authRateLimit.passwordForgot, forgotPassword);
+router.post('/password/reset', authRateLimit.passwordReset, resetPassword);
 
 module.exports = router;
