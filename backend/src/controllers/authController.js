@@ -9,6 +9,7 @@ const { logoutCurrentSession } = require('../services/logoutService');
 const { startGoogleAuth } = require('../services/googleStartService');
 const { startAppleAuth } = require('../services/appleStartService');
 const { startOAuthPhoneVerification, verifyOAuthPhoneAndCreateUser } = require('../services/oauthService');
+const { requestPasswordReset, confirmPasswordReset } = require('../services/passwordResetService');
 
 async function startRegister(req, res, next) {
   try {
@@ -160,6 +161,24 @@ async function verifyOAuthPhone(req, res, next) {
   }
 }
 
+async function forgotPassword(req, res, next) {
+  try {
+    const { message } = await requestPasswordReset(req.body);
+    res.status(200).json({ message });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function resetPassword(req, res, next) {
+  try {
+    const { message } = await confirmPasswordReset(req.body);
+    res.status(200).json({ message });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   startRegister,
   verifyPhone,
@@ -172,4 +191,6 @@ module.exports = {
   startApple,
   startOAuthPhone,
   verifyOAuthPhone,
+  forgotPassword,
+  resetPassword,
 };

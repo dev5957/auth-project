@@ -14,6 +14,7 @@
     "test:auth-me": "node src/check-auth-me.js",
     "test:auth-hardening": "node src/check-auth-hardening.js",
     "test:sql-hardening": "node src/check-sql-hardening.js",
+    "test:password-reset": "node src/check-password-reset.js",
     "test:user-profile": "node src/check-user-profile.js",
     "test:sms": "node src/check-sms-service.js",
     "test:registration-finalization": "node src/check-registration-finalization.js",

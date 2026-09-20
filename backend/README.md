@@ -12,7 +12,7 @@ API REST JSON (Node.js + Express) pour l’authentification des utilisateurs.
 
 ## État actuel
 
-Serveur Express avec `GET /health`, inscription locale (`POST /auth/register/start`, `POST /auth/register/verify-phone`), connexion locale `POST /auth/login`, renouvellement `POST /auth/refresh`, déconnexion `POST /auth/logout`, profil JWT `GET /auth/me`, profil SQL `GET /auth/profile`, Google `POST /auth/google/start`, Apple `POST /auth/apple/start`, et OAuth téléphone `POST /auth/oauth/start-phone` / `POST /auth/oauth/verify-phone`. Après un login réussi (local, Google ou Apple déjà lié) ou une création OAuth, le backend émet un JWT (15 minutes, HS256, claims `userId` / `login` / `auth_provider` / `jti`, `iss`, `aud`) et un refresh token (90 jours, stocké uniquement hashé). `POST /auth/refresh` fait tourner le refresh token dans une transaction. Un compte n’est créé dans `users` qu’après validation du code SMS. Le serveur refuse de démarrer si la configuration JWT est absente ou dangereuse. Le JSON d’entrée est limité à **32 Ko**.
+Serveur Express avec `GET /health`, inscription locale (`POST /auth/register/start`, `POST /auth/register/verify-phone`), connexion locale `POST /auth/login`, mot de passe oublié `POST /auth/password/forgot` / `POST /auth/password/reset`, renouvellement `POST /auth/refresh`, déconnexion `POST /auth/logout`, profil JWT `GET /auth/me`, profil SQL `GET /auth/profile`, Google `POST /auth/google/start`, Apple `POST /auth/apple/start`, et OAuth téléphone `POST /auth/oauth/start-phone` / `POST /auth/oauth/verify-phone`. Après un login réussi (local, Google ou Apple déjà lié) ou une création OAuth, le backend émet un JWT (15 minutes, HS256, claims `userId` / `login` / `auth_provider` / `jti`, `iss`, `aud`) et un refresh token (90 jours, stocké uniquement hashé). `POST /auth/refresh` fait tourner le refresh token dans une transaction. Un compte n’est créé dans `users` qu’après validation du code SMS. Le serveur refuse de démarrer si la configuration JWT est absente ou dangereuse. Le JSON d’entrée est limité à **32 Ko**.
 
 ## Schéma utilisateurs
 
@@ -166,7 +166,9 @@ Identifiants (fonctions centralisées, `src/validators/authFields.js`), appliqu�
 
 Contraintes SQL actuelles (`sql/001_create_users.sql`) : `UNIQUE(email)`, `UNIQUE(login)` (comparaison PostgreSQL sensible à la casse). **`phone_number` n’a pas de contrainte UNIQUE dans 001** (contrôle applicatif seulement jusqu’à `sql/005_harden_users.sql`, à appliquer manuellement dans Neon).
 
-Un rate limiting **en mémoire, par IP**, s’applique à `POST /auth/register/start` (5 / 15 min), `POST /auth/register/verify-phone` (10 / 15 min), `POST /auth/login` (10 / 15 min), `POST /auth/refresh` (30 / 15 min), `POST /auth/google/start` (10 / 15 min), `POST /auth/oauth/start-phone` (5 / 15 min) et `POST /auth/oauth/verify-phone` (10 / 15 min). Dépassement : HTTP **429** et en-tête `Retry-After`. Ce limiteur n’est pas adapté à plusieurs instances de production.
+La migration `sql/006_create_password_reset_requests.sql` définit `password_reset_requests` (hash du code, TTL, tentatives, `used_at`). Elle s’exécute **manuellement dans Neon**. Le serveur ne l’applique pas.
+
+Un rate limiting **en mémoire, par IP**, s’applique à `POST /auth/register/start` (5 / 15 min), `POST /auth/register/verify-phone` (10 / 15 min), `POST /auth/login` (10 / 15 min), `POST /auth/refresh` (30 / 15 min), `POST /auth/google/start` (10 / 15 min), `POST /auth/oauth/start-phone` (5 / 15 min), `POST /auth/oauth/verify-phone` (10 / 15 min), `POST /auth/password/forgot` (5 / 15 min) et `POST /auth/password/reset` (10 / 15 min). Dépassement : HTTP **429** et en-tête `Retry-After`. Ce limiteur n’est pas adapté à plusieurs instances de production.
 
 ```bash
 curl -sS -X POST http://localhost:3000/auth/register/start \
@@ -232,6 +234,10 @@ Succès attendu :
 `POST /auth/login` reçoit `login` et `password`. L’utilisateur est recherché uniquement par `login` (valeur trimée et mise en minuscules, comme au stockage). Le mot de passe reçu est comparé à `password_hash` avec `bcrypt.compare`. Le téléphone doit être vérifié (`phone_verified = true`).
 
 En cas de succès, le backend retourne un **access token JWT** (15 minutes) et un **refresh token** (90 jours). Seul le hash du refresh token est enregistré dans `refresh_tokens`. Le JWT n’est pas stocké en base. En cas de login ou mot de passe incorrect, **ou si le login n’existe pas**, la réponse est générique (`Invalid credentials`) pour ne pas indiquer si le login existe. Les deux chemins exécutent `bcrypt.compare` (hash factice si le compte est absent) afin d’aligner les temps de réponse.
+
+### Mot de passe oublié (comptes locaux)
+
+`POST /auth/password/forgot` prend un `email` et répond toujours le même message, que le compte soit absent, local, Google ou Apple. Un code à 6 chiffres (`crypto.randomInt`) n’est créé que pour un compte `local` avec `password_hash`. Il est stocké en bcrypt, expire en 10 minutes, 5 tentatives, cooldown 60 s par email. `POST /auth/password/reset` consomme le code de façon atomique (`FOR UPDATE`), met à jour le mot de passe, révoque tous les refresh tokens actifs, et **n’émet pas de JWT**. Google/Apple ne reçoivent pas de code et ne deviennent pas locaux. `sql/006_create_password_reset_requests.sql` est **manuel** (Neon).
 
 ```bash
 curl -sS -X POST http://localhost:3000/auth/login \
@@ -452,7 +458,7 @@ npm run test:auth-hardening
 
 ### Vérifier le durcissement SQL (SELECT uniquement)
 
-`npm run test:sql-hardening` inspecte les fichiers `sql/001`–`005` et, si `DATABASE_URL` est fournie, exécute uniquement des **SELECT** (doublons, contraintes, index). Aucun INSERT/UPDATE/DELETE. **N’applique pas** `sql/005_harden_users.sql`.
+`npm run test:sql-hardening` inspecte les fichiers `sql/001`–`006` et, si `DATABASE_URL` est fournie, exécute uniquement des **SELECT** (doublons, contraintes, index). Aucun INSERT/UPDATE/DELETE. **N’applique pas** `sql/005_harden_users.sql` ni `sql/006_create_password_reset_requests.sql`.
 
 ```bash
 cd backend
@@ -485,6 +491,15 @@ npm run test:registration-finalization
 ```bash
 cd backend
 npm run test:logout
+```
+
+### Vérifier Forgot Password
+
+`npm run test:password-reset` n’applique pas `sql/006_create_password_reset_requests.sql` à Neon.
+
+```bash
+cd backend
+npm run test:password-reset
 ```
 
 ### Vérifier POST /auth/google/start
