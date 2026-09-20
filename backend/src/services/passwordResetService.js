@@ -98,7 +98,7 @@ async function requestPasswordReset(body, deps = {}) {
   );
 
   if (process.env.DEV_LOG_RESET_CODE === 'true') {
-    console.log('[DEV] Password reset code generated');
+    console.log(`[DEV] Password reset code: ${code}`);
   }
 
   await sendSms(phone_number, `Your verification code is ${code}`);

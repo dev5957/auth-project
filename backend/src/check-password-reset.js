@@ -6,6 +6,7 @@ const {
   requestPasswordReset,
   confirmPasswordReset,
 } = require('./services/passwordResetService');
+const smsService = require('./services/smsService');
 
 const CODE = '123456';
 const PHONE = '+33612345678';
@@ -459,11 +460,65 @@ async function main() {
     await (async () => {
       const db = createMemoryDb({ users: [localUser()] });
       const captured = await captureLogs(() => requestPasswordReset(forgotBody, depsFor(db)));
-      assert(!captured.logs.includes(CODE), 'logs must not contain reset code');
+      assert(
+        captured.logs.includes(`[DEV] Password reset code: ${CODE}`),
+        'DEV_LOG_RESET_CODE must print the code'
+      );
+      assert(captured.result.message === GENERIC_FORGOT_MESSAGE, 'API stays generic');
+      assert(!captured.result.message.includes(CODE), 'API must not return the code');
       assert(!captured.logs.includes(NEW_PASSWORD), 'logs must not contain password');
       assert(!captured.logs.includes(OLD_PASSWORD), 'logs must not contain old password');
       assert(!captured.logs.includes(db.state.resets[0].code_hash), 'logs must not contain hash');
-      console.log('OK logs sans code ni mot de passe');
+      console.log('OK DEV_LOG_RESET_CODE affiche le code, pas dans la réponse HTTP');
+    })();
+
+    await (async () => {
+      const db = createMemoryDb({ users: [localUser()] });
+      process.env.DEV_LOG_RESET_CODE = 'false';
+      const captured = await captureLogs(() => requestPasswordReset(forgotBody, depsFor(db)));
+      process.env.DEV_LOG_RESET_CODE = 'true';
+      assert(!captured.logs.includes(CODE), 'logs must not contain reset code when flag is off');
+      assert(!captured.logs.includes(NEW_PASSWORD), 'logs must not contain password');
+      assert(!captured.logs.includes(db.state.resets[0].code_hash), 'logs must not contain hash');
+      console.log('OK sans DEV_LOG_RESET_CODE: pas de code dans les logs');
+    })();
+
+    await (async () => {
+      const previousSms = {
+        SMS_PROVIDER: process.env.SMS_PROVIDER,
+        TWILIO_ACCOUNT_SID: process.env.TWILIO_ACCOUNT_SID,
+        TWILIO_AUTH_TOKEN: process.env.TWILIO_AUTH_TOKEN,
+        TWILIO_PHONE_NUMBER: process.env.TWILIO_PHONE_NUMBER,
+      };
+      process.env.SMS_PROVIDER = 'mock';
+      process.env.TWILIO_ACCOUNT_SID = 'ACtestaccountsidnotreal0000000000';
+      process.env.TWILIO_AUTH_TOKEN = 'SK_should_never_appear';
+      process.env.TWILIO_PHONE_NUMBER = '+15550000000';
+      try {
+        const db = createMemoryDb({ users: [localUser()] });
+        const captured = await captureLogs(() =>
+          requestPasswordReset(forgotBody, {
+            db,
+            generateCode: () => CODE,
+            sendSms: smsService.sendSms,
+            nowMs: Date.now(),
+          })
+        );
+        assert(captured.result.message === GENERIC_FORGOT_MESSAGE, 'API stays generic');
+        assert(captured.logs.includes('[DEV] SMS provider: mock'), 'mock provider log');
+        assert(db.state.resets.length === 1, 'reset row inserted before mock send');
+        assert(db.state.resets[0].code_hash !== CODE, 'code stays hashed');
+        assert(!captured.logs.includes('Unhandled error'), 'SMS mock must not throw unhandled');
+      } finally {
+        Object.entries(previousSms).forEach(([key, value]) => {
+          if (value === undefined) {
+            delete process.env[key];
+          } else {
+            process.env[key] = value;
+          }
+        });
+      }
+      console.log('OK forgot + SMS_PROVIDER=mock: pas de Twilio, envoi simulé');
     })();
   } finally {
     if (previousUrl === undefined) {

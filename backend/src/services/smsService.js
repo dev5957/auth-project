@@ -45,29 +45,30 @@ function createTwilioClient(config) {
 }
 
 async function sendSms(phoneNumber, message, options = {}) {
-  if (typeof phoneNumber !== 'string' || phoneNumber.trim() === '') {
-    throw new AppError(503, 'SMS could not be sent');
-  }
-  if (typeof message !== 'string' || message.trim() === '') {
-    throw new AppError(503, 'SMS could not be sent');
-  }
-
-  const provider = getSmsProvider();
-  if (provider === 'mock') {
-    return { skipped: false, mocked: true };
-  }
-  if (provider !== 'twilio') {
-    throw new AppError(503, 'SMS could not be sent');
-  }
-
-  const config = getTwilioConfig();
-  const client = options.client;
-
-  if (!client && !config) {
-    return { skipped: true };
-  }
-
   try {
+    if (typeof phoneNumber !== 'string' || phoneNumber.trim() === '') {
+      throw new AppError(503, 'SMS could not be sent');
+    }
+    if (typeof message !== 'string' || message.trim() === '') {
+      throw new AppError(503, 'SMS could not be sent');
+    }
+
+    const provider = getSmsProvider();
+    if (provider === 'mock') {
+      console.log('[DEV] SMS provider: mock');
+      return { skipped: false, mocked: true };
+    }
+    if (provider !== 'twilio') {
+      throw new AppError(503, 'SMS could not be sent');
+    }
+
+    const config = getTwilioConfig();
+    const client = options.client;
+
+    if (!client && !config) {
+      return { skipped: true };
+    }
+
     const twilioClient = client || createTwilioClient(config);
     const from = options.from || (config && config.from);
     if (!from) {
