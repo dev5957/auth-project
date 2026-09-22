@@ -421,6 +421,7 @@ async function main() {
     console.log('A OK POST /chroniques active');
 
     const uploaded = [];
+    let lastChronique = created.json.chronique;
     for (const spec of MEDIA_SPECS) {
       const init = await httpRequest({
         port: TEST_PORT,
@@ -449,6 +450,7 @@ async function main() {
       const ready = complete.json.chronique.media.find((item) => item.id === init.json.media.id);
       assert(ready && ready.status === 'ready', `${spec.kind} ready`);
       assertNoSecrets(complete.json, complete.raw);
+      lastChronique = complete.json.chronique;
       uploaded.push({ ...spec, id: init.json.media.id, storageKey });
     }
     assert(storageCalls.createDirectUpload === 3, `uploads ${storageCalls.createDirectUpload}`);
@@ -465,16 +467,17 @@ async function main() {
     assert(read.json.chronique.title === 'Soir de rentre', 'title');
     assert(read.json.chronique.status === 'active', 'status');
     assert(read.json.chronique.body.includes('vingt'), 'body');
-    assert(Array.isArray(read.json.chronique.media), 'media array');
-    assert(read.json.chronique.media.length === 3, `media count ${read.json.chronique.media.length}`);
-    const kinds = read.json.chronique.media.map((item) => item.kind).sort().join(',');
+    assert(read.json.chronique.id === chroniqueId, 'GET id');
+    assertNoSecrets(read.json, read.raw);
+    assert(Array.isArray(lastChronique.media), 'media array');
+    assert(lastChronique.media.length === 3, `media count ${lastChronique.media.length}`);
+    const kinds = lastChronique.media.map((item) => item.kind).sort().join(',');
     assert(kinds === 'document,image,video', `kinds ${kinds}`);
     assert(
-      read.json.chronique.media.every((item) => item.status === 'ready'),
+      lastChronique.media.every((item) => item.status === 'ready'),
       'all ready'
     );
-    assertNoSecrets(read.json, read.raw);
-    console.log('C OK GET chronique + medias sans secrets');
+    console.log('C OK GET chronique + medias pret (reponse complete) sans secrets');
 
     const unauth = await httpRequest({
       port: TEST_PORT,
@@ -511,7 +514,7 @@ async function main() {
     assert(badDoc.json.error === 'source_type is invalid', badDoc.raw);
     console.log('D OK refus 401 / ownership 404 / document source_type');
 
-    const readyIds = read.json.chronique.media
+    const readyIds = lastChronique.media
       .slice()
       .sort((a, b) => a.sort_order - b.sort_order)
       .map((item) => item.id);

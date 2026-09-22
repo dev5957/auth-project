@@ -198,26 +198,7 @@ async function getChroniqueById(userId, rawId) {
     throw new AppError(404, 'Chronique not found');
   }
 
-  const mediaResult = await pool.query(
-    `SELECT id, kind, source_type, content_type, byte_size, original_filename, sort_order, status, created_at
-     FROM publication_media
-     WHERE publication_id = $1
-     ORDER BY sort_order ASC, id ASC`,
-    [id]
-  );
-  const chronique = toPublicChronique(row);
-  chronique.media = mediaResult.rows.map((item) => ({
-    id: formatId(item.id),
-    kind: item.kind,
-    source_type: item.source_type,
-    content_type: item.content_type,
-    byte_size: Number(item.byte_size),
-    original_filename: item.original_filename == null ? null : item.original_filename,
-    sort_order: Number(item.sort_order) || 0,
-    status: item.status,
-    created_at: toIso(item.created_at),
-  }));
-  return chronique;
+  return toPublicChronique(row);
 }
 
 function asDate(value) {
