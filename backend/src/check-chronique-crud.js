@@ -77,8 +77,8 @@ function startTestServer(port) {
     JWT_EXPIRES_IN: '15m',
     REFRESH_TOKEN_EXPIRES_DAYS: '90',
     DEV_LOG_SMS_CODE: 'false',
+    DATABASE_URL: '',
   };
-  delete env.DATABASE_URL;
 
   const child = spawn(process.execPath, ['src/index.js'], {
     cwd: path.join(__dirname, '..'),
