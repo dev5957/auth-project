@@ -15,6 +15,7 @@
     "test:auth-hardening": "node src/check-auth-hardening.js",
     "test:sql-hardening": "node src/check-sql-hardening.js",
     "test:publications-schema": "node src/check-publications-schema.js",
+    "test:publication-media-schema": "node src/check-publication-media-schema.js",
     "test:password-reset": "node src/check-password-reset.js",
     "test:user-profile": "node src/check-user-profile.js",
     "test:sms": "node src/check-sms-service.js",
