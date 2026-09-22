@@ -116,7 +116,7 @@ Une chronique peut contenir **plusieurs** médias. Le système reste **extensibl
 | `image` | activé |
 | `video` | activé |
 | `audio` | activé |
-| `document` | **prévu**, **non activé** — écriture refusée |
+| `document` | **activé** (PDF, DOC, DOCX, TXT ; `source_type` = `upload` uniquement) |
 
 Chaque média a :
 
@@ -147,7 +147,7 @@ Quota **200 Mio** et plafond **20** médias : validés par le **service** (voir 
 | `image` | galerie de l’appareil ; photo via caméra intégrée | `gallery`, `camera` |
 | `video` | galerie ; import d’une vidéo existante ; enregistrement caméra | `gallery`, `upload`, `camera` |
 | `audio` | enregistrement microphone ; import d’un fichier audio | `microphone`, `upload` |
-| `document` | structure future uniquement | *écriture V1 refusée* |
+| `document` | import fichier (PDF, DOC, DOCX, TXT) | `upload` **uniquement** |
 
 Couples `kind` / `source_type` **invalides** → `400` `{ "error": "source_type is invalid" }`.
 
@@ -637,8 +637,8 @@ Statuts : `draft`, `scheduled`, `active`. Interdit : `archived`, `expired`, `del
 
 | Champ | Obligatoire | Notes |
 |---|---|---|
-| `kind` | oui | `image` \| `video` \| `audio` — `document` → `document is not enabled` |
-| `source_type` | oui | `camera` \| `gallery` \| `microphone` \| `upload`, cohérent avec `kind` |
+| `kind` | oui | `image` \| `video` \| `audio` \| `document` |
+| `source_type` | oui | `camera` \| `gallery` \| `microphone` \| `upload`, cohérent avec `kind` (`document` → `upload` seulement) |
 | `content_type` | oui | MIME V1 [§6.3](#63-formats-acceptés-v1) |
 | `byte_size` | oui | ≥ 1 ; quota 200 Mio |
 | `original_filename` | non | max 255 |
@@ -679,7 +679,6 @@ Fichier envoyé = **original**, sans transformation serveur V1.
 |---|---|
 | 400 | `kind is required` |
 | 400 | `kind is invalid` |
-| 400 | `document is not enabled` |
 | 400 | `source_type is required` |
 | 400 | `source_type is invalid` |
 | 400 | `content_type is invalid` |
@@ -817,7 +816,7 @@ Permutation **exacte** des ids `ready`.
 - Optionnels (texte seul valide).
 - Max **20** médias, **200 Mio** cumulés.
 - `kind` + `source_type` + métadonnées techniques.
-- `document` : structure prévue, **V1 inactive**.
+- `document` : **V1 actif** ; `source_type` = `upload` ; MIME/extensions **service** (PDF, DOC, DOCX, TXT).
 - JSON API sans binaire (limite 32 Ko Auth **conservée**).
 - Fichier **original** stocké ; pas de transformation V1.
 
@@ -990,7 +989,7 @@ Aucun encodage automatique. MIME refusés → `content_type is invalid`.
 | `image` | `image/jpeg`, `image/png`, `image/webp`, `image/heic` |
 | `audio` | `audio/mpeg`, `audio/mp4`, `audio/wav`, `audio/ogg` |
 | `video` | `video/mp4`, `video/quicktime`, `video/webm` |
-| `document` | *écriture non activée* |
+| `document` | `application/pdf`, `application/msword`, `application/vnd.openxmlformats-officedocument.wordprocessingml.document`, `text/plain` (PDF, DOC, DOCX, TXT) |
 
 ### 6.4 Quota et formats — couche service
 
@@ -998,7 +997,8 @@ Les règles suivantes **ne sont pas** des CHECK SQL. Elles sont appliquées par 
 
 - maximum **20** médias (`pending_upload` + `ready`) par publication ;
 - quota total **200 Mio** = **209 715 200** octets (`pending_upload` + `ready`) ;
-- MIME V1 listés en [§6.3](#63-formats-acceptés-v1).
+- MIME V1 listés en [§6.3](#63-formats-acceptés-v1) (y compris documents) ;
+- couples `kind` / `source_type` (`document` → `upload` seulement).
 
 Contrôle à `uploads` et à `complete`.  
 La base : PK/FK, `kind` / `source_type` / `status` fermés, `storage_key` UNIQUE, `byte_size >= 1`, éventuellement colonne `media_total_bytes` **sans** CHECK de plafond.
@@ -1057,19 +1057,18 @@ users
 | Archives | `(user_id, archived_at DESC, id DESC)` | `WHERE status = 'archived'` |
 | Expirés | `(user_id, expired_at DESC, id DESC)` | `WHERE status = 'expired'` |
 
-Ces index sont **spécifiés** pour `008` / `009`. Ils ne sont **pas** créés dans cette étape.
+Ces index de fil sont ceux de `008`. Les index `publication_media` seront spécifiés dans `009` (fichier **non créé** ici).
 
 ---
 
 ## 9. Hors périmètre de cette étape
 
 - Fichiers `routes` / `controllers` / `services` / `validators` / `storageService`.
-- Migrations `sql/008_…` / `009_…` (contrat gelé ; **fichiers SQL non créés** ici).
+- Fichier `sql/009_create_publication_media.sql` (**non créé** ici).
 - Modification de `index.js`, CORS, limite JSON 32 Ko.
 - Toute route ou table Auth.
 - Table `themes`, dérivés média, tables sociales.
 - Client Flutter.
 - **Implémentation** des jobs (planification, expiration, `expired` → `deleted`, **hard delete J+30**) — [§4.8](#48-jobs-futurs-hors-de-cette-étape).
 - Pipeline média (transcodage, miniatures, antivirus).
-- Activation de `document` et des thèmes.
 - Phase B Auth (refresh Dio 401).
