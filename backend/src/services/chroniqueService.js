@@ -72,6 +72,18 @@ function toPublicChronique(row) {
   };
 }
 
+function toPublicMediaSummary(row) {
+  return {
+    id: formatId(row.id),
+    kind: row.kind,
+    source_type: row.source_type,
+    content_type: row.content_type,
+    byte_size: Number(row.byte_size),
+    sort_order: Number(row.sort_order) || 0,
+    status: row.status,
+  };
+}
+
 function sortValue(row, status) {
   return row[SORT_COLUMN[status]];
 }
@@ -198,7 +210,16 @@ async function getChroniqueById(userId, rawId) {
     throw new AppError(404, 'Chronique not found');
   }
 
-  return toPublicChronique(row);
+  const mediaResult = await pool.query(
+    `SELECT id, kind, source_type, content_type, byte_size, sort_order, status
+     FROM publication_media
+     WHERE publication_id = $1
+     ORDER BY sort_order ASC, id ASC`,
+    [id]
+  );
+  const chronique = toPublicChronique(row);
+  chronique.media = mediaResult.rows.map(toPublicMediaSummary);
+  return chronique;
 }
 
 function asDate(value) {

@@ -418,7 +418,18 @@ async function main() {
     assert(created.json.chronique.id, 'created id');
     assertNoSecrets(created.json, created.raw);
     const chroniqueId = created.json.chronique.id;
-    console.log('A OK POST /chroniques active');
+
+    const emptyRead = await httpRequest({
+      port: TEST_PORT,
+      method: 'GET',
+      urlPath: `/chroniques/${chroniqueId}`,
+      headers: auth,
+    });
+    assert(emptyRead.status === 200, `GET empty ${emptyRead.status} ${emptyRead.raw}`);
+    assert(Array.isArray(emptyRead.json.chronique.media), 'empty media array');
+    assert(emptyRead.json.chronique.media.length === 0, 'media=[] sans fichiers');
+    assertNoSecrets(emptyRead.json, emptyRead.raw);
+    console.log('A2 OK GET /chroniques/:id sans media -> media=[]');
 
     const uploaded = [];
     let lastChronique = created.json.chronique;
@@ -468,16 +479,23 @@ async function main() {
     assert(read.json.chronique.status === 'active', 'status');
     assert(read.json.chronique.body.includes('vingt'), 'body');
     assert(read.json.chronique.id === chroniqueId, 'GET id');
-    assertNoSecrets(read.json, read.raw);
-    assert(Array.isArray(lastChronique.media), 'media array');
-    assert(lastChronique.media.length === 3, `media count ${lastChronique.media.length}`);
-    const kinds = lastChronique.media.map((item) => item.kind).sort().join(',');
-    assert(kinds === 'document,image,video', `kinds ${kinds}`);
+    assert(Array.isArray(read.json.chronique.media), 'media array');
+    assert(read.json.chronique.media.length === 3, `GET media count ${read.json.chronique.media.length}`);
+    const kinds = read.json.chronique.media.map((item) => item.kind).sort().join(',');
+    assert(kinds === 'document,image,video', `GET kinds ${kinds}`);
     assert(
-      lastChronique.media.every((item) => item.status === 'ready'),
-      'all ready'
+      read.json.chronique.media.every((item) => item.status === 'ready'),
+      'GET all ready'
     );
-    console.log('C OK GET chronique + medias pret (reponse complete) sans secrets');
+    for (const item of read.json.chronique.media) {
+      assert(item.id != null, 'media id');
+      assert(item.kind && item.source_type && item.content_type, 'media public fields');
+      assert(Number(item.byte_size) >= 1, 'byte_size');
+      assert(Number.isInteger(item.sort_order) || item.sort_order === 0, 'sort_order');
+      assert(!Object.prototype.hasOwnProperty.call(item, 'storage_key'), 'no storage_key field');
+    }
+    assertNoSecrets(read.json, read.raw);
+    console.log('C OK GET /chroniques/:id avec medias ready, sans secrets Storage');
 
     const unauth = await httpRequest({
       port: TEST_PORT,
@@ -514,7 +532,7 @@ async function main() {
     assert(badDoc.json.error === 'source_type is invalid', badDoc.raw);
     console.log('D OK refus 401 / ownership 404 / document source_type');
 
-    const readyIds = lastChronique.media
+    const readyIds = read.json.chronique.media
       .slice()
       .sort((a, b) => a.sort_order - b.sort_order)
       .map((item) => item.id);
