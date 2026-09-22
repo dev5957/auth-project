@@ -19,6 +19,7 @@
     "test:chronique-crud": "node src/check-chronique-crud.js",
     "test:chronique-lifecycle": "node src/check-chronique-lifecycle.js",
     "test:chronique-media": "node src/check-chronique-media.js",
+    "test:chronique-full-flow": "node src/check-chronique-full-flow.js",
     "test:password-reset": "node src/check-password-reset.js",
     "test:user-profile": "node src/check-user-profile.js",
     "test:sms": "node src/check-sms-service.js",
