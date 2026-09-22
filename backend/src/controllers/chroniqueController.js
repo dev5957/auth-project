@@ -2,6 +2,10 @@ const {
   createChronique,
   listChroniques,
   getChroniqueById,
+  updateChronique,
+  archiveChronique,
+  restoreChronique,
+  deleteChronique,
 } = require('../services/chroniqueService');
 
 async function create(req, res, next) {
@@ -34,8 +38,59 @@ async function getOne(req, res, next) {
   }
 }
 
+async function update(req, res, next) {
+  try {
+    const chronique = await updateChronique(req.user.userId, req.params.id, req.body);
+    res.status(200).json({
+      message: 'Chronique updated',
+      chronique,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function archive(req, res, next) {
+  try {
+    const chronique = await archiveChronique(req.user.userId, req.params.id);
+    res.status(200).json({
+      message: 'Chronique archived',
+      chronique,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function restore(req, res, next) {
+  try {
+    const chronique = await restoreChronique(req.user.userId, req.params.id, req.body);
+    res.status(200).json({
+      message: 'Chronique restored',
+      chronique,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function remove(req, res, next) {
+  try {
+    await deleteChronique(req.user.userId, req.params.id);
+    res.status(200).json({
+      message: 'Chronique deleted',
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   create,
   list,
   getOne,
+  update,
+  archive,
+  restore,
+  remove,
 };

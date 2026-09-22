@@ -14,6 +14,24 @@ const FORBIDDEN_CREATE_FIELDS = [
   'media',
   'status',
 ];
+const FORBIDDEN_MUTATION_FIELDS = [
+  ...FORBIDDEN_CREATE_FIELDS,
+  'created_at',
+  'updated_at',
+  'published_at',
+  'archived_at',
+  'expired_at',
+  'purge_after',
+  'deleted_at',
+];
+const PATCH_FIELDS = [
+  'title',
+  'body',
+  'publish',
+  'scheduled_at',
+  'is_time_limited',
+  'expires_at',
+];
 
 function codePointLength(value) {
   return Array.from(value).length;
@@ -25,18 +43,26 @@ function assertObject(body) {
   }
 }
 
-function rejectForbiddenCreateFields(body) {
-  for (const field of FORBIDDEN_CREATE_FIELDS) {
+function rejectForbiddenFields(body, fields, mediaMessage) {
+  for (const field of fields) {
     if (Object.prototype.hasOwnProperty.call(body, field)) {
       if (field === 'status') {
         throw new AppError(400, 'status cannot be set');
       }
       if (field === 'media') {
-        throw new AppError(400, 'media cannot be set on create');
+        throw new AppError(400, mediaMessage);
       }
       throw new AppError(400, `${field} cannot be set`);
     }
   }
+}
+
+function rejectForbiddenCreateFields(body) {
+  rejectForbiddenFields(body, FORBIDDEN_CREATE_FIELDS, 'media cannot be set on create');
+}
+
+function rejectForbiddenMutationFields(body) {
+  rejectForbiddenFields(body, FORBIDDEN_MUTATION_FIELDS, 'media cannot be set');
 }
 
 function parseTitle(value) {
@@ -144,6 +170,105 @@ function parseCreateInput(body) {
   };
 }
 
+function hasOwn(body, field) {
+  return Object.prototype.hasOwnProperty.call(body, field);
+}
+
+function parsePublishMode(value) {
+  if (typeof value !== 'string' || !PUBLISH_MODES.includes(value)) {
+    throw new AppError(400, 'publish is invalid');
+  }
+  return value;
+}
+
+function parsePatchInput(body) {
+  assertObject(body);
+  rejectForbiddenMutationFields(body);
+
+  const recognized = PATCH_FIELDS.some((field) => hasOwn(body, field));
+  if (!recognized) {
+    throw new AppError(400, 'No fields to update');
+  }
+
+  const input = {
+    hasTitle: hasOwn(body, 'title'),
+    title: undefined,
+    hasBody: hasOwn(body, 'body'),
+    body: undefined,
+    hasPublish: hasOwn(body, 'publish'),
+    publish: undefined,
+    hasScheduled: hasOwn(body, 'scheduled_at'),
+    scheduledAt: null,
+    hasTimeLimited: hasOwn(body, 'is_time_limited'),
+    isTimeLimited: false,
+    hasExpires: hasOwn(body, 'expires_at'),
+    expiresAt: null,
+  };
+
+  if (input.hasTitle) {
+    input.title = parseTitle(body.title);
+  }
+  if (input.hasBody) {
+    input.body = parseBody(body.body);
+  }
+
+  const hasScheduledValue = body.scheduled_at != null && body.scheduled_at !== '';
+
+  if (input.hasPublish) {
+    input.publish = parsePublishMode(body.publish);
+    if (input.publish === 'now' || input.publish === 'draft') {
+      if (hasScheduledValue) {
+        throw new AppError(400, 'publish is invalid');
+      }
+    } else if (!hasScheduledValue) {
+      throw new AppError(400, 'scheduled_at is required');
+    }
+  }
+
+  if (hasScheduledValue) {
+    input.scheduledAt = parseDate(body.scheduled_at, 'scheduled_at must be in the future');
+    if (input.scheduledAt.getTime() <= Date.now()) {
+      throw new AppError(400, 'scheduled_at must be in the future');
+    }
+  } else if (input.hasPublish && input.publish === 'schedule') {
+    throw new AppError(400, 'scheduled_at is required');
+  }
+
+  if (input.hasTimeLimited) {
+    input.isTimeLimited = body.is_time_limited === true;
+    if (input.isTimeLimited && (body.expires_at == null || body.expires_at === '')) {
+      throw new AppError(400, 'expires_at is required');
+    }
+  }
+
+  if (input.hasExpires && body.expires_at != null && body.expires_at !== '') {
+    input.expiresAt = parseDate(body.expires_at, 'expires_at is required');
+  } else if (input.hasTimeLimited && input.isTimeLimited) {
+    input.expiresAt = parseDate(body.expires_at, 'expires_at is required');
+  }
+
+  return input;
+}
+
+function parseRestoreInput(body) {
+  if (body == null || body === '') {
+    return { isTimeLimited: false, expiresAt: null };
+  }
+  assertObject(body);
+  rejectForbiddenMutationFields(body);
+
+  const isTimeLimited = body.is_time_limited === true;
+  if (!isTimeLimited) {
+    return { isTimeLimited: false, expiresAt: null };
+  }
+
+  const expiresAt = parseDate(body.expires_at, 'expires_at is required');
+  if (expiresAt.getTime() <= Date.now()) {
+    throw new AppError(400, 'expires_at must be after activation time');
+  }
+  return { isTimeLimited: true, expiresAt };
+}
+
 function parseListQuery(query) {
   const raw = query || {};
   let status = raw.status;
@@ -197,6 +322,8 @@ module.exports = {
   TITLE_MAX,
   LIST_STATUSES,
   parseCreateInput,
+  parsePatchInput,
+  parseRestoreInput,
   parseListQuery,
   parseChroniqueId,
 };
