@@ -127,7 +127,7 @@ Chaque média a :
 | Champ média | Notes |
 |---|---|
 | `id` | identifiant serveur |
-| `publication_id` | FK SQL vers `publications` (exposé comme chronique dans l’API) |
+| `publication_id` | FK `publication_media.publication_id` → `publications.id` **`ON DELETE CASCADE`**. Un hard delete de la publication (job de purge) enlève **automatiquement** les métadonnées médias. Les objets `StorageService` sont supprimés **à part** par ce même job, avant ou autour du DELETE SQL parent. |
 | `kind` | `image` \| `video` \| `audio` \| `document` |
 | `source_type` | `camera` \| `gallery` \| `microphone` \| `upload` |
 | `storage_key` | clé d’objet **indépendante du fournisseur** |
@@ -138,7 +138,7 @@ Chaque média a :
 | `status` | `pending_upload` \| `ready` \| `failed` |
 | `created_at` | |
 
-Quota **200 Mio** et plafond **20** médias : validés par le **service** (voir [§6.4](#64-quota-et-formats--couche-service)). La base ne porte que des contraintes **structurelles** (PK, FK, NOT NULL, ensembles `kind` / `source_type` / `status` média, `storage_key` unique, `byte_size >= 1`). **Pas** de CHECK MIME ni de CHECK « 20 lignes / 200 Mio ».
+Quota **200 Mio** et plafond **20** médias : validés par le **service** (voir [§6.4](#64-quota-et-formats--couche-service)). La base ne porte que des contraintes **structurelles** (PK, FK **`ON DELETE CASCADE`**, NOT NULL, ensembles `kind` / `source_type` / `status` média, `storage_key` unique, `byte_size >= 1`). **Pas** de CHECK MIME ni de CHECK « 20 lignes / 200 Mio ».
 
 #### Origine utilisateur (`source_type`)
 
@@ -884,7 +884,7 @@ Le contrat **exige** ces traitements pour un cycle complet. **L’implémentatio
 | Publication programmée | `scheduled` → `active` quand `scheduled_at <= NOW()` |
 | Expiration automatique | **uniquement** `status = active` **et** `is_time_limited` → `expired` à `expires_at` ; pose `expired_at` et `purge_after`. **Jamais** une ligne `archived` |
 | Passage expirés → deleted | `expired` → `deleted` à `purge_after` (`expired_at + 30 j`). Pose `deleted_at = NOW()` |
-| Purge hard | `status = deleted` **et** `deleted_at + 30 jours <= NOW()` : suppression définitive `publication_media` + `publications` **et** objets via `StorageService`. S’applique aux `DELETE` manuels **et** aux expirés déjà passés en `deleted` |
+| Purge hard | `status = deleted` **et** `deleted_at + 30 jours <= NOW()` : 1) `StorageService.delete` des objets ; 2) `DELETE` SQL de la ligne `publications` (les lignes `publication_media` partent par **`ON DELETE CASCADE`**). S’applique aux `DELETE` manuels **et** aux expirés déjà passés en `deleted` |
 | (complément technique) | `pending_upload` trop vieux (ex. 24 h) → `failed` + libération quota |
 
 Sans ces jobs, planification, expiration et alignement storage / SQL ne se matérialisent pas.
@@ -1029,27 +1029,42 @@ Un module ultérieur pourra les activer **sans** changer l’identité Chronique
 
 ---
 
-## 8. Architecture SQL retenue (rappel, pas de migration ici)
+## 8. Architecture SQL gelée (prête pour `sql/008`, non créée ici)
+
+Contrat SQL **V1 figé** après cette étape.
 
 ```
 users
- └── publications          # user_id ON DELETE RESTRICT ; theme_id NULL ; pas de BLOB
-       └── publication_media
+ └── publications              # user_id → users.id ON DELETE RESTRICT
+       └── publication_media   # publication_id → publications.id ON DELETE CASCADE
 ```
 
+**Tables V1 :** `publications`, `publication_media`.  
+**Hors V1 :** `themes`, tables sociales, `publication_media_derivatives`.
+
 - Métadonnées PostgreSQL uniquement. Fichiers : `StorageService` (R2 V1), `storage_key` opaque.
-- **`publications.user_id` → `users.id` `ON DELETE RESTRICT`** : pas de suppression automatique des publications si un `users` part.
+- **`publications.user_id` → `users.id` `ON DELETE RESTRICT`**.
+- **`publication_media.publication_id` → `publications.id` `ON DELETE CASCADE`** : le hard delete parent retire les métadonnées médias ; les objets storage restent à la charge du job de purge.
 - Quota 20 médias / 200 Mio / MIME : **service**, pas CHECK SQL.
-- Pagination : curseur générique `before_at` + `before_id` (`published_at` / `archived_at` / `expired_at` selon la vue).
-- Index fil `active` : `(user_id, published_at DESC, id DESC)` WHERE `status = 'active'`.
+- Pagination API : `before_at` + `before_id`.
 - Hard delete : `deleted_at + 30 days`.
+
+**Index partiels par vue** (pagination) :
+
+| Vue | Index | Filtre |
+|---|---|---|
+| Fil actif | `(user_id, published_at DESC, id DESC)` | `WHERE status = 'active'` |
+| Archives | `(user_id, archived_at DESC, id DESC)` | `WHERE status = 'archived'` |
+| Expirés | `(user_id, expired_at DESC, id DESC)` | `WHERE status = 'expired'` |
+
+Ces index sont **spécifiés** pour `008` / `009`. Ils ne sont **pas** créés dans cette étape.
 
 ---
 
 ## 9. Hors périmètre de cette étape
 
 - Fichiers `routes` / `controllers` / `services` / `validators` / `storageService`.
-- Migrations `sql/008_…` (aucune table créée dans cette étape).
+- Migrations `sql/008_…` / `009_…` (contrat gelé ; **fichiers SQL non créés** ici).
 - Modification de `index.js`, CORS, limite JSON 32 Ko.
 - Toute route ou table Auth.
 - Table `themes`, dérivés média, tables sociales.
