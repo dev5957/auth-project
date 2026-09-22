@@ -24,9 +24,20 @@ Le mot **« chapitre »** peut exister dans l’expérience visuelle / narrative
 |---|---|
 | Produit / UX | Chronique |
 | API HTTP | `/chroniques` |
-| Tables SQL (implémentation future) | `publications`, `publication_media` |
+| SQL V1 | `publications`, `publication_media` |
+| SQL hors V1 | `themes`, `publication_media_derivatives`, tables sociales |
 
-Le JSON d’API parle de `chronique`. La base pourra nommer `publications` sans exposer ce nom au client.
+Le JSON d’API parle de `chronique`. La base nomme `publications` sans exposer ce nom au client.
+
+Architecture relationnelle V1 (métadonnées uniquement) :
+
+```
+users  (Module 1, inchangé)
+  └── publications
+        └── publication_media
+```
+
+PostgreSQL **ne contient pas** de BLOB. Les fichiers vivent dans `StorageService` (Cloudflare R2 en V1). Le modèle métier **ne dépend pas** de Cloudflare.
 
 Le Module 2 est **individuel** : un utilisateur ne lit, ne modifie et ne supprime **que** ses propres chroniques. Aucun fil social fonctionnel, aucun commentaire, aucune visibilité tierce.
 
@@ -75,6 +86,7 @@ Une chronique **appartient obligatoirement** à un utilisateur (`user_id` → `u
 |---|---|---|
 | `id` | oui (généré) | identifiant serveur, même famille que `users.id` (`BIGINT`) |
 | `user_id` | oui | issu du JWT, jamais choisi par le client |
+| `theme_id` | non | **nullable**, préparation thèmes. **Pas** de table `themes` en V1. **Pas** de logique métier. Toujours `null` en écriture Module 2 |
 | `title` | non | chaîne trimée ; vide / espaces uniquement → `null` ; max **200** caractères |
 | `body` | oui | texte central, 20–5000 caractères après trim |
 | `status` | oui | `draft` \| `scheduled` \| `active` \| `archived` \| `expired` \| `deleted` |
@@ -85,7 +97,7 @@ Une chronique **appartient obligatoirement** à un utilisateur (`user_id` → `u
 | `archived_at` | si `archived` | archivage manuel |
 | `expired_at` | si `expired` | instant où l’éphémère a quitté le fil |
 | `purge_after` | si `expired` | `expired_at + 30 jours` (constante serveur) |
-| `deleted_at` | si `deleted` | suppression définitive |
+| `deleted_at` | si `deleted` | suppression **logique** utilisateur ; la ligne reste en base jusqu’à une purge ultérieure |
 | `is_public` | oui | **inerte** — toujours `false` en Module 2 |
 | `audience` | oui | **inerte** — toujours `"private"` en Module 2 |
 | `comments_enabled` | oui | **inerte** — toujours `false` en Module 2 |
@@ -165,6 +177,7 @@ V1 : le stockage conserve le **fichier original**. **Aucun** encodage ni transfo
 ```json
 {
   "id": 42,
+  "theme_id": null,
   "title": "Premier soir",
   "body": "Le texte de la chronique, d'au moins vingt caractères.",
   "status": "active",
@@ -197,7 +210,8 @@ V1 : le stockage conserve le **fichier original**. **Aucun** encodage ni transfo
 }
 ```
 
-Non renvoyés : `user_id`, `storage_key`, `deleted_at`, secrets, URL fournisseur stable.
+Non renvoyés : `user_id`, `storage_key`, `deleted_at`, secrets, URL fournisseur stable.  
+`theme_id` est renvoyé (toujours `null` tant que les thèmes sont en pause). Le client **ne peut pas** le poser.
 
 Un champ optionnel `read_url` (URL **signée**, courte, **non persistée**) pourra apparaître sur chaque média `ready` dans les GET. Il n’est pas une URL publique permanente.
 
@@ -245,6 +259,7 @@ Crée une chronique pour l’utilisateur authentifié.
 | `is_public` | interdit | `400` |
 | `audience` | interdit | `400` |
 | `comments_enabled` | interdit | `400` |
+| `theme_id` | interdit | `400` |
 | `user_id` | interdit | `400` |
 | `media` | interdit | médias après création |
 
@@ -283,6 +298,7 @@ Une chronique éphémère peut naître en `draft`, `scheduled` ou `active`. `exp
 | 400 | `is_public cannot be set` |
 | 400 | `audience cannot be set` |
 | 400 | `comments_enabled cannot be set` |
+| 400 | `theme_id cannot be set` |
 | 400 | `user_id cannot be set` |
 | 400 | `media cannot be set on create` |
 | 401 | `Unauthorized` |
@@ -293,7 +309,7 @@ Une chronique éphémère peut naître en `draft`, `scheduled` ou `active`. `exp
 
 ### GET `/chroniques`
 
-Fil personnel paginé.
+Fil personnel paginé par **curseur temporel**. Un `before_id` **seul** est insuffisant : l’ordre du fil `active` est `published_at DESC` puis `id DESC`.
 
 **Authentification :** `requireAuth`.
 
@@ -301,28 +317,62 @@ Fil personnel paginé.
 |---|---|---|
 | `status` | `active` | Un seul : `draft`, `scheduled`, `active`, `archived`, `expired`. `deleted` → `400` |
 | `limit` | `20` | entier 1–50 |
-| `before_id` | omis | curseur (plus ancien que cet `id` dans l’ordre du fil) |
+| `before_published_at` | omis | **fil `active`** : ISO-8601 UTC du dernier item de la page précédente |
+| `before_id` | omis | départage si même horodatage ; **jamais seul** |
+| `before_at` | omis | **autres `status`** : horodatage de tri de cette vue (voir ci-dessous) |
 
-Ordre :
+Curseur : les deux composantes ensemble, ou aucune.
 
-- `active` : `published_at DESC`, `id DESC`
-- `scheduled` : `scheduled_at ASC`, `id ASC`
-- `draft` : `updated_at DESC`, `id DESC`
-- `archived` : `archived_at DESC`, `id DESC`
-- `expired` : `expired_at DESC`, `id DESC`
+- Première page : aucun `before_*`.
+- Page suivante : couple renvoyé dans `next`.
+- Un paramètre sans l’autre → `400` `{ "error": "cursor is incomplete" }`.
 
-Fil « récit » = `status=active`. Archives manuelles = `archived`. Conservation des éphémères = `expired`.
+**Fil `status=active` (récit dans le temps) :**
+
+Ordre : `published_at DESC`, `id DESC`.  
+Prédicat page suivante : `(published_at, id) < (before_published_at, before_id)` en ordre lexicographique décroissant.
+
+**Autres vues** (même principe, horodatage de la vue) :
+
+| `status` | Ordre | Query curseur |
+|---|---|---|
+| `scheduled` | `scheduled_at ASC`, `id ASC` | `before_at` + `before_id` (items **après** ce couple) |
+| `draft` | `updated_at DESC`, `id DESC` | `before_at` + `before_id` |
+| `archived` | `archived_at DESC`, `id DESC` | `before_at` + `before_id` |
+| `expired` | `expired_at DESC`, `id DESC` | `before_at` + `before_id` |
+
+Pour `active`, **ne pas** utiliser `before_at` : utiliser `before_published_at` + `before_id`.
+
+Fil « récit » = `status=active`. Archives volontaires = `archived`. Conservation des éphémères **non archivés** = `expired`.
 
 #### Succès — `200`
+
+Fil `active` :
 
 ```json
 {
   "items": [ ],
-  "next_before_id": 10
+  "next": {
+    "before_published_at": "2026-09-01T12:00:00.000Z",
+    "before_id": 10
+  }
 }
 ```
 
-`items` : chroniques avec médias `ready` seulement. `next_before_id` = `null` en fin de liste.
+Autre `status` :
+
+```json
+{
+  "items": [ ],
+  "next": {
+    "before_at": "2026-09-01T12:00:00.000Z",
+    "before_id": 10
+  }
+}
+```
+
+`items` : chroniques avec médias `ready` seulement.  
+`next` : `null` s’il n’y a plus de page.
 
 #### Erreurs
 
@@ -330,6 +380,9 @@ Fil « récit » = `status=active`. Archives manuelles = `archived`. Conservatio
 |---|---|
 | 400 | `status is invalid` |
 | 400 | `limit is invalid` |
+| 400 | `cursor is incomplete` |
+| 400 | `before_published_at is invalid` |
+| 400 | `before_at is invalid` |
 | 400 | `before_id is invalid` |
 | 401 | `Unauthorized` |
 | 429 | `Too many requests` |
@@ -391,7 +444,7 @@ Au moins un champ reconnu.
 | `is_time_limited` | booléen |
 | `expires_at` | si time-limited |
 
-Interdits (`400`) : `status` brut, `user_id`, `is_public`, `audience`, `comments_enabled`, `media`, horodatages serveur.
+Interdits (`400`) : `status` brut, `user_id`, `theme_id`, `is_public`, `audience`, `comments_enabled`, `media`, horodatages serveur.
 
 | Statut | PATCH |
 |---|---|
@@ -435,7 +488,7 @@ Interdits (`400`) : `status` brut, `user_id`, `is_public`, `audience`, `comments
 
 ### POST `/chroniques/:id/archive`
 
-Archivage **manuel**. Conservation **indéfinie**.
+Archivage **manuel**. Conservation **indéfinie**. Un archivage est un **choix utilisateur**.
 
 **Authentification :** `requireAuth`.
 
@@ -449,12 +502,25 @@ Corps : aucun.
 | `active` | `archived`, `archived_at = NOW()` |
 | `archived` | **200** idempotent |
 
+#### Publication éphémère archivée **avant** `expires_at`
+
+```
+active (is_time_limited = true)
+  → archive manuelle
+archived
+```
+
+- elle **n’expire plus automatiquement** (le job d’expiration ne traite que `status = active`) ;
+- elle est une **archive volontaire**, conservée comme une archive normale (durée indéfinie) ;
+- `expires_at` historique **n’est plus opérant** tant qu’elle reste `archived` ;
+- à l’archivage : `is_time_limited = false`, `expires_at = null` (le caractère éphémère ne survit pas au choix d’archiver).
+
 #### Interdit
 
 | Avant | Réponse |
 |---|---|
 | `draft` | `400` `{ "error": "Chronique cannot be archived in this status" }` |
-| `expired` | `400` — l’éphémère suit `expired` → `deleted` après 30 jours |
+| `expired` | `400` — déjà sorti du fil par expiration, pas un choix d’archive |
 | `deleted` | `404` |
 
 Hors fil `active`. Visible dans `GET /chroniques?status=archived`.
@@ -487,7 +553,23 @@ Restauration **depuis `archived` uniquement**, vers `active`.
 
 Une chronique **`expired` ne peut pas être restaurée** (`400` `{ "error": "Chronique cannot be restored in this status" }`).
 
-Si la ressource est `archived`, `is_time_limited = true` et `expires_at <= NOW()` : ne pas réactiver → `400` `{ "error": "Chronique has expired" }`.
+L’expiration **n’est pas reprise** automatiquement depuis l’ancienne valeur. Après une archive volontaire, le caractère éphémère doit être **redéfini explicitement** (ou laissé inactif).
+
+#### Corps
+
+Optionnel. Défaut : publication **non éphémère**.
+
+```json
+{
+  "is_time_limited": false,
+  "expires_at": null
+}
+```
+
+| Champ | Notes |
+|---|---|
+| `is_time_limited` | omis / `false` → `expires_at` ignoré, publication durable |
+| `expires_at` | obligatoire si `is_time_limited = true` ; ISO-8601 UTC **strictement dans le futur** |
 
 #### Succès — `200`
 
@@ -498,14 +580,16 @@ Si la ressource est `archived`, `is_time_limited = true` et `expires_at <= NOW()
 }
 ```
 
-`status` = `active`. `archived_at` = `null`. `published_at` conservé s’il existait, sinon `NOW()`.
+`status` = `active`. `archived_at` = `null`. `published_at` conservé s’il existait, sinon `NOW()`.  
+Éphémère uniquement si le corps l’a demandé avec un **nouvel** `expires_at`.
 
 #### Erreurs
 
 | HTTP | `error` |
 |---|---|
 | 400 | `Chronique cannot be restored in this status` |
-| 400 | `Chronique has expired` |
+| 400 | `expires_at is required` |
+| 400 | `expires_at must be after activation time` |
 | 401 | `Unauthorized` |
 | 404 | `Chronique not found` |
 | 429 | `Too many requests` |
@@ -514,14 +598,17 @@ Si la ressource est `archived`, `is_time_limited = true` et `expires_at <= NOW()
 
 ### DELETE `/chroniques/:id`
 
-Suppression **définitive** (`deleted`).
+Suppression **logique** utilisateur. **Pas de hard delete immédiat.**
 
 **Authentification :** `requireAuth`.
 
 1. `status = deleted`, `deleted_at = NOW()`.
-2. Objets storage programmés pour purge (best-effort).
-3. GET / listes : comme inexistante.
-4. Déjà `deleted` → `404`.
+2. La ligne `publications` et ses `publication_media` **restent en base**.
+3. Les objets storage **restent** jusqu’à un **processus de purge futur** (`StorageService.delete` + suppression définitive des métadonnées).
+4. GET / listes : comme inexistante (`404` / absente).
+5. Déjà `deleted` → `404`.
+
+Objectif : ne pas laisser le stockage média et Postgres dans des états divergents.
 
 Autorisé depuis : `draft`, `scheduled`, `active`, `archived`, `expired`.
 
@@ -762,30 +849,44 @@ Archivage manuel **uniquement** :
 - `scheduled` → `archived`
 - `active` → `archived`
 
-**Interdit :** `draft` → `archived`.
+**Interdit :** `draft` → `archived`.  
+Conservation d’une archive volontaire : **indéfinie**.
 
-Conservation manuelle : **indéfinie**.
-
-Éphémère :
+Cycle **éphémère resté `active`** jusqu’à `expires_at` :
 
 ```
 active
-  → (expires_at) expired
-  → (expired_at + 30 jours) deleted
+  → (job expires_at) expired
+  → (expired_at + 30 jours) deleted   // statut logique, puis purge future
 ```
 
-`purge_after = expired_at + 30 days` (constante serveur, pas un champ client).  
+`purge_after = expired_at + 30 days` (constante serveur).  
 **`expired` n’est pas restaurable.**
 
-### 4.7 Social (inerte)
+**Archive d’un éphémère avant expiration :**
+
+```
+active (is_time_limited)
+  → archive manuelle
+archived  (plus d’expiration auto, conservation d’archive normale)
+```
+
+Le job d’expiration **ignore** `archived`.  
+À l’archivage : `is_time_limited = false`, `expires_at = null`.  
+Restore : nouvelle expiration **explicite** ou publication durable (voir `POST .../restore`).
+
+### 4.7 Social et thèmes (inertes)
 
 À chaque écriture :
 
 - `is_public = false`
 - `audience = "private"`
 - `comments_enabled = false`
+- `theme_id = null`
 
-Tentative client → `400`. Aucun endpoint public. UI sociale éventuelle **non branchée**.
+Tentative client (`is_public`, `audience`, `comments_enabled`, `theme_id`) → `400`.  
+Aucun endpoint public. UI sociale ou thèmes éventuelle **non branchée**.  
+Pas de table `themes` en V1.
 
 ### 4.8 Jobs futurs (hors de cette étape)
 
@@ -794,11 +895,12 @@ Le contrat **exige** ces traitements pour un cycle complet. **L’implémentatio
 | Job | Effet |
 |---|---|
 | Publication programmée | `scheduled` → `active` quand `scheduled_at <= NOW()` |
-| Expiration automatique | `active` + `is_time_limited` → `expired` à `expires_at` ; pose `expired_at` et `purge_after` |
-| Purge des expirés | `expired` → `deleted` à `purge_after` + suppression objets via `StorageService` |
+| Expiration automatique | **uniquement** `status = active` **et** `is_time_limited` → `expired` à `expires_at` ; pose `expired_at` et `purge_after`. **Jamais** une ligne `archived` |
+| Passage expirés → deleted | `expired` → `deleted` à `purge_after` (toujours **logique**) |
+| Purge hard (après `deleted`) | suppression définitive métadonnées `publication_media` + `publications` **et** objets via `StorageService` |
 | (complément technique) | `pending_upload` trop vieux (ex. 24 h) → `failed` + libération quota |
 
-Sans ces jobs, planification, expiration et purge ne se matérialisent pas.
+Sans ces jobs, planification, expiration et alignement storage / SQL ne se matérialisent pas.
 
 ---
 
@@ -809,9 +911,9 @@ Sans ces jobs, planification, expiration et purge ne se matérialisent pas.
 | `draft` | créé, non publié |
 | `scheduled` | planifié à une date future |
 | `active` | visible dans le fil personnel |
-| `archived` | retiré volontairement |
-| `expired` | éphémère arrivé à expiration |
-| `deleted` | suppression définitive |
+| `archived` | retiré volontairement ; conservation indéfinie ; **n’expire plus** |
+| `expired` | éphémère resté actif jusqu’à `expires_at` |
+| `deleted` | suppression logique utilisateur ; métadonnées conservées jusqu’à purge |
 
 ```
                  create
@@ -825,34 +927,40 @@ Sans ces jobs, planification, expiration et purge ne se matérialisent pas.
             v                v
        scheduled --(job)--> active
             |                |
-            | archive        | archive
+            | archive        | archive  (y compris si éphémère : plus d’auto-expire)
             +-------+--------+
                     v
                 archived
                     |
-                    | restore (manuel, pas depuis expired)
+                    | restore explicite (éphémère : nouvel expires_at ou durable)
                     v
                   active
                     |
-                    | job expires_at (si is_time_limited)
+                    | job expires_at seulement si encore active ET is_time_limited
                     v
                  expired
                     |
                     | job +30 jours  OU  DELETE utilisateur
                     v
-                 deleted
+                 deleted  (logique)
+                    |
+                    | purge future : SQL + StorageService
+                    v
+              (plus de ligne)
 ```
 
-`DELETE` depuis tout statut sauf déjà `deleted`.
+`DELETE` utilisateur depuis tout statut sauf déjà `deleted` → `deleted` logique. **Pas de hard delete immédiat.**
 
 Interdit :
 
 - `draft` → `archived`
 - `expired` → `active` / `archived` / restore
+- `archived` → `expired` (l’archive volontaire ne bascule pas en `expired`)
 - `archived` → `draft`
 - `active` → `draft`
 - `deleted` → quelconque
 - `status` libre dans un PATCH
+- `theme_id` posé par le client
 
 Éphémère + planification : `expires_at` > `scheduled_at` > `NOW()`.  
 Éphémère + immédiat : `expires_at` > `NOW()`.
@@ -905,34 +1013,54 @@ Aucun encodage automatique. MIME refusés → `content_type is invalid`.
 
 ---
 
-## 7. Préparation sociale
+## 7. Préparation sociale et thèmes
 
-Champs toujours présents, **inactifs** :
+Champs toujours présents, **inactifs** en Module 2 :
 
 | Champ | Valeur Module 2 | Futur |
 |---|---|---|
 | `is_public` | `false` | visibilité hors propriétaire |
 | `audience` | `"private"` | ex. `private` \| `followers` \| `public` |
 | `comments_enabled` | `false` | commentaires |
+| `theme_id` | `null` | FK future vers `themes` |
 
 - écriture client refusée ;
-- serveur force ces valeurs à la création ;
+- serveur force ces valeurs à la création / archivage (`theme_id` reste `null`) ;
+- **pas de table `themes` en V1** ;
 - aucune route sans `requireAuth` ;
 - le filtre `user_id` reste obligatoire même si `is_public` était vrai en base par erreur ;
-- boutons sociaux UI : visuels possibles, **non fonctionnels**.
+- boutons sociaux / thèmes UI : visuels possibles, **non fonctionnels**.
 
-Un module social ultérieur pourra lever ces interdits **sans** changer l’identité Chronique ni les six statuts.
+Tables **hors V1** : `themes`, `publication_media_derivatives`, tables sociales.
+
+Un module ultérieur pourra les activer **sans** changer l’identité Chronique ni les six statuts.
 
 ---
 
-## 8. Hors périmètre de cette étape
+## 8. Architecture SQL retenue (rappel, pas de migration ici)
+
+```
+users
+ └── publications          # theme_id NULL, champs sociaux inertes, pas de BLOB
+       └── publication_media
+```
+
+- Métadonnées PostgreSQL uniquement.
+- Fichiers : `StorageService` (R2 V1), `storage_key` opaque.
+- Quota 200 Mio = `media_total_bytes` ≤ 209 715 200 ; max 20 médias.
+- Pagination fil : index `(user_id, published_at DESC, id DESC)` WHERE `status = 'active'`.
+
+---
+
+## 9. Hors périmètre de cette étape
 
 - Fichiers `routes` / `controllers` / `services` / `validators` / `storageService`.
-- Migrations `sql/008_…` (tables `publications` / `publication_media`).
+- Migrations `sql/008_…` (aucune table créée dans cette étape).
 - Modification de `index.js`, CORS, limite JSON 32 Ko.
 - Toute route ou table Auth.
-- Client Flutter (caméra, galerie, micro : contrat d’origine seulement).
-- **Implémentation** des jobs (planification, expiration, purge) — le **besoin** est spécifié en [§4.8](#48-jobs-futurs-hors-de-cette-étape).
+- Table `themes`, dérivés média, tables sociales.
+- Client Flutter.
+- **Implémentation** des jobs (planification, expiration, passage `expired` → `deleted`, **purge hard**) — besoins en [§4.8](#48-jobs-futurs-hors-de-cette-étape).
 - Pipeline média (transcodage, miniatures, antivirus).
-- Activation de `document`.
+- Activation de `document` et des thèmes.
 - Phase B Auth (refresh Dio 401).
