@@ -33,7 +33,7 @@ Architecture relationnelle V1 (métadonnées uniquement) :
 
 ```
 users  (Module 1, inchangé)
-  └── publications
+  └── publications          # user_id ON DELETE RESTRICT
         └── publication_media
 ```
 
