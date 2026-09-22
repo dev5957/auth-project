@@ -7,6 +7,12 @@ const {
   restoreChronique,
   deleteChronique,
 } = require('../services/chroniqueService');
+const {
+  createMediaUpload,
+  completeMedia,
+  deleteMedia,
+  reorderMedia,
+} = require('../services/chroniqueMediaService');
 
 async function create(req, res, next) {
   try {
@@ -85,6 +91,63 @@ async function remove(req, res, next) {
   }
 }
 
+async function createUpload(req, res, next) {
+  try {
+    const result = await createMediaUpload(req.user.userId, req.params.id, req.body);
+    res.status(201).json({
+      message: 'Upload created',
+      media: result.media,
+      upload: result.upload,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function completeUpload(req, res, next) {
+  try {
+    const chronique = await completeMedia(
+      req.user.userId,
+      req.params.id,
+      req.params.mediaId
+    );
+    res.status(200).json({
+      message: 'Media ready',
+      chronique,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function removeMedia(req, res, next) {
+  try {
+    const chronique = await deleteMedia(
+      req.user.userId,
+      req.params.id,
+      req.params.mediaId
+    );
+    res.status(200).json({
+      message: 'Media deleted',
+      chronique,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function reorder(req, res, next) {
+  try {
+    const chronique = await reorderMedia(req.user.userId, req.params.id, req.body);
+    res.status(200).json({
+      message: 'Media order updated',
+      chronique,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   create,
   list,
@@ -93,4 +156,8 @@ module.exports = {
   archive,
   restore,
   remove,
+  createUpload,
+  completeUpload,
+  removeMedia,
+  reorder,
 };

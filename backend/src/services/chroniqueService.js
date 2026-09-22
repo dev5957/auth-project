@@ -486,4 +486,5 @@ module.exports = {
   restoreChronique,
   deleteChronique,
   toPublicChronique,
+  withOwnedPublication,
 };
