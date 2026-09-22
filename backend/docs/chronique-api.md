@@ -33,8 +33,8 @@ Architecture relationnelle V1 (métadonnées uniquement) :
 
 ```
 users  (Module 1, inchangé)
-  └── publications          # user_id ON DELETE RESTRICT
-        └── publication_media
+  └── publications              # user_id ON DELETE RESTRICT
+        └── publication_media   # publication_id ON DELETE CASCADE
 ```
 
 PostgreSQL **ne contient pas** de BLOB. Les fichiers vivent dans `StorageService` (Cloudflare R2 en V1). Le modèle métier **ne dépend pas** de Cloudflare.
