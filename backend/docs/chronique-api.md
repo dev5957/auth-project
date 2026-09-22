@@ -1,8 +1,8 @@
 # API Chronique (Module 2) — contrat
 
-Documentation **contractuelle de référence** du Module 2, avant toute implémentation.
+Documentation **contractuelle de référence** du Module 2.
 
-**Statut :** conception uniquement. Aucune route, aucun service, aucune migration SQL n’est livrée avec ce document.
+**Statut :** SQL V1 (`008`, `009`) et architecture backend **gelés**. Implémentation runtime (routes / services) **non livrée**.
 
 Le Module 1 (authentification) reste inchangé : tables `users`, `refresh_tokens`, `phone_verifications`, routes `/auth/*`, middleware JWT existant. Les chroniques s’appuient sur `requireAuth` et `req.user.userId` **tels qu’ils existent**.
 
@@ -59,20 +59,30 @@ Authorization: Bearer <access_token>
 
 Identité propriétaire = claim JWT `userId`. Un `user_id` dans le body est **interdit** (`400`).
 
-Architecture cible (fichiers **non créés** à cette étape) :
+Architecture backend **gelée** (fichiers runtime **non créés**) :
 
 ```
 backend/src/routes/chroniques.js
 backend/src/controllers/chroniqueController.js
-backend/src/services/chroniqueService.js
-backend/src/services/chroniqueMediaService.js
-backend/src/services/storageService.js   # abstraction, pas un client R2 dans les services métier
+backend/src/services/chroniqueService.js       # métier, SQL publications, statuts
+backend/src/services/chroniqueMediaService.js  # catalogue publication_media + quota
+backend/src/services/storageService.js         # interface ; pas de R2 dans le métier
 backend/src/validators/chroniqueFields.js
-backend/sql/008_…                       # migrations ultérieures, pas maintenant
+backend/sql/008_create_publications.sql        # existe
+backend/sql/009_create_publication_media.sql   # existe
 backend/docs/chronique-api.md
 ```
 
-Montage prévu (étape d’implémentation) : `app.use('/chroniques', chroniqueRoutes)` — **sans** toucher à `routes/auth.js`.
+Couches : **routes → controllers → services → validators**.  
+`publication_media` = **catalogue de métadonnées uniquement** (pas de BLOB, pas d’URL).  
+`StorageService` est **séparé** du métier Chronique.
+
+Montage prévu : `app.use('/chroniques', chroniqueRoutes)` — **sans** toucher à `routes/auth.js`.
+
+**V1 limites :**
+
+- **Quota utilisateur** (par publication, propriétaire JWT) : 20 médias `pending_upload`+`ready`, 200 Mio — **service**.
+- **Rate limit IP** (fenêtre type Auth, 15 min) → `429` `{ "error": "Too many requests" }`. Pas de quota de débit par `userId` en V1 au-delà de l’IP.
 
 ---
 
@@ -220,7 +230,8 @@ Un champ optionnel `read_url` (URL **signée**, courte, **non persistée**) pour
 
 Toutes les routes exigent `requireAuth`. Aucune n’est publique en Module 2.
 
-Rate limit prévu (implémentation) : famille Auth (15 min / IP) → `429` `{ "error": "Too many requests" }`.
+**Rate limit V1 :** par **IP** (famille Auth, 15 min) → `429` `{ "error": "Too many requests" }`.  
+**Quota V1 :** par **utilisateur** (publication du JWT) — 20 médias / 200 Mio, couche service.
 
 CORS actuel : `GET`, `POST`, `OPTIONS`. `PATCH` / `DELETE` web exigeront d’étendre CORS **sans** changer `/auth`. Hors de cette étape.
 
@@ -251,8 +262,8 @@ Crée une chronique pour l’utilisateur authentifié.
 |---|---|---|
 | `title` | non | max 200 ; omis / `null` / blancs → `null` |
 | `body` | oui | 20–5000 après trim ; espaces seuls refusés |
-| `publish` | non | `"draft"` (défaut) \| `"now"` \| `"schedule"` |
-| `scheduled_at` | si `publish = "schedule"` | ISO-8601 UTC **strictement dans le futur** |
+| `publish` | oui* | `"draft"` \| `"now"` \| `"schedule"` — voir modes ci-dessous |
+| `scheduled_at` | si mode planifié | ISO-8601 UTC **strictement dans le futur** |
 | `is_time_limited` | non | booléen, défaut `false` |
 | `expires_at` | si `is_time_limited = true` | ISO-8601 UTC **strictement après** l’activation (immédiat ou `scheduled_at`) |
 | `is_public` | interdit | `400` |
@@ -262,13 +273,20 @@ Crée une chronique pour l’utilisateur authentifié.
 | `user_id` | interdit | `400` |
 | `media` | interdit | médias après création |
 
-| `publish` | `status` initial |
-|---|---|
-| `"draft"` / omis | `draft` |
-| `"now"` | `active`, `published_at = NOW()` |
-| `"schedule"` | `scheduled`, exige `scheduled_at` |
+**Modes de création (exclusifs, gelés) :**
 
-Une chronique éphémère peut naître en `draft`, `scheduled` ou `active`. `expires_at` est contrôlé par rapport à l’instant d’activation **effectif**.
+| Intention | Corps | `status` |
+|---|---|---|
+| Création **immédiate** | `publish: "now"` (pas de `scheduled_at`) | `active`, `published_at = NOW()` |
+| **Planifiée** | `scheduled_at` strictement futur ; `publish: "schedule"` | `scheduled` |
+| **Brouillon explicite** | `publish: "draft"` (pas de `scheduled_at`) | `draft` |
+
+`publish` **omis** et `scheduled_at` absent → `400` `{ "error": "publish is required" }` (le brouillon n’est plus un défaut silencieux).  
+`publish: "now"` avec `scheduled_at` → `400`.  
+`publish: "schedule"` sans `scheduled_at` futur → `400`.  
+`publish: "draft"` avec `scheduled_at` → `400`.
+
+Une chronique éphémère peut naître dans n’importe lequel des trois modes. `expires_at` est contrôlé par rapport à l’instant d’activation **effectif**.
 
 #### Succès — `201`
 
@@ -289,6 +307,7 @@ Une chronique éphémère peut naître en `draft`, `scheduled` ou `active`. `exp
 | 400 | `body is required` |
 | 400 | `body is too short` |
 | 400 | `body is too long` |
+| 400 | `publish is required` |
 | 400 | `publish is invalid` |
 | 400 | `scheduled_at is required` |
 | 400 | `scheduled_at must be in the future` |
@@ -902,38 +921,34 @@ Sans ces jobs, planification, expiration et alignement storage / SQL ne se maté
 | `deleted` | suppression logique utilisateur ; métadonnées conservées jusqu’à purge |
 
 ```
-                 create
+                 POST /chroniques
                     |
-                    v
-                 draft
-                    |
-         publish now / schedule
-                    |
-            +-------+--------+
-            v                v
-       scheduled --(job)--> active
-            |                |
-            | archive        | archive  (y compris si éphémère : plus d’auto-expire)
-            +-------+--------+
-                    v
-                archived
-                    |
-                    | restore explicite (éphémère : nouvel expires_at ou durable)
-                    v
-                  active
-                    |
-                    | job expires_at seulement si encore active ET is_time_limited
-                    v
-                 expired
-                    |
-                    | job +30 jours  OU  DELETE utilisateur
-                    v
-                 deleted  (logique, deleted_at)
-                    |
-                    | job : 30 jours après deleted_at
-                    | (manuel ou après conservation d’un expired)
-                    v
-              hard delete (SQL + StorageService)
+         +----------+-----------+
+         |          |           |
+         v          v           v
+       draft    scheduled     active     (draft explicite / scheduled_at futur / immédiat)
+                    |           |
+                    | job       | archive (éphémère : plus d’auto-expire)
+                    +-----+-----+
+                          |
+                          v
+                      archived
+                          |
+                          | restore explicite
+                          v
+                        active
+                          |
+                          | job expires_at si encore active ET is_time_limited
+                          v
+                       expired
+                          |
+                          | job +30 j  OU  DELETE utilisateur
+                          v
+                       deleted (logique)
+                          |
+                          | job deleted_at + 30 j
+                          v
+                    hard delete
 ```
 
 `DELETE` utilisateur depuis tout statut sauf déjà `deleted` → `deleted` logique. **Pas de hard delete immédiat.** Hard delete = **30 jours après `deleted_at`**.
@@ -1057,18 +1072,46 @@ users
 | Archives | `(user_id, archived_at DESC, id DESC)` | `WHERE status = 'archived'` |
 | Expirés | `(user_id, expired_at DESC, id DESC)` | `WHERE status = 'expired'` |
 
-Ces index de fil sont ceux de `008`. Les index `publication_media` seront spécifiés dans `009` (fichier **non créé** ici).
+Ces index de fil sont dans `008`. Index `publication_media` : `009`.
 
 ---
 
-## 9. Hors périmètre de cette étape
+## 9. Architecture backend gelée (runtime non créé)
 
-- Fichiers `routes` / `controllers` / `services` / `validators` / `storageService`.
-- Fichier `sql/009_create_publication_media.sql` (**non créé** ici).
+| Couche | Fichier | Rôle |
+|---|---|---|
+| routes | `routes/chroniques.js` | Préfixe `/chroniques`, `requireAuth` sur tout le routeur |
+| controllers | `chroniqueController.js` | HTTP ↔ services, pas de SQL |
+| services | `chroniqueService.js` | Publications, transitions de statut |
+| services | `chroniqueMediaService.js` | Catalogue `publication_media`, quota 20 / 200 Mio |
+| services | `storageService.js` | Upload/lecture/delete signés ; **pas** de R2 dans le métier |
+| validators | `chroniqueFields.js` | Texte, modes POST, MIME, couples `kind`/`source_type` |
+
+`publication_media` reste un **catalogue**. Le binaire ne transite pas par Express.
+
+### Tests fonctionnels prévus (non créés)
+
+Style `check-*.js`, **sans** APPLY SQL, **sans** toucher aux `test:*` Auth :
+
+| Script npm visé | Fichier | Périmètre |
+|---|---|---|
+| `test:chronique-crud` | `check-chronique-crud.js` | create (3 modes) / list / get / patch, 401, 404 |
+| `test:chronique-lifecycle` | `check-chronique-lifecycle.js` | archive, restore, delete logique, transitions interdites |
+| `test:chronique-media` | `check-chronique-media.js` | uploads/complete avec StorageService **mock**, quota, MIME, document/`upload` |
+| `test:chronique-cursor` | `check-chronique-cursor.js` | `before_at` + `before_id` |
+
+Existants : `test:publications-schema`, `test:publication-media-schema`.
+
+---
+
+## 10. Hors périmètre de cette étape
+
+- Création des fichiers runtime `routes` / `controllers` / `services` / `validators`.
+- Scripts `check-chronique-*.js`.
 - Modification de `index.js`, CORS, limite JSON 32 Ko.
 - Toute route ou table Auth.
 - Table `themes`, dérivés média, tables sociales.
 - Client Flutter.
-- **Implémentation** des jobs (planification, expiration, `expired` → `deleted`, **hard delete J+30**) — [§4.8](#48-jobs-futurs-hors-de-cette-étape).
+- **Implémentation** des jobs — [§4.8](#48-jobs-futurs-hors-de-cette-étape).
 - Pipeline média (transcodage, miniatures, antivirus).
 - Phase B Auth (refresh Dio 401).
