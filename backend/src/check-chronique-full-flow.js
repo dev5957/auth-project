@@ -418,6 +418,7 @@ async function main() {
     assert(created.json.chronique.id, 'created id');
     assertNoSecrets(created.json, created.raw);
     const chroniqueId = created.json.chronique.id;
+    console.log('A OK POST /chroniques active');
 
     const emptyRead = await httpRequest({
       port: TEST_PORT,
