@@ -833,7 +833,8 @@ Permutation **exacte** des ids `ready`.
 ### 4.4 Médias
 
 - Optionnels (texte seul valide).
-- Max **20** médias, **200 Mio** cumulés.
+- Max **20** médias, **200 Mio** cumulés (**quota utilisateur** / publication, service).
+- **Rate limit V1** : par IP, pas par `userId`.
 - `kind` + `source_type` + métadonnées techniques.
 - `document` : **V1 actif** ; `source_type` = `upload` ; MIME/extensions **service** (PDF, DOC, DOCX, TXT).
 - JSON API sans binaire (limite 32 Ko Auth **conservée**).
