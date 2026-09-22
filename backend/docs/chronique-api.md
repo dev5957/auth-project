@@ -85,7 +85,7 @@ Une chronique **appartient obligatoirement** à un utilisateur (`user_id` → `u
 | Champ | Obligatoire | Notes |
 |---|---|---|
 | `id` | oui (généré) | identifiant serveur, même famille que `users.id` (`BIGINT`) |
-| `user_id` | oui | issu du JWT, jamais choisi par le client |
+| `user_id` | oui | issu du JWT. FK future `publications.user_id` → `users.id` **`ON DELETE RESTRICT`** : supprimer un utilisateur **ne** cascade **pas** sur ses publications |
 | `theme_id` | non | **nullable**, préparation thèmes. **Pas** de table `themes` en V1. **Pas** de logique métier. Toujours `null` en écriture Module 2 |
 | `title` | non | chaîne trimée ; vide / espaces uniquement → `null` ; max **200** caractères |
 | `body` | oui | texte central, 20–5000 caractères après trim |
@@ -96,12 +96,12 @@ Une chronique **appartient obligatoirement** à un utilisateur (`user_id` → `u
 | `expires_at` | si `is_time_limited` | instant UTC de fin de visibilité dans le fil |
 | `archived_at` | si `archived` | archivage manuel |
 | `expired_at` | si `expired` | instant où l’éphémère a quitté le fil |
-| `purge_after` | si `expired` | `expired_at + 30 jours` (constante serveur) |
-| `deleted_at` | si `deleted` | suppression **logique** utilisateur ; la ligne reste en base jusqu’à une purge ultérieure |
+| `purge_after` | si `expired` | `expired_at + 30 jours` : passage **logique** `expired` → `deleted` |
+| `deleted_at` | si `deleted` | entrée en suppression logique. Hard delete SQL + `StorageService` : **30 jours après `deleted_at`** (job futur). Même délai après `deleted` pour conservation d’expirés et pour `DELETE` utilisateur |
 | `is_public` | oui | **inerte** — toujours `false` en Module 2 |
 | `audience` | oui | **inerte** — toujours `"private"` en Module 2 |
 | `comments_enabled` | oui | **inerte** — toujours `false` en Module 2 |
-| `media_total_bytes` | oui (dérivé) | somme des tailles, max **209 715 200** (200 Mio) |
+| `media_total_bytes` | oui (dérivé, applicatif) | somme des tailles. Plafond **200 Mio** et max **20** médias : **couche service**, pas CHECK SQL de quota / MIME |
 | `created_at` | oui | |
 | `updated_at` | oui | |
 
@@ -138,8 +138,7 @@ Chaque média a :
 | `status` | `pending_upload` \| `ready` \| `failed` |
 | `created_at` | |
 
-Quota : somme des `byte_size` des médias `ready` + `pending_upload` **≤ 200 Mio**.  
-Cardinalité : **20** médias `ready` ou `pending_upload` par chronique.
+Quota **200 Mio** et plafond **20** médias : validés par le **service** (voir [§6.4](#64-quota-et-formats--couche-service)). La base ne porte que des contraintes **structurelles** (PK, FK, NOT NULL, ensembles `kind` / `source_type` / `status` média, `storage_key` unique, `byte_size >= 1`). **Pas** de CHECK MIME ni de CHECK « 20 lignes / 200 Mio ».
 
 #### Origine utilisateur (`source_type`)
 
@@ -309,7 +308,7 @@ Une chronique éphémère peut naître en `draft`, `scheduled` ou `active`. `exp
 
 ### GET `/chroniques`
 
-Fil personnel paginé par **curseur temporel**. Un `before_id` **seul** est insuffisant : l’ordre du fil `active` est `published_at DESC` puis `id DESC`.
+Fil personnel paginé par **curseur générique** `(before_at, before_id)`. Un `before_id` **seul** est insuffisant.
 
 **Authentification :** `requireAuth`.
 
@@ -317,49 +316,30 @@ Fil personnel paginé par **curseur temporel**. Un `before_id` **seul** est insu
 |---|---|---|
 | `status` | `active` | Un seul : `draft`, `scheduled`, `active`, `archived`, `expired`. `deleted` → `400` |
 | `limit` | `20` | entier 1–50 |
-| `before_published_at` | omis | **fil `active`** : ISO-8601 UTC du dernier item de la page précédente |
+| `before_at` | omis | horodatage ISO-8601 UTC du dernier item de la page précédente |
 | `before_id` | omis | départage si même horodatage ; **jamais seul** |
-| `before_at` | omis | **autres `status`** : horodatage de tri de cette vue (voir ci-dessous) |
 
-Curseur : les deux composantes ensemble, ou aucune.
+Curseur : **`before_at` et `before_id` ensemble**, ou aucun des deux.
 
-- Première page : aucun `before_*`.
+- Première page : ni `before_at` ni `before_id`.
 - Page suivante : couple renvoyé dans `next`.
 - Un paramètre sans l’autre → `400` `{ "error": "cursor is incomplete" }`.
 
-**Fil `status=active` (récit dans le temps) :**
+Le champ SQL comparé à `before_at` **dépend de la vue** :
 
-Ordre : `published_at DESC`, `id DESC`.  
-Prédicat page suivante : `(published_at, id) < (before_published_at, before_id)` en ordre lexicographique décroissant.
-
-**Autres vues** (même principe, horodatage de la vue) :
-
-| `status` | Ordre | Query curseur |
+| `status` | `before_at` compare | Ordre |
 |---|---|---|
-| `scheduled` | `scheduled_at ASC`, `id ASC` | `before_at` + `before_id` (items **après** ce couple) |
-| `draft` | `updated_at DESC`, `id DESC` | `before_at` + `before_id` |
-| `archived` | `archived_at DESC`, `id DESC` | `before_at` + `before_id` |
-| `expired` | `expired_at DESC`, `id DESC` | `before_at` + `before_id` |
+| `active` | `published_at` | `published_at DESC`, `id DESC` |
+| `archived` | `archived_at` | `archived_at DESC`, `id DESC` |
+| `expired` | `expired_at` | `expired_at DESC`, `id DESC` |
+| `scheduled` | `scheduled_at` | `scheduled_at ASC`, `id ASC` |
+| `draft` | `updated_at` | `updated_at DESC`, `id DESC` |
 
-Pour `active`, **ne pas** utiliser `before_at` : utiliser `before_published_at` + `before_id`.
+Fil `active` (prédicat page suivante, ordre décroissant) : `(published_at, id) < (before_at, before_id)`.
 
 Fil « récit » = `status=active`. Archives volontaires = `archived`. Conservation des éphémères **non archivés** = `expired`.
 
 #### Succès — `200`
-
-Fil `active` :
-
-```json
-{
-  "items": [ ],
-  "next": {
-    "before_published_at": "2026-09-01T12:00:00.000Z",
-    "before_id": 10
-  }
-}
-```
-
-Autre `status` :
 
 ```json
 {
@@ -372,7 +352,7 @@ Autre `status` :
 ```
 
 `items` : chroniques avec médias `ready` seulement.  
-`next` : `null` s’il n’y a plus de page.
+`next` : `null` s’il n’y a plus de page. `before_at` est l’horodatage de tri de **cette** vue.
 
 #### Erreurs
 
@@ -381,7 +361,6 @@ Autre `status` :
 | 400 | `status is invalid` |
 | 400 | `limit is invalid` |
 | 400 | `cursor is incomplete` |
-| 400 | `before_published_at is invalid` |
 | 400 | `before_at is invalid` |
 | 400 | `before_id is invalid` |
 | 401 | `Unauthorized` |
@@ -604,11 +583,17 @@ Suppression **logique** utilisateur. **Pas de hard delete immédiat.**
 
 1. `status = deleted`, `deleted_at = NOW()`.
 2. La ligne `publications` et ses `publication_media` **restent en base**.
-3. Les objets storage **restent** jusqu’à un **processus de purge futur** (`StorageService.delete` + suppression définitive des métadonnées).
+3. Les objets storage **restent**.
 4. GET / listes : comme inexistante (`404` / absente).
 5. Déjà `deleted` → `404`.
+6. **Hard delete** (métadonnées SQL + `StorageService.delete`) : job futur, **30 jours après `deleted_at`**.
 
-Objectif : ne pas laisser le stockage média et Postgres dans des états divergents.
+Même délai de 30 jours après `deleted` pour :
+
+- une suppression **manuelle** (`DELETE` ci-dessus) ;
+- une publication **expirée** après sa conservation (`expired` → `deleted` à `purge_after`, puis 30 jours avant hard delete).
+
+Objectif : ne pas laisser le stockage média et Postgres dans des états divergents. Pas de hard delete immédiat.
 
 Autorisé depuis : `draft`, `scheduled`, `active`, `archived`, `expired`.
 
@@ -857,10 +842,12 @@ Cycle **éphémère resté `active`** jusqu’à `expires_at` :
 ```
 active
   → (job expires_at) expired
-  → (expired_at + 30 jours) deleted   // statut logique, puis purge future
+  → (expired_at + 30 jours) deleted   // logique
+  → (deleted_at + 30 jours) hard delete SQL + StorageService
 ```
 
-`purge_after = expired_at + 30 days` (constante serveur).  
+`purge_after = expired_at + 30 days` (passage vers `deleted` seulement).  
+Hard delete : **toujours** `deleted_at + 30 days`.  
 **`expired` n’est pas restaurable.**
 
 **Archive d’un éphémère avant expiration :**
@@ -896,8 +883,8 @@ Le contrat **exige** ces traitements pour un cycle complet. **L’implémentatio
 |---|---|
 | Publication programmée | `scheduled` → `active` quand `scheduled_at <= NOW()` |
 | Expiration automatique | **uniquement** `status = active` **et** `is_time_limited` → `expired` à `expires_at` ; pose `expired_at` et `purge_after`. **Jamais** une ligne `archived` |
-| Passage expirés → deleted | `expired` → `deleted` à `purge_after` (toujours **logique**) |
-| Purge hard (après `deleted`) | suppression définitive métadonnées `publication_media` + `publications` **et** objets via `StorageService` |
+| Passage expirés → deleted | `expired` → `deleted` à `purge_after` (`expired_at + 30 j`). Pose `deleted_at = NOW()` |
+| Purge hard | `status = deleted` **et** `deleted_at + 30 jours <= NOW()` : suppression définitive `publication_media` + `publications` **et** objets via `StorageService`. S’applique aux `DELETE` manuels **et** aux expirés déjà passés en `deleted` |
 | (complément technique) | `pending_upload` trop vieux (ex. 24 h) → `failed` + libération quota |
 
 Sans ces jobs, planification, expiration et alignement storage / SQL ne se matérialisent pas.
@@ -942,14 +929,15 @@ Sans ces jobs, planification, expiration et alignement storage / SQL ne se maté
                     |
                     | job +30 jours  OU  DELETE utilisateur
                     v
-                 deleted  (logique)
+                 deleted  (logique, deleted_at)
                     |
-                    | purge future : SQL + StorageService
+                    | job : 30 jours après deleted_at
+                    | (manuel ou après conservation d’un expired)
                     v
-              (plus de ligne)
+              hard delete (SQL + StorageService)
 ```
 
-`DELETE` utilisateur depuis tout statut sauf déjà `deleted` → `deleted` logique. **Pas de hard delete immédiat.**
+`DELETE` utilisateur depuis tout statut sauf déjà `deleted` → `deleted` logique. **Pas de hard delete immédiat.** Hard delete = **30 jours après `deleted_at`**.
 
 Interdit :
 
@@ -1004,12 +992,16 @@ Aucun encodage automatique. MIME refusés → `content_type is invalid`.
 | `video` | `video/mp4`, `video/quicktime`, `video/webm` |
 | `document` | *écriture non activée* |
 
-### 6.4 Quota
+### 6.4 Quota et formats — couche service
 
-- **200 Mio** = **209 715 200** octets.
-- Somme `pending_upload` + `ready`.
-- Contrôle à `uploads` et à `complete`.
-- Max **20** médias.
+Les règles suivantes **ne sont pas** des CHECK SQL. Elles sont appliquées par le **service / validators** :
+
+- maximum **20** médias (`pending_upload` + `ready`) par publication ;
+- quota total **200 Mio** = **209 715 200** octets (`pending_upload` + `ready`) ;
+- MIME V1 listés en [§6.3](#63-formats-acceptés-v1).
+
+Contrôle à `uploads` et à `complete`.  
+La base : PK/FK, `kind` / `source_type` / `status` fermés, `storage_key` UNIQUE, `byte_size >= 1`, éventuellement colonne `media_total_bytes` **sans** CHECK de plafond.
 
 ---
 
@@ -1041,14 +1033,16 @@ Un module ultérieur pourra les activer **sans** changer l’identité Chronique
 
 ```
 users
- └── publications          # theme_id NULL, champs sociaux inertes, pas de BLOB
+ └── publications          # user_id ON DELETE RESTRICT ; theme_id NULL ; pas de BLOB
        └── publication_media
 ```
 
-- Métadonnées PostgreSQL uniquement.
-- Fichiers : `StorageService` (R2 V1), `storage_key` opaque.
-- Quota 200 Mio = `media_total_bytes` ≤ 209 715 200 ; max 20 médias.
-- Pagination fil : index `(user_id, published_at DESC, id DESC)` WHERE `status = 'active'`.
+- Métadonnées PostgreSQL uniquement. Fichiers : `StorageService` (R2 V1), `storage_key` opaque.
+- **`publications.user_id` → `users.id` `ON DELETE RESTRICT`** : pas de suppression automatique des publications si un `users` part.
+- Quota 20 médias / 200 Mio / MIME : **service**, pas CHECK SQL.
+- Pagination : curseur générique `before_at` + `before_id` (`published_at` / `archived_at` / `expired_at` selon la vue).
+- Index fil `active` : `(user_id, published_at DESC, id DESC)` WHERE `status = 'active'`.
+- Hard delete : `deleted_at + 30 days`.
 
 ---
 
@@ -1060,7 +1054,7 @@ users
 - Toute route ou table Auth.
 - Table `themes`, dérivés média, tables sociales.
 - Client Flutter.
-- **Implémentation** des jobs (planification, expiration, passage `expired` → `deleted`, **purge hard**) — besoins en [§4.8](#48-jobs-futurs-hors-de-cette-étape).
+- **Implémentation** des jobs (planification, expiration, `expired` → `deleted`, **hard delete J+30**) — [§4.8](#48-jobs-futurs-hors-de-cette-étape).
 - Pipeline média (transcodage, miniatures, antivirus).
 - Activation de `document` et des thèmes.
 - Phase B Auth (refresh Dio 401).
