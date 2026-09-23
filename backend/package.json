@@ -20,6 +20,7 @@
     "test:chronique-lifecycle": "node src/check-chronique-lifecycle.js",
     "test:chronique-media": "node src/check-chronique-media.js",
     "test:chronique-full-flow": "node src/check-chronique-full-flow.js",
+    "test:storage-r2": "node src/check-storage-r2.js",
     "test:password-reset": "node src/check-password-reset.js",
     "test:user-profile": "node src/check-user-profile.js",
     "test:sms": "node src/check-sms-service.js",
@@ -42,6 +43,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1138.0",
+    "@aws-sdk/s3-request-presigner": "^3.1138.0",
     "bcrypt": "^6.0.0",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",

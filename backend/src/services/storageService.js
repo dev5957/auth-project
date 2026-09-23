@@ -1,5 +1,6 @@
 const AppError = require('../errors/AppError');
 const mockStorageService = require('./mockStorageService');
+const r2StorageService = require('./r2StorageService');
 
 function isStorage(candidate) {
   return (
@@ -11,12 +12,33 @@ function isStorage(candidate) {
   );
 }
 
-function getStorage(impl) {
-  const storage = impl === undefined ? mockStorageService : impl;
-  if (!isStorage(storage)) {
-    throw new AppError(503, 'Storage is not configured');
+function resolveProvider(env = process.env) {
+  const raw = env.STORAGE_PROVIDER;
+  if (raw == null || String(raw).trim() === '') {
+    return 'mock';
   }
-  return storage;
+  return String(raw).trim().toLowerCase();
+}
+
+function getStorage(impl, env = process.env) {
+  if (impl !== undefined) {
+    if (!isStorage(impl)) {
+      throw new AppError(503, 'Storage is not configured');
+    }
+    return impl;
+  }
+
+  const provider = resolveProvider(env);
+  if (provider === 'mock') {
+    return mockStorageService;
+  }
+  if (provider === 'r2') {
+    if (!isStorage(r2StorageService)) {
+      throw new AppError(503, 'Storage is not configured');
+    }
+    return r2StorageService;
+  }
+  throw new AppError(503, 'Storage is not configured');
 }
 
 module.exports = {
