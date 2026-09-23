@@ -7,6 +7,7 @@ import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_loading.dart';
 import '../../../auth/providers/auth_controller.dart';
 import '../../../auth/state/auth_state.dart';
+import '../widgets/home_create_explore_actions.dart';
 import '../widgets/home_header.dart';
 import '../widgets/home_space_card.dart';
 import '../widgets/home_welcome.dart';
@@ -64,10 +65,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     HomeHeader(login: login),
                     const SizedBox(height: AppSpacing.xxxl),
                     HomeWelcome(login: login),
-                    const SizedBox(height: AppSpacing.xxl),
+                    const SizedBox(height: AppSpacing.xxxl),
+                    const HomeCreateExploreActions(),
+                    const SizedBox(height: AppSpacing.xxxl),
                     const HomeSpaceCard(),
                     const SizedBox(height: AppSpacing.xxxl),
                     AppButton(
+                      key: const ValueKey('home-logout'),
                       label: 'Logout',
                       variant: AppButtonVariant.secondary,
                       isLoading: _loggingOut,

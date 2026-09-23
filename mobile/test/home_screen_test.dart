@@ -4,7 +4,6 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:mobile/core/config/app_config.dart';
 import 'package:mobile/core/network/api_client.dart';
-import 'package:mobile/core/widgets/app_button.dart';
 import 'package:mobile/features/auth/models/auth_account.dart';
 import 'package:mobile/features/auth/models/auth_user.dart';
 import 'package:mobile/features/auth/providers/auth_controller.dart';
@@ -114,6 +113,8 @@ void main() {
     expect(find.text('Welcome back'), findsOneWidget);
     expect(find.text('tgjjk'), findsOneWidget);
     expect(find.text('Session active'), findsOneWidget);
+    expect(find.text('CREATE'), findsOneWidget);
+    expect(find.text('EXPLORE'), findsOneWidget);
     expect(find.text('Your space'), findsOneWidget);
     expect(find.text('Everything is ready.'), findsOneWidget);
     expect(find.text('Logout'), findsOneWidget);
@@ -184,7 +185,7 @@ void main() {
     await tester.pump();
 
     final logoutInk = find.descendant(
-      of: find.byType(AppButton),
+      of: find.byKey(const ValueKey('home-logout')),
       matching: find.byType(InkWell),
     );
     await tester.tap(logoutInk);

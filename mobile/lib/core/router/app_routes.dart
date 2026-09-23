@@ -8,4 +8,14 @@ abstract final class AppRoutes {
   static const String register = '/auth/register';
   static const String oauthComplete = '/auth/oauth/complete';
   static const String home = '/home';
+
+  /// Placeholder Lot 2A — future assistant de création.
+  static const String create = '/create';
+
+  /// Placeholder Lot 2A — future entrée Chronique (fil).
+  static const String explore = '/explore';
+
+  static bool isAuthenticatedLocation(String location) {
+    return location == home || location == create || location == explore;
+  }
 }

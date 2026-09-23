@@ -10,6 +10,8 @@ import '../../features/auth/presentation/screens/register_screen.dart';
 import '../../features/auth/presentation/screens/signup_method_screen.dart';
 import '../../features/auth/providers/auth_controller.dart';
 import '../../features/auth/state/auth_state.dart';
+import '../../features/chronique/presentation/screens/create_placeholder_screen.dart';
+import '../../features/chronique/presentation/screens/explore_placeholder_screen.dart';
 import '../../features/home/presentation/screens/home_screen.dart';
 import 'app_routes.dart';
 import 'session_splash_screen.dart';
@@ -47,12 +49,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           target = AppRoutes.splash;
         }
       } else if (auth is AuthAuthenticated) {
-        target = location == AppRoutes.home ? null : AppRoutes.home;
+        target = AppRoutes.isAuthenticatedLocation(location)
+            ? null
+            : AppRoutes.home;
       } else if (location == AppRoutes.splash) {
         // Cas 1 / 5 : premier lancement ou refresh invalide au cold start → carousel.
         target = AppRoutes.entry;
-      } else if (location == AppRoutes.home) {
-        // Cas 4 : logout (ou session tombée pendant Home) → formulaire Login.
+      } else if (AppRoutes.isAuthenticatedLocation(location)) {
+        // Cas 4 : logout (ou session tombée pendant Home / CREATE / EXPLORE) → Login.
         target = AppRoutes.login;
       } else {
         // Cas 2 : /auth/login (ou register / carousel) reste en place.
@@ -100,6 +104,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.home,
         builder: (context, state) => const HomeScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.create,
+        builder: (context, state) => const CreatePlaceholderScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.explore,
+        builder: (context, state) => const ExplorePlaceholderScreen(),
       ),
     ],
   );
