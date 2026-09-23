@@ -15,7 +15,17 @@ abstract final class AppRoutes {
   /// Fil personnel « Mon Fil ». Route technique conservée.
   static const String explore = '/explore';
 
+  /// Lecture d’une chronique. `:chroniqueId` numérique.
+  static const String exploreDetail = '/explore/:chroniqueId';
+
+  static String chroniqueDetail(int id) => '/explore/$id';
+
+  static final RegExp _exploreDetailLocation = RegExp(r'^/explore/\d+$');
+
   static bool isAuthenticatedLocation(String location) {
-    return location == home || location == create || location == explore;
+    return location == home ||
+        location == create ||
+        location == explore ||
+        _exploreDetailLocation.hasMatch(location);
   }
 }

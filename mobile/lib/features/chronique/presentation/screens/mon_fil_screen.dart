@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../../core/router/app_routes.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_text_theme.dart';
@@ -61,7 +63,13 @@ class MonFilScreen extends ConsumerWidget {
           itemCount: items.length,
           separatorBuilder: (context, index) => const SizedBox(height: AppSpacing.md),
           itemBuilder: (context, index) {
-            return ChroniqueCard(chronique: items[index]);
+            return ChroniqueCard(
+              chronique: items[index],
+              onTap: () => context.push(
+                AppRoutes.chroniqueDetail(items[index].id),
+                extra: items[index],
+              ),
+            );
           },
         ),
     };

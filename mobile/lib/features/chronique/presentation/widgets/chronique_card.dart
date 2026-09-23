@@ -8,38 +8,46 @@ import '../../models/chronique.dart';
 
 /// Carte V1 d’une chronique du fil (date, titre optionnel, texte).
 class ChroniqueCard extends StatelessWidget {
-  const ChroniqueCard({super.key, required this.chronique});
+  const ChroniqueCard({
+    super.key,
+    required this.chronique,
+    this.onTap,
+  });
 
   final Chronique chronique;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.luminaColors;
     final dateLabel = chroniqueDateLabel(chronique);
     final title = chronique.title?.trim();
-    return AppCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (dateLabel.isNotEmpty) ...[
+    return GestureDetector(
+      onTap: onTap,
+      child: AppCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (dateLabel.isNotEmpty) ...[
+              Text(
+                dateLabel,
+                style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+            ],
+            if (title != null && title.isNotEmpty) ...[
+              Text(
+                title,
+                style: AppTextTheme.titleSmall.copyWith(color: colors.textPrimary),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+            ],
             Text(
-              dateLabel,
-              style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
+              chronique.body,
+              style: AppTextTheme.bodyMedium.copyWith(color: colors.textPrimary),
             ),
-            const SizedBox(height: AppSpacing.sm),
           ],
-          if (title != null && title.isNotEmpty) ...[
-            Text(
-              title,
-              style: AppTextTheme.titleSmall.copyWith(color: colors.textPrimary),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-          ],
-          Text(
-            chronique.body,
-            style: AppTextTheme.bodyMedium.copyWith(color: colors.textPrimary),
-          ),
-        ],
+        ),
       ),
     );
   }

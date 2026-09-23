@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/network/api_exception.dart';
@@ -37,6 +38,10 @@ class MonFilController extends AutoDisposeNotifier<MonFilState> {
       final items = await ref.read(chroniqueRepositoryProvider).list();
       state = MonFilReady(items);
     } on ApiException catch (error) {
+      debugPrint(
+        '[chronique-fil] GET /chroniques failed '
+        'status=${error.statusCode} message=${error.message}',
+      );
       final message = error.message.trim();
       state = MonFilError(message.isNotEmpty ? message : 'Unexpected error');
     } on FormatException {

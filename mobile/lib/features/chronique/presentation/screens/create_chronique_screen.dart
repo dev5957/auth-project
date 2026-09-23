@@ -87,7 +87,7 @@ class _CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
       if (!mounted) {
         return;
       }
-      context.go(AppRoutes.explore);
+      context.pushReplacement(AppRoutes.explore);
     } on ApiException catch (error) {
       if (!mounted) {
         return;

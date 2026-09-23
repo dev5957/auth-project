@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -10,6 +11,7 @@ import 'package:mobile/features/auth/providers/auth_controller.dart';
 import 'package:mobile/features/auth/providers/auth_providers.dart';
 import 'package:mobile/features/auth/state/auth_state.dart';
 import 'package:mobile/features/chronique/models/chronique.dart';
+import 'package:mobile/features/chronique/presentation/screens/chronique_detail_screen.dart';
 import 'package:mobile/features/chronique/presentation/screens/mon_fil_screen.dart';
 import 'package:mobile/features/chronique/presentation/widgets/chronique_card.dart';
 import 'package:mobile/features/chronique/providers/chronique_providers.dart';
@@ -157,6 +159,43 @@ void main() {
     );
     expect(find.text('22/09/2026'), findsOneWidget);
     expect(find.text('Aucune chronique pour le moment.'), findsNothing);
+  });
+
+  testWidgets('tapping a card opens the detail then back returns to Mon Fil', (
+    tester,
+  ) async {
+    final api = _ChroniqueApiProbe()
+      ..items = const [
+        Chronique(
+          id: 42,
+          title: 'Premier soir',
+          body: 'Le texte de la chronique, d au moins vingt caracteres.',
+          status: 'active',
+          publishedAt: '2026-09-22T10:00:00.000Z',
+        ),
+      ];
+    final container = await _pumpHome(tester, api: api);
+    await _openMonFil(tester);
+
+    await tester.tap(find.byType(ChroniqueCard));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ChroniqueDetailScreen), findsOneWidget);
+    expect(find.text('Premier soir'), findsWidgets);
+    expect(
+      find.text('Le texte de la chronique, d au moins vingt caracteres.'),
+      findsWidgets,
+    );
+    expect(find.text('22/09/2026'), findsWidgets);
+    expect(container.read(authControllerProvider), isA<AuthAuthenticated>());
+
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ChroniqueDetailScreen), findsNothing);
+    expect(find.byType(MonFilScreen), findsOneWidget);
+    expect(find.byType(ChroniqueCard), findsOneWidget);
+    expect(container.read(authControllerProvider), isA<AuthAuthenticated>());
   });
 
   testWidgets('Mon Fil shows an empty state when there are no items', (tester) async {

@@ -76,6 +76,11 @@ class ChroniqueApiService {
       }
       return asJsonMap(response.data);
     } on DioException catch (error) {
+      debugPrint(
+        '[chronique-http] $method $path failed '
+        'type=${error.type} status=${error.response?.statusCode} '
+        'dioMessage=${error.message}',
+      );
       final mapped = error.error;
       if (mapped is ApiException) {
         throw mapped;

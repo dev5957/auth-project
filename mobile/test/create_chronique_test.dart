@@ -194,7 +194,9 @@ void main() {
     expect(find.byType(CreateChroniqueScreen), findsOneWidget);
   });
 
-  testWidgets('publish calls the Chronique service then opens /explore', (tester) async {
+  testWidgets('publish opens Mon Fil then back returns to Home without logout', (
+    tester,
+  ) async {
     final api = _ChroniqueApiProbe();
     final container = await _pumpHome(tester, api: api);
     await _openCreate(tester);
@@ -212,8 +214,16 @@ void main() {
     expect(find.byType(MonFilScreen), findsOneWidget);
     expect(find.text('Mon Fil'), findsOneWidget);
     expect(find.byType(CreateChroniqueScreen), findsNothing);
-    expect(find.byType(HomeScreen), findsNothing);
     expect(api.listCalls, 1);
+    expect(container.read(authControllerProvider), isA<AuthAuthenticated>());
+
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(HomeScreen), findsOneWidget);
+    expect(find.text('Logout'), findsOneWidget);
+    expect(find.byType(MonFilScreen), findsNothing);
+    expect(find.byType(CreateChroniqueScreen), findsNothing);
     expect(container.read(authControllerProvider), isA<AuthAuthenticated>());
   });
 
