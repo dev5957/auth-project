@@ -21,6 +21,7 @@
     "test:chronique-media": "node src/check-chronique-media.js",
     "test:chronique-full-flow": "node src/check-chronique-full-flow.js",
     "test:storage-r2": "node src/check-storage-r2.js",
+    "test:storage-r2-live": "node src/check-storage-r2-live.js",
     "test:password-reset": "node src/check-password-reset.js",
     "test:user-profile": "node src/check-user-profile.js",
     "test:sms": "node src/check-sms-service.js",
