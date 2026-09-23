@@ -11,7 +11,7 @@ import '../../features/auth/presentation/screens/signup_method_screen.dart';
 import '../../features/auth/providers/auth_controller.dart';
 import '../../features/auth/state/auth_state.dart';
 import '../../features/chronique/presentation/screens/create_chronique_screen.dart';
-import '../../features/chronique/presentation/screens/explore_placeholder_screen.dart';
+import '../../features/chronique/presentation/screens/mon_fil_screen.dart';
 import '../../features/home/presentation/screens/home_screen.dart';
 import 'app_routes.dart';
 import 'session_splash_screen.dart';
@@ -115,7 +115,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: AppRoutes.explore,
-        builder: (context, state) => const ExplorePlaceholderScreen(),
+        builder: (context, state) => const MonFilScreen(),
       ),
     ],
   );

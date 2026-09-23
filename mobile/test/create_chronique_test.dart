@@ -12,7 +12,7 @@ import 'package:mobile/features/auth/providers/auth_providers.dart';
 import 'package:mobile/features/auth/state/auth_state.dart';
 import 'package:mobile/features/chronique/models/chronique.dart';
 import 'package:mobile/features/chronique/presentation/screens/create_chronique_screen.dart';
-import 'package:mobile/features/chronique/presentation/screens/explore_placeholder_screen.dart';
+import 'package:mobile/features/chronique/presentation/screens/mon_fil_screen.dart';
 import 'package:mobile/features/chronique/providers/chronique_providers.dart';
 import 'package:mobile/features/chronique/services/chronique_api_service.dart';
 import 'package:mobile/features/home/presentation/screens/home_screen.dart';
@@ -75,10 +75,12 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
       : super(ApiClient(config: const AppConfig(apiBaseUrl: 'http://test.invalid')));
 
   int createCalls = 0;
+  int listCalls = 0;
   String? lastAccessToken;
   String? lastBody;
   String? lastTitle;
   ApiException? failWith;
+  List<Chronique> listItems = const [];
 
   @override
   Future<Chronique> create({
@@ -101,6 +103,13 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
       status: 'active',
       publishedAt: '2026-09-23T12:00:00.000Z',
     );
+  }
+
+  @override
+  Future<List<Chronique>> list({required String accessToken}) async {
+    listCalls += 1;
+    lastAccessToken = accessToken;
+    return listItems;
   }
 }
 
@@ -200,9 +209,11 @@ void main() {
     expect(api.lastAccessToken, 'access-test');
     expect(api.lastTitle, 'Premier soir');
     expect(api.lastBody, body);
-    expect(find.byType(ExplorePlaceholderScreen), findsOneWidget);
+    expect(find.byType(MonFilScreen), findsOneWidget);
+    expect(find.text('Mon Fil'), findsOneWidget);
     expect(find.byType(CreateChroniqueScreen), findsNothing);
     expect(find.byType(HomeScreen), findsNothing);
+    expect(api.listCalls, 1);
     expect(container.read(authControllerProvider), isA<AuthAuthenticated>());
   });
 
@@ -222,7 +233,7 @@ void main() {
     expect(api.createCalls, 1);
     expect(find.text('body is too short'), findsOneWidget);
     expect(find.byType(CreateChroniqueScreen), findsOneWidget);
-    expect(find.byType(ExplorePlaceholderScreen), findsNothing);
+    expect(find.byType(MonFilScreen), findsNothing);
     expect(container.read(authControllerProvider), isA<AuthAuthenticated>());
     expect(find.text('Logout'), findsNothing);
   });

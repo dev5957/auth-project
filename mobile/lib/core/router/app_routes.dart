@@ -12,7 +12,7 @@ abstract final class AppRoutes {
   /// Assistant de création (modal plein écran) — Lot création texte.
   static const String create = '/create';
 
-  /// Placeholder Lot 2A — future entrée Chronique (« Mon Fil »).
+  /// Fil personnel « Mon Fil ». Route technique conservée.
   static const String explore = '/explore';
 
   static bool isAuthenticatedLocation(String location) {

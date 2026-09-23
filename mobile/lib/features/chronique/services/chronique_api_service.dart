@@ -36,6 +36,24 @@ class ChroniqueApiService {
     return Chronique.fromJson(asJsonMap(chronique));
   }
 
+  /// `GET /chroniques` — première page du fil `active` (défauts serveur).
+  Future<List<Chronique>> list({required String accessToken}) async {
+    debugPrint('[chronique-http] ChroniqueApiService.list() → GET /chroniques');
+    final json = await _send(
+      'GET',
+      '/chroniques',
+      accessToken: accessToken,
+    );
+    final items = json['items'];
+    if (items is! List) {
+      throw const FormatException('Invalid chronique list payload');
+    }
+    return [
+      for (final item in items)
+        Chronique.fromJson(asJsonMap(item)),
+    ];
+  }
+
   Future<Map<String, dynamic>> _send(
     String method,
     String path, {

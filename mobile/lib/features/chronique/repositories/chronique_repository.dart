@@ -29,4 +29,13 @@ class ChroniqueRepository {
       title: title,
     );
   }
+
+  /// Fil personnel V1 : `GET /chroniques` (première page, pas de pagination).
+  Future<List<Chronique>> list() async {
+    final accessToken = await _tokenStorage.readAccessToken();
+    if (accessToken == null || accessToken.isEmpty) {
+      throw const ApiException(message: 'Unauthorized', statusCode: 401);
+    }
+    return _api.list(accessToken: accessToken);
+  }
 }
