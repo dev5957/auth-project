@@ -9,7 +9,7 @@ import 'package:mobile/features/auth/providers/auth_controller.dart';
 import 'package:mobile/features/auth/providers/auth_providers.dart';
 import 'package:mobile/features/auth/services/auth_api_service.dart';
 import 'package:mobile/features/auth/state/auth_state.dart';
-import 'package:mobile/features/chronique/presentation/screens/create_placeholder_screen.dart';
+import 'package:mobile/features/chronique/presentation/screens/create_chronique_screen.dart';
 import 'package:mobile/features/chronique/presentation/screens/explore_placeholder_screen.dart';
 import 'package:mobile/features/home/presentation/screens/home_screen.dart';
 import 'package:mobile/main.dart';
@@ -48,7 +48,7 @@ Future<void> _pumpHome(WidgetTester tester) async {
 }
 
 void main() {
-  testWidgets('CREATE opens the creation placeholder without leaving the session', (
+  testWidgets('CREATE opens the creation assistant without leaving the session', (
     tester,
   ) async {
     await _pumpHome(tester);
@@ -57,9 +57,9 @@ void main() {
     await tester.tap(find.text('CREATE'));
     await tester.pumpAndSettle();
 
-    expect(find.byType(CreatePlaceholderScreen), findsOneWidget);
+    expect(find.byType(CreateChroniqueScreen), findsOneWidget);
+    expect(find.text('Créer une chronique'), findsOneWidget);
     expect(find.byType(ExplorePlaceholderScreen), findsNothing);
-    expect(find.text('CREATE'), findsWidgets);
 
     final container = ProviderScope.containerOf(
       tester.element(find.byType(LuminaApp)),
@@ -76,7 +76,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(ExplorePlaceholderScreen), findsOneWidget);
-    expect(find.byType(CreatePlaceholderScreen), findsNothing);
+    expect(find.byType(CreateChroniqueScreen), findsNothing);
     expect(find.text('EXPLORE'), findsWidgets);
 
     final container = ProviderScope.containerOf(
@@ -90,13 +90,13 @@ void main() {
 
     await tester.tap(find.text('CREATE'));
     await tester.pumpAndSettle();
-    expect(find.byType(CreatePlaceholderScreen), findsOneWidget);
+    expect(find.byType(CreateChroniqueScreen), findsOneWidget);
 
-    await tester.tap(find.byType(BackButton));
+    await tester.tap(find.byType(CloseButton));
     await tester.pumpAndSettle();
 
     expect(find.byType(HomeScreen), findsOneWidget);
-    expect(find.byType(CreatePlaceholderScreen), findsNothing);
+    expect(find.byType(CreateChroniqueScreen), findsNothing);
     expect(find.text('Welcome back'), findsOneWidget);
     expect(find.text('Logout'), findsOneWidget);
     expect(find.text('CREATE'), findsOneWidget);

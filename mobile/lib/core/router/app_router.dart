@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -10,7 +10,7 @@ import '../../features/auth/presentation/screens/register_screen.dart';
 import '../../features/auth/presentation/screens/signup_method_screen.dart';
 import '../../features/auth/providers/auth_controller.dart';
 import '../../features/auth/state/auth_state.dart';
-import '../../features/chronique/presentation/screens/create_placeholder_screen.dart';
+import '../../features/chronique/presentation/screens/create_chronique_screen.dart';
 import '../../features/chronique/presentation/screens/explore_placeholder_screen.dart';
 import '../../features/home/presentation/screens/home_screen.dart';
 import 'app_routes.dart';
@@ -107,7 +107,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: AppRoutes.create,
-        builder: (context, state) => const CreatePlaceholderScreen(),
+        pageBuilder: (context, state) => MaterialPage<void>(
+          key: state.pageKey,
+          fullscreenDialog: true,
+          child: const CreateChroniqueScreen(),
+        ),
       ),
       GoRoute(
         path: AppRoutes.explore,

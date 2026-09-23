@@ -9,10 +9,10 @@ abstract final class AppRoutes {
   static const String oauthComplete = '/auth/oauth/complete';
   static const String home = '/home';
 
-  /// Placeholder Lot 2A — future assistant de création.
+  /// Assistant de création (modal plein écran) — Lot création texte.
   static const String create = '/create';
 
-  /// Placeholder Lot 2A — future entrée Chronique (fil).
+  /// Placeholder Lot 2A — future entrée Chronique (« Mon Fil »).
   static const String explore = '/explore';
 
   static bool isAuthenticatedLocation(String location) {
