@@ -27,8 +27,8 @@ class Chronique {
       throw const FormatException('Invalid chronique payload');
     }
     return Chronique(
-      id: _parseId(json['id']),
-      themeId: json['theme_id'] == null ? null : _parseId(json['theme_id']),
+      id: parseChroniqueId(json['id']),
+      themeId: json['theme_id'] == null ? null : parseChroniqueId(json['theme_id']),
       title: json['title'] as String?,
       body: body,
       status: status,
@@ -39,7 +39,7 @@ class Chronique {
   }
 }
 
-int _parseId(Object? value) {
+int parseChroniqueId(Object? value) {
   if (value is int) {
     return value;
   }

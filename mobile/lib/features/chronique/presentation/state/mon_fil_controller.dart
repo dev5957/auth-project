@@ -35,8 +35,8 @@ class MonFilController extends AutoDisposeNotifier<MonFilState> {
 
   Future<void> load() async {
     try {
-      final items = await ref.read(chroniqueRepositoryProvider).list();
-      state = MonFilReady(items);
+      final page = await ref.read(chroniqueRepositoryProvider).list();
+      state = MonFilReady(page.items);
     } on ApiException catch (error) {
       debugPrint(
         '[chronique-fil] GET /chroniques failed '

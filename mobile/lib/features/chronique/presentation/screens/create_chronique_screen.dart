@@ -9,6 +9,7 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_text_theme.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_text_field.dart';
+import '../../models/chronique_fields.dart';
 import '../state/create_chronique_controller.dart';
 
 /// Assistant de création V1 (modal plein écran). Texte uniquement.
@@ -23,25 +24,53 @@ class _CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
   final _titleController = TextEditingController();
   final _bodyController = TextEditingController();
 
+  String? _titleError;
   String? _bodyError;
   String? _formError;
   bool _submitting = false;
 
+  int get _bodyCount => ChroniqueFields.runeLength(_bodyController.text.trim());
+
+  bool get _canPublish =>
+      !_submitting && ChroniqueFields.canPublishBody(_bodyController.text);
+
+  @override
+  void initState() {
+    super.initState();
+    _bodyController.addListener(_onBodyEdited);
+    _titleController.addListener(_onTitleEdited);
+  }
+
   @override
   void dispose() {
+    _bodyController.removeListener(_onBodyEdited);
+    _titleController.removeListener(_onTitleEdited);
     _titleController.dispose();
     _bodyController.dispose();
     super.dispose();
   }
 
+  void _onBodyEdited() {
+    setState(() {
+      _bodyError = ChroniqueFields.bodyError(_bodyController.text);
+    });
+  }
+
+  void _onTitleEdited() {
+    setState(() {
+      _titleError = ChroniqueFields.titleError(_titleController.text);
+    });
+  }
+
   bool _validate() {
-    final body = _bodyController.text.trim();
-    final bodyError = body.isEmpty ? 'Le texte est obligatoire' : null;
+    final bodyError = ChroniqueFields.bodyError(_bodyController.text);
+    final titleError = ChroniqueFields.titleError(_titleController.text);
     setState(() {
       _bodyError = bodyError;
+      _titleError = titleError;
       _formError = null;
     });
-    return bodyError == null;
+    return bodyError == null && titleError == null;
   }
 
   String _messageFor(ApiException error) {
@@ -67,10 +96,10 @@ class _CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
       return;
     }
 
-    final title = _titleController.text.trim();
-    final body = _bodyController.text.trim();
+    final title = ChroniqueFields.trimmedTitle(_titleController.text);
+    final body = ChroniqueFields.trimmedBody(_bodyController.text);
     ref.read(createChroniqueControllerProvider.notifier).saveDraft(
-          title: title,
+          title: title ?? '',
           body: body,
         );
 
@@ -82,7 +111,7 @@ class _CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
     try {
       await ref.read(createChroniqueControllerProvider.notifier).publish(
             body: body,
-            title: title.isEmpty ? null : title,
+            title: title,
           );
       if (!mounted) {
         return;
@@ -137,6 +166,7 @@ class _CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
                 label: 'Titre (optionnel)',
                 hint: 'Titre',
                 controller: _titleController,
+                errorText: _titleError,
                 enabled: !_submitting,
                 textInputAction: TextInputAction.next,
                 textCapitalization: TextCapitalization.sentences,
@@ -153,11 +183,12 @@ class _CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
                 textCapitalization: TextCapitalization.sentences,
                 minLines: 6,
                 maxLines: 12,
-                onChanged: (_) {
-                  if (_bodyError != null) {
-                    setState(() => _bodyError = null);
-                  }
-                },
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                '$_bodyCount / ${ChroniqueFields.bodyMax}',
+                textAlign: TextAlign.right,
+                style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
               ),
               if (_formError != null) ...[
                 const SizedBox(height: AppSpacing.md),
@@ -171,7 +202,7 @@ class _CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
               AppButton(
                 label: 'Publier',
                 isLoading: _submitting,
-                onPressed: _submitting ? null : _publish,
+                onPressed: _canPublish ? _publish : null,
               ),
               const SizedBox(height: AppSpacing.xxl),
             ],

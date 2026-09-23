@@ -9,7 +9,7 @@ import 'package:mobile/features/auth/models/auth_account.dart';
 import 'package:mobile/features/auth/providers/auth_controller.dart';
 import 'package:mobile/features/auth/providers/auth_providers.dart';
 import 'package:mobile/features/auth/state/auth_state.dart';
-import 'package:mobile/features/chronique/models/chronique.dart';
+import 'package:mobile/features/chronique/models/chronique_page.dart';
 import 'package:mobile/features/chronique/presentation/screens/create_chronique_screen.dart';
 import 'package:mobile/features/chronique/presentation/screens/mon_fil_screen.dart';
 import 'package:mobile/features/chronique/providers/chronique_providers.dart';
@@ -76,9 +76,9 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
   int listCalls = 0;
 
   @override
-  Future<List<Chronique>> list({required String accessToken}) async {
+  Future<ChroniquePage> list({required String accessToken}) async {
     listCalls += 1;
-    return const [];
+    return const ChroniquePage(items: []);
   }
 }
 

@@ -5,12 +5,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/core/config/app_config.dart';
 import 'package:mobile/core/network/api_client.dart';
 import 'package:mobile/core/network/api_exception.dart';
+import 'package:mobile/core/widgets/app_button.dart';
 import 'package:mobile/features/auth/data/storage/auth_token_storage.dart';
 import 'package:mobile/features/auth/models/auth_account.dart';
 import 'package:mobile/features/auth/providers/auth_controller.dart';
 import 'package:mobile/features/auth/providers/auth_providers.dart';
 import 'package:mobile/features/auth/state/auth_state.dart';
 import 'package:mobile/features/chronique/models/chronique.dart';
+import 'package:mobile/features/chronique/models/chronique_page.dart';
 import 'package:mobile/features/chronique/presentation/screens/create_chronique_screen.dart';
 import 'package:mobile/features/chronique/presentation/screens/mon_fil_screen.dart';
 import 'package:mobile/features/chronique/providers/chronique_providers.dart';
@@ -106,10 +108,10 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
   }
 
   @override
-  Future<List<Chronique>> list({required String accessToken}) async {
+  Future<ChroniquePage> list({required String accessToken}) async {
     listCalls += 1;
     lastAccessToken = accessToken;
-    return listItems;
+    return ChroniquePage(items: listItems);
   }
 }
 
@@ -146,6 +148,20 @@ Future<void> _openCreate(WidgetTester tester) async {
   expect(find.byType(CreateChroniqueScreen), findsOneWidget);
 }
 
+Finder _publishInk() {
+  return find.descendant(
+    of: find.ancestor(
+      of: find.text('Publier'),
+      matching: find.byType(AppButton),
+    ),
+    matching: find.byType(InkWell),
+  );
+}
+
+InkWell _publishInkWell(WidgetTester tester) {
+  return tester.widget<InkWell>(_publishInk());
+}
+
 void main() {
   test('chronique JSON maps public fields without user_id', () {
     final chronique = Chronique.fromJson({
@@ -175,6 +191,8 @@ void main() {
     expect(find.text('Titre (optionnel)'), findsOneWidget);
     expect(find.text('Texte *'), findsOneWidget);
     expect(find.text('Publier'), findsOneWidget);
+    expect(find.text('0 / 5000'), findsOneWidget);
+    expect(_publishInkWell(tester).onTap, isNull);
     expect(find.byType(CloseButton), findsOneWidget);
     expect(find.text('Chapitre'), findsNothing);
     expect(container.read(authControllerProvider), isA<AuthAuthenticated>());
@@ -186,12 +204,63 @@ void main() {
     await _pumpHome(tester, api: api);
     await _openCreate(tester);
 
-    await tester.tap(find.text('Publier'));
+    await tester.enterText(find.byType(TextField).at(1), 'x');
+    await tester.pump();
+    await tester.enterText(find.byType(TextField).at(1), '');
     await tester.pump();
 
     expect(find.text('Le texte est obligatoire'), findsOneWidget);
+    expect(_publishInkWell(tester).onTap, isNull);
     expect(api.createCalls, 0);
     expect(find.byType(CreateChroniqueScreen), findsOneWidget);
+  });
+
+  testWidgets('body shorter than 20 characters does not call the API', (tester) async {
+    final api = _ChroniqueApiProbe();
+    await _pumpHome(tester, api: api);
+    await _openCreate(tester);
+
+    await tester.enterText(find.byType(TextField).at(1), 'trop court');
+    await tester.pump();
+
+    expect(find.text('Le texte doit contenir au moins 20 caractères'), findsOneWidget);
+    expect(find.text('10 / 5000'), findsOneWidget);
+    expect(_publishInkWell(tester).onTap, isNull);
+    await tester.tap(find.text('Publier'));
+    await tester.pump();
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('body longer than 5000 characters does not call the API', (tester) async {
+    final api = _ChroniqueApiProbe();
+    await _pumpHome(tester, api: api);
+    await _openCreate(tester);
+
+    final tooLong = 'a' * 5001;
+    await tester.enterText(find.byType(TextField).at(1), tooLong);
+    await tester.pump();
+
+    expect(find.text('Le texte est trop long'), findsOneWidget);
+    expect(find.text('5001 / 5000'), findsOneWidget);
+    expect(_publishInkWell(tester).onTap, isNull);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('character counter updates and Publier becomes enabled', (tester) async {
+    final api = _ChroniqueApiProbe();
+    await _pumpHome(tester, api: api);
+    await _openCreate(tester);
+
+    expect(find.text('0 / 5000'), findsOneWidget);
+    expect(_publishInkWell(tester).onTap, isNull);
+
+    const body = 'Le texte de la chronique, d au moins vingt caracteres.';
+    await tester.enterText(find.byType(TextField).at(1), body);
+    await tester.pump();
+
+    expect(find.text('${body.trim().runes.length} / 5000'), findsOneWidget);
+    expect(_publishInkWell(tester).onTap, isNotNull);
+    expect(api.createCalls, 0);
   });
 
   testWidgets('publish opens Mon Fil then back returns to Home without logout', (
@@ -204,6 +273,7 @@ void main() {
     const body = 'Le texte de la chronique, d au moins vingt caracteres.';
     await tester.enterText(find.byType(TextField).at(0), 'Premier soir');
     await tester.enterText(find.byType(TextField).at(1), body);
+    await tester.pump();
     await tester.tap(find.text('Publier'));
     await tester.pumpAndSettle();
 
@@ -235,8 +305,9 @@ void main() {
 
     await tester.enterText(
       find.byType(TextField).at(1),
-      'trop court',
+      'Le texte de la chronique, d au moins vingt caracteres.',
     );
+    await tester.pump();
     await tester.tap(find.text('Publier'));
     await tester.pump();
 

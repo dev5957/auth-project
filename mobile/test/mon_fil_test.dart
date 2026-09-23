@@ -11,6 +11,7 @@ import 'package:mobile/features/auth/providers/auth_controller.dart';
 import 'package:mobile/features/auth/providers/auth_providers.dart';
 import 'package:mobile/features/auth/state/auth_state.dart';
 import 'package:mobile/features/chronique/models/chronique.dart';
+import 'package:mobile/features/chronique/models/chronique_page.dart';
 import 'package:mobile/features/chronique/presentation/screens/chronique_detail_screen.dart';
 import 'package:mobile/features/chronique/presentation/screens/mon_fil_screen.dart';
 import 'package:mobile/features/chronique/presentation/widgets/chronique_card.dart';
@@ -81,14 +82,14 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
   ApiException? failWith;
 
   @override
-  Future<List<Chronique>> list({required String accessToken}) async {
+  Future<ChroniquePage> list({required String accessToken}) async {
     listCalls += 1;
     lastAccessToken = accessToken;
     final error = failWith;
     if (error != null) {
       throw error;
     }
-    return items;
+    return ChroniquePage(items: items);
   }
 }
 
@@ -124,6 +125,34 @@ Future<void> _openMonFil(WidgetTester tester) async {
 }
 
 void main() {
+  test('ChroniquePage parses items and a nullable next cursor', () {
+    final withNext = ChroniquePage.fromJson({
+      'items': [
+        {
+          'id': 42,
+          'title': 'Premier soir',
+          'body': 'Le texte de la chronique, d au moins vingt caracteres.',
+          'status': 'active',
+          'published_at': '2026-09-22T10:00:00.000Z',
+        },
+      ],
+      'next': {
+        'before_at': '2026-09-01T12:00:00.000Z',
+        'before_id': 10,
+      },
+    });
+    expect(withNext.items, hasLength(1));
+    expect(withNext.items.single.id, 42);
+    expect(withNext.next?.beforeAt, '2026-09-01T12:00:00.000Z');
+    expect(withNext.next?.beforeId, 10);
+
+    final withoutNext = ChroniquePage.fromJson({
+      'items': <Object>[],
+      'next': null,
+    });
+    expect(withoutNext.items, isEmpty);
+    expect(withoutNext.next, isNull);
+  });
   testWidgets('authenticated user opens Mon Fil and calls GET /chroniques', (
     tester,
   ) async {
