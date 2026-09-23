@@ -2,7 +2,7 @@
 
 Documentation **contractuelle de référence** du Module 2.
 
-**Statut :** SQL V1 (`008`, `009`) et architecture backend **gelés**. Implémentation runtime (routes / services) **non livrée**.
+**Statut :** SQL V1 (`008`, `009`) et backend runtime Module 2 — Chronique **gelés**. Prochaine étape : client Flutter.
 
 Le Module 1 (authentification) reste inchangé : tables `users`, `refresh_tokens`, `phone_verifications`, routes `/auth/*`, middleware JWT existant. Les chroniques s’appuient sur `requireAuth` et `req.user.userId` **tels qu’ils existent**.
 
@@ -1116,3 +1116,86 @@ Existants : `test:publications-schema`, `test:publication-media-schema`.
 - **Implémentation** des jobs — [§4.8](#48-jobs-futurs-hors-de-cette-étape).
 - Pipeline média (transcodage, miniatures, antivirus).
 - Phase B Auth (refresh Dio 401).
+
+---
+
+## Validation backend Module 2 — Chronique
+
+Le backend Module 2 est **implémenté et validé**. Auth, Flutter et les fichiers SQL `008` / `009` ne sont pas retravaillés. Les jobs, le transcodage, CORS bucket R2 et `read_url` sur GET restent hors gel (voir [§4.8](#48-jobs-futurs-hors-de-cette-étape) et [§10](#10-hors-périmètre-de-cette-étape)).
+
+### API Chronique
+
+Routes validées :
+
+- `POST /chroniques`
+- `GET /chroniques`
+- `GET /chroniques/:id`
+- `PATCH /chroniques/:id`
+- `POST /chroniques/:id/archive`
+- `POST /chroniques/:id/restore`
+- `DELETE /chroniques/:id`
+
+Comportements validés :
+
+- ownership via JWT (`requireAuth`, `req.user.userId`) ;
+- `user_id` jamais fourni par le client ;
+- machine d’état `draft` / `scheduled` / `active` / `archived` / `expired` / `deleted` ;
+- transactions `SELECT … FOR UPDATE` pour les transitions sensibles (archive, restore, delete logique, PATCH, mutations média).
+
+### Média
+
+- `publication_media` est un **catalogue de métadonnées** uniquement ;
+- **aucun BLOB** en PostgreSQL ;
+- `storage_key` **opaque**, jamais renvoyé au client ;
+- **aucune URL** d’upload ou de lecture **persistée**.
+
+Flux validés :
+
+- `pending_upload` à l’init d’upload ;
+- `complete` → `ready` ;
+- `failed` si l’upload est incomplet (objet absent ou taille incohérente) ;
+- suppression média HTTP + `StorageService.delete`.
+
+Règles validées :
+
+- maximum **20** médias (`pending_upload` + `ready`) ;
+- quota **200 Mio** ;
+- `kind` : `image` / `video` / `audio` / `document` ;
+- `document` **actif V1** : PDF, DOC, DOCX, TXT ;
+- `document` uniquement `source_type=upload`.
+
+`GET /chroniques/:id` renvoie `media[]` (champs publics uniquement, sans `storage_key`).
+
+### Storage
+
+```
+chroniqueMediaService
+        ↓
+StorageService
+        ↓
+MockStorage / R2StorageService
+```
+
+Le métier Chronique **ne** parle **pas** à Cloudflare.
+
+- **MockStorage** : tests métier rapides (`test:chronique-*` hors `*-r2-live`).
+- **R2Storage** : adaptateur Cloudflare R2, SDK **S3-compatible**, URLs **signées** (PUT / GET), **aucun secret** côté client. Sélection : `STORAGE_PROVIDER=mock` (défaut) ou `r2`.
+
+`createReadUrl` existe sur l’adaptateur ; il n’est **pas** branché sur `GET /chroniques/:id` dans ce gel.
+
+### Tests validés
+
+| Script | Validation |
+|---|---|
+| `npm run test:chronique-crud` | création, lecture, ownership, erreurs sans `DATABASE_URL` |
+| `npm run test:chronique-lifecycle` | archive, restore, delete logique, transitions interdites |
+| `npm run test:chronique-media` | upload mock, complete, quota, suppression, document |
+| `npm run test:chronique-full-flow` | parcours HTTP complet avec MockStorage |
+| `npm run test:storage-r2` | adaptateur R2 isolé (sans bucket réel) |
+| `npm run test:storage-r2-live` | upload réel Cloudflare R2, head, read URL, delete (skip si config absente) |
+| `npm run test:chronique-full-flow-r2-live` | parcours HTTP complet avec vrai Cloudflare R2 (skip si config absente) |
+
+Les tests `*-r2-live` sont **séparés** des tests MockStorage. Ils ne remplacent pas les `test:chronique-crud` / `lifecycle` / `media` / `full-flow`.
+
+Le backend Module 2 — Chronique est considéré comme gelé.  
+La prochaine étape est l’intégration Flutter consommant ce contrat API.
