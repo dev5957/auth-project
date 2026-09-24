@@ -1071,6 +1071,7 @@ users
 | Fil actif | `(user_id, published_at DESC, id DESC)` | `WHERE status = 'active'` |
 | Archives | `(user_id, archived_at DESC, id DESC)` | `WHERE status = 'archived'` |
 | Expirés | `(user_id, expired_at DESC, id DESC)` | `WHERE status = 'expired'` |
+| À venir | `(user_id, scheduled_at ASC, id ASC)` | `WHERE status = 'scheduled'` — `sql/010` |
 
 Ces index de fil sont dans `008`. Index `publication_media` : `009`.
 

@@ -20,6 +20,7 @@
     "test:chronique-lifecycle": "node src/check-chronique-lifecycle.js",
     "test:chronique-temporal": "node src/check-chronique-temporal.js",
     "test:chronique-security": "node src/check-chronique-security.js",
+    "test:chronique-production": "node src/check-chronique-production.js",
     "test:chronique-media": "node src/check-chronique-media.js",
     "test:chronique-full-flow": "node src/check-chronique-full-flow.js",
     "test:storage-r2": "node src/check-storage-r2.js",

@@ -92,13 +92,14 @@ async function quotaUsage(client, publicationId) {
   };
 }
 
-async function setMediaTotalBytes(client, publicationId, bytes) {
+async function setMediaTotalBytes(client, publicationId, userId, bytes) {
   await client.query(
     `UPDATE publications
      SET media_total_bytes = $1,
          updated_at = NOW()
-     WHERE id = $2`,
-    [bytes, publicationId]
+     WHERE id = $2
+       AND user_id = $3`,
+    [bytes, publicationId, userId]
   );
 }
 
@@ -152,7 +153,7 @@ async function createMediaUpload(userId, rawId, body, deps = {}) {
     );
     const mediaRow = inserted.rows[0];
     const nextBytes = usage.bytes + input.byteSize;
-    await setMediaTotalBytes(client, row.id, nextBytes);
+    await setMediaTotalBytes(client, row.id, row.user_id, nextBytes);
     row.media_total_bytes = nextBytes;
 
     const upload = await storage.createDirectUpload({
@@ -198,11 +199,12 @@ async function completeMedia(userId, rawId, rawMediaId, deps = {}) {
       await client.query(
         `UPDATE publication_media
          SET status = 'failed'
-         WHERE id = $1`,
-        [media.id]
+         WHERE id = $1
+           AND publication_id = $2`,
+        [media.id, row.id]
       );
       const usage = await quotaUsage(client, row.id);
-      await setMediaTotalBytes(client, row.id, usage.bytes);
+      await setMediaTotalBytes(client, row.id, row.user_id, usage.bytes);
       row.media_total_bytes = usage.bytes;
       throw new AppError(400, 'Upload is incomplete');
     }
@@ -212,11 +214,12 @@ async function completeMedia(userId, rawId, rawMediaId, deps = {}) {
       await client.query(
         `UPDATE publication_media
          SET status = 'failed'
-         WHERE id = $1`,
-        [media.id]
+         WHERE id = $1
+           AND publication_id = $2`,
+        [media.id, row.id]
       );
       const next = await quotaUsage(client, row.id);
-      await setMediaTotalBytes(client, row.id, next.bytes);
+      await setMediaTotalBytes(client, row.id, row.user_id, next.bytes);
       throw new AppError(400, usage.count > MAX_MEDIA ? 'Too many media' : 'Media quota exceeded');
     }
 
@@ -233,10 +236,11 @@ async function completeMedia(userId, rawId, rawMediaId, deps = {}) {
       `UPDATE publication_media
        SET status = 'ready',
            sort_order = $1
-       WHERE id = $2`,
-      [sortOrder, media.id]
+       WHERE id = $2
+         AND publication_id = $3`,
+      [sortOrder, media.id, row.id]
     );
-    await setMediaTotalBytes(client, row.id, usage.bytes);
+    await setMediaTotalBytes(client, row.id, row.user_id, usage.bytes);
     row.media_total_bytes = usage.bytes;
     const publication = { ...row };
     return publicChroniqueWithMedia(client, publication);
@@ -264,9 +268,12 @@ async function deleteMedia(userId, rawId, rawMediaId, deps = {}) {
     }
 
     await storage.delete(media.storage_key);
-    await client.query(`DELETE FROM publication_media WHERE id = $1`, [media.id]);
+    await client.query(`DELETE FROM publication_media WHERE id = $1 AND publication_id = $2`, [
+      media.id,
+      row.id,
+    ]);
     const usage = await quotaUsage(client, row.id);
-    await setMediaTotalBytes(client, row.id, usage.bytes);
+    await setMediaTotalBytes(client, row.id, row.user_id, usage.bytes);
     row.media_total_bytes = usage.bytes;
     return publicChroniqueWithMedia(client, row);
   });

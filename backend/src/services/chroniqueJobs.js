@@ -1,6 +1,7 @@
 const pool = require('../db');
 const AppError = require('../errors/AppError');
 const { toPublicChronique } = require('./chroniqueService');
+const { CHRONIQUE_STATUS } = require('../validators/chroniqueFields');
 
 const PURGE_DELAY_DAYS = 30;
 const DEFAULT_LIMIT = 100;
@@ -27,7 +28,7 @@ function addDays(date, days) {
 }
 
 function applyScheduledActivation(row, now) {
-  if (!row || row.status !== 'scheduled') {
+  if (!row || row.status !== CHRONIQUE_STATUS.SCHEDULED) {
     return null;
   }
   const scheduledAt = asDate(row.scheduled_at);
@@ -36,31 +37,32 @@ function applyScheduledActivation(row, now) {
   }
   return {
     ...row,
-    status: 'active',
+    status: CHRONIQUE_STATUS.ACTIVE,
     published_at: asDate(row.published_at) || now,
     scheduled_at: row.scheduled_at,
   };
 }
 
 function applyExpiration(row, now) {
-  if (!row || row.status !== 'active' || row.is_time_limited !== true) {
+  if (!row || row.status !== CHRONIQUE_STATUS.ACTIVE || row.is_time_limited !== true) {
     return null;
   }
   const expiresAt = asDate(row.expires_at);
   if (expiresAt == null || expiresAt.getTime() > now.getTime()) {
     return null;
   }
-  const expiredAt = now;
+  const expiredAt = asDate(row.expired_at) || now;
+  const purgeAfter = asDate(row.purge_after) || addDays(expiredAt, PURGE_DELAY_DAYS);
   return {
     ...row,
-    status: 'expired',
+    status: CHRONIQUE_STATUS.EXPIRED,
     expired_at: expiredAt,
-    purge_after: addDays(expiredAt, PURGE_DELAY_DAYS),
+    purge_after: purgeAfter,
   };
 }
 
 function applyLogicalPurge(row, now) {
-  if (!row || row.status !== 'expired') {
+  if (!row || row.status !== CHRONIQUE_STATUS.EXPIRED) {
     return null;
   }
   const purgeAfter =
@@ -71,8 +73,8 @@ function applyLogicalPurge(row, now) {
   }
   return {
     ...row,
-    status: 'deleted',
-    deleted_at: now,
+    status: CHRONIQUE_STATUS.DELETED,
+    deleted_at: asDate(row.deleted_at) || now,
   };
 }
 
@@ -84,6 +86,33 @@ function getQuery(deps) {
   return (sql, params) => db.query(sql, params);
 }
 
+function formatChroniqueJobLogs(
+  { published = 0, expired = 0, deleted = 0 } = {},
+  jobName = 'all'
+) {
+  const parts = ['[chronique-job]'];
+  const includePublish = jobName === 'all' || jobName === 'publish';
+  const includeExpire = jobName === 'all' || jobName === 'expire';
+  const includePurge = jobName === 'all' || jobName === 'purge';
+
+  if (includePublish) {
+    parts.push('publish:', `${published} publications activated`);
+  }
+  if (includeExpire) {
+    if (includePublish) {
+      parts.push('');
+    }
+    parts.push('expire:', `${expired} publications expired`);
+  }
+  if (includePurge) {
+    if (includePublish || includeExpire) {
+      parts.push('');
+    }
+    parts.push('purge:', `${deleted} publications deleted`);
+  }
+  return parts.join('\n');
+}
+
 async function runPublishScheduledJob(deps = {}) {
   requireDatabase();
   const now = deps.now || new Date();
@@ -93,7 +122,7 @@ async function runPublishScheduledJob(deps = {}) {
   const due = await query(
     `SELECT *
      FROM publications
-     WHERE status = 'scheduled'
+     WHERE status = '${CHRONIQUE_STATUS.SCHEDULED}'
        AND scheduled_at <= $1
      ORDER BY scheduled_at ASC, id ASC
      LIMIT $2`,
@@ -112,7 +141,7 @@ async function runPublishScheduledJob(deps = {}) {
            published_at = $2,
            updated_at = $3
        WHERE id = $4
-         AND status = 'scheduled'
+         AND status = '${CHRONIQUE_STATUS.SCHEDULED}'
        RETURNING *`,
       [next.status, next.published_at, now, row.id]
     );
@@ -132,7 +161,7 @@ async function runExpireActiveJob(deps = {}) {
   const due = await query(
     `SELECT *
      FROM publications
-     WHERE status = 'active'
+     WHERE status = '${CHRONIQUE_STATUS.ACTIVE}'
        AND is_time_limited = TRUE
        AND expires_at <= $1
      ORDER BY expires_at ASC, id ASC
@@ -153,7 +182,7 @@ async function runExpireActiveJob(deps = {}) {
            purge_after = $3,
            updated_at = $4
        WHERE id = $5
-         AND status = 'active'
+         AND status = '${CHRONIQUE_STATUS.ACTIVE}'
        RETURNING *`,
       [next.status, next.expired_at, next.purge_after, now, row.id]
     );
@@ -173,7 +202,7 @@ async function runPurgeExpiredJob(deps = {}) {
   const due = await query(
     `SELECT *
      FROM publications
-     WHERE status = 'expired'
+     WHERE status = '${CHRONIQUE_STATUS.EXPIRED}'
        AND (
          purge_after <= $1
          OR (purge_after IS NULL AND expired_at <= $1::timestamptz - INTERVAL '30 days')
@@ -195,7 +224,7 @@ async function runPurgeExpiredJob(deps = {}) {
            deleted_at = $2,
            updated_at = $3
        WHERE id = $4
-         AND status = 'expired'
+         AND status = '${CHRONIQUE_STATUS.EXPIRED}'
        RETURNING *`,
       [next.status, next.deleted_at, now, row.id]
     );
@@ -222,6 +251,7 @@ module.exports = {
   applyScheduledActivation,
   applyExpiration,
   applyLogicalPurge,
+  formatChroniqueJobLogs,
   runPublishScheduledJob,
   runExpireActiveJob,
   runPurgeExpiredJob,

@@ -6,14 +6,15 @@ const {
   parseRestoreInput,
   parseListQuery,
   parseChroniqueId,
+  CHRONIQUE_STATUS,
 } = require('../validators/chroniqueFields');
 
 const SORT_COLUMN = {
-  active: 'published_at',
-  archived: 'archived_at',
-  expired: 'expired_at',
-  scheduled: 'scheduled_at',
-  draft: 'updated_at',
+  [CHRONIQUE_STATUS.ACTIVE]: 'published_at',
+  [CHRONIQUE_STATUS.ARCHIVED]: 'archived_at',
+  [CHRONIQUE_STATUS.EXPIRED]: 'expired_at',
+  [CHRONIQUE_STATUS.SCHEDULED]: 'scheduled_at',
+  [CHRONIQUE_STATUS.DRAFT]: 'updated_at',
 };
 
 function requireDatabase() {
@@ -93,14 +94,14 @@ async function createChronique(userId, body, deps = {}) {
   requireDatabase();
   const db = deps.db || pool;
 
-  let status = 'draft';
+  let status = CHRONIQUE_STATUS.DRAFT;
   let publishedAt = null;
   let scheduledAt = null;
   if (input.publish === 'now') {
-    status = 'active';
+    status = CHRONIQUE_STATUS.ACTIVE;
     publishedAt = deps.now || new Date();
   } else if (input.publish === 'schedule') {
-    status = 'scheduled';
+    status = CHRONIQUE_STATUS.SCHEDULED;
     scheduledAt = input.scheduledAt;
   }
 
@@ -148,7 +149,7 @@ async function listChroniques(userId, query, deps = {}) {
 
   if (beforeAt != null) {
     params.push(beforeAt.toISOString(), beforeId);
-    if (status === 'scheduled') {
+    if (status === CHRONIQUE_STATUS.SCHEDULED) {
       cursorSql = `AND (${column}, id) > ($3::timestamptz, $4::bigint)`;
     } else {
       cursorSql = `AND (${column}, id) < ($3::timestamptz, $4::bigint)`;
@@ -159,7 +160,7 @@ async function listChroniques(userId, query, deps = {}) {
   const limitPlaceholder = `$${params.length}`;
 
   const orderSql =
-    status === 'scheduled'
+    status === CHRONIQUE_STATUS.SCHEDULED
       ? `${column} ASC, id ASC`
       : `${column} DESC, id DESC`;
 
@@ -203,7 +204,7 @@ async function getChroniqueById(userId, rawId, deps = {}) {
      FROM publications
      WHERE id = $1
        AND user_id = $2
-       AND status <> 'deleted'
+       AND status <> '${CHRONIQUE_STATUS.DELETED}'
      LIMIT 1`,
     [id, userId]
   );
@@ -262,7 +263,7 @@ function applyEphemeral(next, input, now) {
       throw new AppError(400, 'expires_at is required');
     }
     const activationMs =
-      next.status === 'scheduled' ? asDate(next.scheduled_at).getTime() : now.getTime();
+      next.status === CHRONIQUE_STATUS.SCHEDULED ? asDate(next.scheduled_at).getTime() : now.getTime();
     if (expiresAt.getTime() <= activationMs) {
       throw new AppError(400, 'expires_at must be after activation time');
     }
@@ -275,10 +276,14 @@ function applyEphemeral(next, input, now) {
 }
 
 function applyPatchToRow(row, input, now) {
-  if (row.status === 'archived' || row.status === 'expired') {
+  if (row.status === CHRONIQUE_STATUS.ARCHIVED || row.status === CHRONIQUE_STATUS.EXPIRED) {
     throw new AppError(400, 'Chronique cannot be edited in this status');
   }
-  if (row.status !== 'draft' && row.status !== 'scheduled' && row.status !== 'active') {
+  if (
+    row.status !== CHRONIQUE_STATUS.DRAFT &&
+    row.status !== CHRONIQUE_STATUS.SCHEDULED &&
+    row.status !== CHRONIQUE_STATUS.ACTIVE
+  ) {
     throw new AppError(400, 'Chronique cannot be edited in this status');
   }
 
@@ -295,43 +300,43 @@ function applyPatchToRow(row, input, now) {
   let publishedAt = asDate(row.published_at);
 
   if (input.hasPublish) {
-    if (status === 'active') {
+    if (status === CHRONIQUE_STATUS.ACTIVE) {
       if (input.publish === 'draft' || input.publish === 'schedule') {
         throw new AppError(409, 'Invalid status transition');
       }
-    } else if (status === 'draft') {
+    } else if (status === CHRONIQUE_STATUS.DRAFT) {
       if (input.publish === 'now') {
-        status = 'active';
+        status = CHRONIQUE_STATUS.ACTIVE;
         publishedAt = now;
         scheduledAt = null;
       } else if (input.publish === 'schedule') {
-        status = 'scheduled';
+        status = CHRONIQUE_STATUS.SCHEDULED;
         scheduledAt = input.scheduledAt;
         publishedAt = null;
       } else {
-        status = 'draft';
+        status = CHRONIQUE_STATUS.DRAFT;
         scheduledAt = null;
       }
-    } else if (status === 'scheduled') {
+    } else if (status === CHRONIQUE_STATUS.SCHEDULED) {
       if (input.publish === 'now') {
-        status = 'active';
+        status = CHRONIQUE_STATUS.ACTIVE;
         publishedAt = now;
         scheduledAt = null;
       } else if (input.publish === 'draft') {
-        status = 'draft';
+        status = CHRONIQUE_STATUS.DRAFT;
         scheduledAt = null;
       } else {
-        status = 'scheduled';
+        status = CHRONIQUE_STATUS.SCHEDULED;
         scheduledAt = input.scheduledAt;
       }
     }
   } else if (input.hasScheduled) {
-    if (status === 'scheduled') {
+    if (status === CHRONIQUE_STATUS.SCHEDULED) {
       if (input.scheduledAt == null) {
         throw new AppError(400, 'scheduled_at is required');
       }
       scheduledAt = input.scheduledAt;
-    } else if (status === 'draft') {
+    } else if (status === CHRONIQUE_STATUS.DRAFT) {
       throw new AppError(400, 'publish is invalid');
     } else {
       throw new AppError(409, 'Invalid status transition');
@@ -364,7 +369,7 @@ async function withOwnedPublication(userId, rawId, deps, fn) {
       [id, userId]
     );
     const row = found.rows[0];
-    if (!row || row.status === 'deleted') {
+    if (!row || row.status === CHRONIQUE_STATUS.DELETED) {
       throw new AppError(404, 'Chronique not found');
     }
 
@@ -441,19 +446,19 @@ async function updateChronique(userId, rawId, body, deps = {}) {
 
 async function archiveChronique(userId, rawId, deps = {}) {
   return withOwnedPublication(userId, rawId, deps, async (client, row) => {
-    if (row.status === 'archived') {
+    if (row.status === CHRONIQUE_STATUS.ARCHIVED) {
       return toPublicChronique(row);
     }
-    if (row.status === 'draft' || row.status === 'expired') {
+    if (row.status === CHRONIQUE_STATUS.DRAFT || row.status === CHRONIQUE_STATUS.EXPIRED) {
       throw new AppError(400, 'Chronique cannot be archived in this status');
     }
-    if (row.status !== 'active' && row.status !== 'scheduled') {
+    if (row.status !== CHRONIQUE_STATUS.ACTIVE && row.status !== CHRONIQUE_STATUS.SCHEDULED) {
       throw new AppError(400, 'Chronique cannot be archived in this status');
     }
 
     const next = {
       ...row,
-      status: 'archived',
+      status: CHRONIQUE_STATUS.ARCHIVED,
       archived_at: new Date(),
       scheduled_at: null,
       is_time_limited: false,
@@ -468,14 +473,14 @@ async function archiveChronique(userId, rawId, deps = {}) {
 async function restoreChronique(userId, rawId, body, deps = {}) {
   const input = parseRestoreInput(body);
   return withOwnedPublication(userId, rawId, deps, async (client, row) => {
-    if (row.status !== 'archived') {
+    if (row.status !== CHRONIQUE_STATUS.ARCHIVED) {
       throw new AppError(400, 'Chronique cannot be restored in this status');
     }
 
     const publishedAt = asDate(row.published_at) || new Date();
     const next = {
       ...row,
-      status: 'active',
+      status: CHRONIQUE_STATUS.ACTIVE,
       archived_at: null,
       scheduled_at: null,
       published_at: publishedAt,
@@ -492,7 +497,7 @@ async function deleteChronique(userId, rawId, deps = {}) {
   return withOwnedPublication(userId, rawId, deps, async (client, row) => {
     const next = {
       ...row,
-      status: 'deleted',
+      status: CHRONIQUE_STATUS.DELETED,
       deleted_at: new Date(),
     };
     inertSocial(next);

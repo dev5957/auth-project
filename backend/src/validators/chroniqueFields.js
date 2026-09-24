@@ -3,7 +3,21 @@ const AppError = require('../errors/AppError');
 const BODY_MIN = 20;
 const BODY_MAX = 5000;
 const TITLE_MAX = 200;
-const LIST_STATUSES = ['draft', 'scheduled', 'active', 'archived', 'expired'];
+const CHRONIQUE_STATUS = Object.freeze({
+  DRAFT: 'draft',
+  SCHEDULED: 'scheduled',
+  ACTIVE: 'active',
+  ARCHIVED: 'archived',
+  EXPIRED: 'expired',
+  DELETED: 'deleted',
+});
+const LIST_STATUSES = [
+  CHRONIQUE_STATUS.DRAFT,
+  CHRONIQUE_STATUS.SCHEDULED,
+  CHRONIQUE_STATUS.ACTIVE,
+  CHRONIQUE_STATUS.ARCHIVED,
+  CHRONIQUE_STATUS.EXPIRED,
+];
 const PUBLISH_MODES = ['draft', 'now', 'schedule'];
 const FORBIDDEN_CREATE_FIELDS = [
   'user_id',
@@ -320,6 +334,7 @@ module.exports = {
   BODY_MIN,
   BODY_MAX,
   TITLE_MAX,
+  CHRONIQUE_STATUS,
   LIST_STATUSES,
   parseCreateInput,
   parsePatchInput,
