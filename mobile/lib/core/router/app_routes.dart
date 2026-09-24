@@ -18,14 +18,21 @@ abstract final class AppRoutes {
   /// Lecture d’une chronique. `:chroniqueId` numérique.
   static const String exploreDetail = '/explore/:chroniqueId';
 
+  /// Édition d’une chronique existante.
+  static const String exploreEdit = '/explore/:chroniqueId/edit';
+
   static String chroniqueDetail(int id) => '/explore/$id';
 
+  static String chroniqueEdit(int id) => '/explore/$id/edit';
+
   static final RegExp _exploreDetailLocation = RegExp(r'^/explore/\d+$');
+  static final RegExp _exploreEditLocation = RegExp(r'^/explore/\d+/edit$');
 
   static bool isAuthenticatedLocation(String location) {
     return location == home ||
         location == create ||
         location == explore ||
-        _exploreDetailLocation.hasMatch(location);
+        _exploreDetailLocation.hasMatch(location) ||
+        _exploreEditLocation.hasMatch(location);
   }
 }

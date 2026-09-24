@@ -30,11 +30,7 @@ class ChroniqueApiService {
       accessToken: accessToken,
       data: data,
     );
-    final chronique = json['chronique'];
-    if (chronique is! Map) {
-      throw const FormatException('Invalid chronique payload');
-    }
-    return Chronique.fromJson(asJsonMap(chronique));
+    return _chroniqueFrom(json);
   }
 
   /// `GET /chroniques` — première page du fil `active` (défauts serveur).
@@ -46,6 +42,61 @@ class ChroniqueApiService {
       accessToken: accessToken,
     );
     return ChroniquePage.fromJson(json);
+  }
+
+  /// `GET /chroniques/:id`
+  Future<Chronique> get({
+    required String accessToken,
+    required int id,
+  }) async {
+    debugPrint('[chronique-http] ChroniqueApiService.get() → GET /chroniques/$id');
+    final json = await _send(
+      'GET',
+      '/chroniques/$id',
+      accessToken: accessToken,
+    );
+    return _chroniqueFrom(json);
+  }
+
+  /// `PATCH /chroniques/:id` — titre et corps uniquement.
+  Future<Chronique> update({
+    required String accessToken,
+    required int id,
+    required String body,
+    String? title,
+  }) async {
+    debugPrint('[chronique-http] ChroniqueApiService.update() → PATCH /chroniques/$id');
+    final json = await _send(
+      'PATCH',
+      '/chroniques/$id',
+      accessToken: accessToken,
+      data: <String, dynamic>{
+        'title': title,
+        'body': body,
+      },
+    );
+    return _chroniqueFrom(json);
+  }
+
+  /// `DELETE /chroniques/:id` — suppression logique côté serveur.
+  Future<void> delete({
+    required String accessToken,
+    required int id,
+  }) async {
+    debugPrint('[chronique-http] ChroniqueApiService.delete() → DELETE /chroniques/$id');
+    await _send(
+      'DELETE',
+      '/chroniques/$id',
+      accessToken: accessToken,
+    );
+  }
+
+  Chronique _chroniqueFrom(Map<String, dynamic> json) {
+    final chronique = json['chronique'];
+    if (chronique is! Map) {
+      throw const FormatException('Invalid chronique payload');
+    }
+    return Chronique.fromJson(asJsonMap(chronique));
   }
 
   Future<Map<String, dynamic>> _send(

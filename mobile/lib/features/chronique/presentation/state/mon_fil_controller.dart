@@ -25,7 +25,7 @@ final class MonFilError extends MonFilState {
   final String message;
 }
 
-/// Charge le fil personnel. Aucun logout, aucun refresh.
+/// Charge le fil personnel. Aucun logout.
 class MonFilController extends AutoDisposeNotifier<MonFilState> {
   @override
   MonFilState build() {
@@ -33,7 +33,7 @@ class MonFilController extends AutoDisposeNotifier<MonFilState> {
     return const MonFilLoading();
   }
 
-  Future<void> load() async {
+  Future<void> load({bool keepReadyOnError = false}) async {
     try {
       final page = await ref.read(chroniqueRepositoryProvider).list();
       state = MonFilReady(page.items);
@@ -42,11 +42,41 @@ class MonFilController extends AutoDisposeNotifier<MonFilState> {
         '[chronique-fil] GET /chroniques failed '
         'status=${error.statusCode} message=${error.message}',
       );
+      if (keepReadyOnError && state is MonFilReady) {
+        return;
+      }
       final message = error.message.trim();
       state = MonFilError(message.isNotEmpty ? message : 'Unexpected error');
     } on FormatException {
+      if (keepReadyOnError && state is MonFilReady) {
+        return;
+      }
       state = const MonFilError('Unexpected error');
     }
+  }
+
+  Future<void> refresh() => load(keepReadyOnError: true);
+
+  void upsert(Chronique chronique) {
+    final current = state;
+    if (current is! MonFilReady) {
+      return;
+    }
+    state = MonFilReady([
+      for (final item in current.items)
+        if (item.id == chronique.id) chronique else item,
+    ]);
+  }
+
+  void removeById(int id) {
+    final current = state;
+    if (current is! MonFilReady) {
+      return;
+    }
+    state = MonFilReady([
+      for (final item in current.items)
+        if (item.id != id) item,
+    ]);
   }
 }
 

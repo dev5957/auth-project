@@ -4,11 +4,13 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:mobile/core/config/app_config.dart';
 import 'package:mobile/core/network/api_client.dart';
+import 'package:mobile/core/network/api_exception.dart';
 import 'package:mobile/features/auth/data/storage/auth_token_storage.dart';
 import 'package:mobile/features/auth/models/auth_account.dart';
 import 'package:mobile/features/auth/providers/auth_controller.dart';
 import 'package:mobile/features/auth/providers/auth_providers.dart';
 import 'package:mobile/features/auth/state/auth_state.dart';
+import 'package:mobile/features/chronique/models/chronique.dart';
 import 'package:mobile/features/chronique/models/chronique_page.dart';
 import 'package:mobile/features/chronique/presentation/screens/create_chronique_screen.dart';
 import 'package:mobile/features/chronique/presentation/screens/mon_fil_screen.dart';
@@ -74,11 +76,21 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
       : super(ApiClient(config: const AppConfig(apiBaseUrl: 'http://test.invalid')));
 
   int listCalls = 0;
+  int getCalls = 0;
 
   @override
   Future<ChroniquePage> list({required String accessToken}) async {
     listCalls += 1;
     return const ChroniquePage(items: []);
+  }
+
+  @override
+  Future<Chronique> get({
+    required String accessToken,
+    required int id,
+  }) async {
+    getCalls += 1;
+    throw const ApiException(message: 'Chronique not found', statusCode: 404);
   }
 }
 

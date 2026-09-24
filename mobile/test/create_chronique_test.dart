@@ -117,6 +117,20 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
     lastAccessToken = accessToken;
     return ChroniquePage(items: listItems);
   }
+
+  @override
+  Future<Chronique> get({
+    required String accessToken,
+    required int id,
+  }) async {
+    lastAccessToken = accessToken;
+    for (final item in listItems) {
+      if (item.id == id) {
+        return item;
+      }
+    }
+    throw const ApiException(message: 'Chronique not found', statusCode: 404);
+  }
 }
 
 class _FakeLocalMediaPicker implements ChroniqueLocalMediaPicker {

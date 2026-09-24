@@ -20,12 +20,8 @@ class ChroniqueRepository {
     required String body,
     String? title,
   }) async {
-    final accessToken = await _tokenStorage.readAccessToken();
-    if (accessToken == null || accessToken.isEmpty) {
-      throw const ApiException(message: 'Unauthorized', statusCode: 401);
-    }
     return _api.create(
-      accessToken: accessToken,
+      accessToken: await _requireAccessToken(),
       body: body,
       title: title,
     );
@@ -33,10 +29,35 @@ class ChroniqueRepository {
 
   /// Fil personnel V1 : `GET /chroniques` (première page, pas de pagination).
   Future<ChroniquePage> list() async {
+    return _api.list(accessToken: await _requireAccessToken());
+  }
+
+  Future<Chronique> get(int id) async {
+    return _api.get(accessToken: await _requireAccessToken(), id: id);
+  }
+
+  Future<Chronique> update({
+    required int id,
+    required String body,
+    String? title,
+  }) async {
+    return _api.update(
+      accessToken: await _requireAccessToken(),
+      id: id,
+      body: body,
+      title: title,
+    );
+  }
+
+  Future<void> delete(int id) async {
+    await _api.delete(accessToken: await _requireAccessToken(), id: id);
+  }
+
+  Future<String> _requireAccessToken() async {
     final accessToken = await _tokenStorage.readAccessToken();
     if (accessToken == null || accessToken.isEmpty) {
       throw const ApiException(message: 'Unauthorized', statusCode: 401);
     }
-    return _api.list(accessToken: accessToken);
+    return accessToken;
   }
 }

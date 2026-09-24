@@ -1,15 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../../core/network/api_exception.dart';
+import '../../../../core/router/app_routes.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_text_theme.dart';
 import '../../models/chronique.dart';
+import '../../providers/chronique_providers.dart';
 import '../state/mon_fil_controller.dart';
 import '../widgets/chronique_card.dart';
 
-/// Lecture détaillée V1. Pas de médias ni d’actions sociales.
-class ChroniqueDetailScreen extends ConsumerWidget {
+enum _DetailAction { edit, delete }
+
+/// Lecture détaillée V1. Menu ⋮ : modifier (texte) / supprimer.
+class ChroniqueDetailScreen extends ConsumerStatefulWidget {
   const ChroniqueDetailScreen({
     super.key,
     required this.chroniqueId,
@@ -19,25 +25,175 @@ class ChroniqueDetailScreen extends ConsumerWidget {
   final int? chroniqueId;
   final Chronique? chronique;
 
-  Chronique? _resolve(MonFilState state) {
-    if (chronique != null) {
-      return chronique;
+  @override
+  ConsumerState<ChroniqueDetailScreen> createState() => _ChroniqueDetailScreenState();
+}
+
+class _ChroniqueDetailScreenState extends ConsumerState<ChroniqueDetailScreen> {
+  Chronique? _chronique;
+  String? _error;
+  bool _deleting = false;
+
+  int? get _id => widget.chroniqueId ?? widget.chronique?.id;
+
+  @override
+  void initState() {
+    super.initState();
+    _chronique = widget.chronique;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadFromApi();
+    });
+  }
+
+  int _loadGeneration = 0;
+
+  Future<void> _loadFromApi() async {
+    final id = _id;
+    if (id == null) {
+      return;
     }
-    if (chroniqueId == null || state is! MonFilReady) {
-      return null;
-    }
-    for (final item in state.items) {
-      if (item.id == chroniqueId) {
-        return item;
+    final generation = ++_loadGeneration;
+    try {
+      final fresh = await ref.read(chroniqueRepositoryProvider).get(id);
+      if (!mounted || generation != _loadGeneration) {
+        return;
       }
+      setState(() {
+        _chronique = fresh;
+        _error = null;
+      });
+    } on ApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      if (_chronique != null) {
+        return;
+      }
+      final message = error.message.trim();
+      setState(() {
+        _error = message.isNotEmpty ? message : 'Unexpected error';
+      });
+    } on FormatException {
+      if (!mounted || _chronique != null) {
+        return;
+      }
+      setState(() => _error = 'Unexpected error');
     }
-    return null;
+  }
+
+  String _messageFor(ApiException error) {
+    final message = error.message.trim();
+    if (message.isNotEmpty) {
+      return message;
+    }
+    switch (error.statusCode) {
+      case 401:
+        return 'Unauthorized';
+      case 429:
+        return 'Too many requests';
+      default:
+        return 'Unexpected error';
+    }
+  }
+
+  Future<void> _onAction(_DetailAction action) async {
+    if (_deleting) {
+      return;
+    }
+    switch (action) {
+      case _DetailAction.edit:
+        await _openEdit();
+      case _DetailAction.delete:
+        await _confirmDelete();
+    }
+  }
+
+  Future<void> _openEdit() async {
+    final current = _chronique;
+    final id = _id;
+    if (current == null || id == null) {
+      return;
+    }
+    final updated = await context.push<Chronique>(
+      AppRoutes.chroniqueEdit(id),
+      extra: current,
+    );
+    if (!mounted || updated == null) {
+      return;
+    }
+    _loadGeneration++;
+    setState(() {
+      _chronique = updated;
+      _error = null;
+    });
+    ref.read(monFilControllerProvider.notifier).upsert(updated);
+  }
+
+  Future<void> _confirmDelete() async {
+    final id = _id;
+    if (id == null) {
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Supprimer cette chronique ?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Annuler'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Supprimer'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true || !mounted) {
+      return;
+    }
+    setState(() {
+      _deleting = true;
+      _error = null;
+    });
+    try {
+      await ref.read(chroniqueRepositoryProvider).delete(id);
+      if (!mounted) {
+        return;
+      }
+      ref.read(monFilControllerProvider.notifier).removeById(id);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Chronique supprimée')),
+      );
+      context.pop();
+      ref.read(monFilControllerProvider.notifier).refresh();
+    } on ApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _deleting = false;
+        _error = _messageFor(error);
+      });
+    } on FormatException {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _deleting = false;
+        _error = 'Unexpected error';
+      });
+    }
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final colors = context.luminaColors;
-    final resolved = _resolve(ref.watch(monFilControllerProvider));
+    final fromFil = _resolveFromFil(ref.watch(monFilControllerProvider));
+    final resolved = _chronique ?? fromFil ?? widget.chronique;
     final dateLabel = resolved == null ? '' : chroniqueDateLabel(resolved);
     final title = resolved?.title?.trim();
 
@@ -51,6 +207,25 @@ class ChroniqueDetailScreen extends ConsumerWidget {
           title != null && title.isNotEmpty ? title : 'Chronique',
           style: AppTextTheme.titleMedium.copyWith(color: colors.textPrimary),
         ),
+        actions: [
+          if (resolved != null)
+            PopupMenuButton<_DetailAction>(
+              key: const ValueKey('chronique-detail-menu'),
+              tooltip: 'Actions',
+              enabled: !_deleting,
+              onSelected: _onAction,
+              itemBuilder: (context) => const [
+                PopupMenuItem(
+                  value: _DetailAction.edit,
+                  child: Text('Modifier'),
+                ),
+                PopupMenuItem(
+                  value: _DetailAction.delete,
+                  child: Text('Supprimer'),
+                ),
+              ],
+            ),
+        ],
       ),
       body: SafeArea(
         child: resolved == null
@@ -58,9 +233,11 @@ class ChroniqueDetailScreen extends ConsumerWidget {
                 child: Padding(
                   padding: const EdgeInsets.all(AppSpacing.xxl),
                   child: Text(
-                    'Chronique introuvable',
+                    _error ?? 'Chronique introuvable',
                     textAlign: TextAlign.center,
-                    style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
+                    style: AppTextTheme.bodyMedium.copyWith(
+                      color: _error == null ? colors.textSecondary : colors.danger,
+                    ),
                   ),
                 ),
               )
@@ -93,10 +270,31 @@ class ChroniqueDetailScreen extends ConsumerWidget {
                         color: colors.textPrimary,
                       ),
                     ),
+                    if (_error != null) ...[
+                      const SizedBox(height: AppSpacing.lg),
+                      Text(
+                        _error!,
+                        textAlign: TextAlign.center,
+                        style: AppTextTheme.labelSmall.copyWith(color: colors.danger),
+                      ),
+                    ],
                   ],
                 ),
               ),
       ),
     );
+  }
+
+  Chronique? _resolveFromFil(MonFilState state) {
+    final id = _id;
+    if (id == null || state is! MonFilReady) {
+      return null;
+    }
+    for (final item in state.items) {
+      if (item.id == id) {
+        return item;
+      }
+    }
+    return null;
   }
 }

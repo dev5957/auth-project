@@ -77,9 +77,19 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
       : super(ApiClient(config: const AppConfig(apiBaseUrl: 'http://test.invalid')));
 
   int listCalls = 0;
+  int getCalls = 0;
+  int updateCalls = 0;
+  int deleteCalls = 0;
   String? lastAccessToken;
+  String? lastBody;
+  String? lastTitle;
+  int? lastGetId;
+  int? lastUpdateId;
+  int? lastDeleteId;
   List<Chronique> items = const [];
   ApiException? failWith;
+  ApiException? failUpdateWith;
+  ApiException? failDeleteWith;
 
   @override
   Future<ChroniquePage> list({required String accessToken}) async {
@@ -90,6 +100,70 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
       throw error;
     }
     return ChroniquePage(items: items);
+  }
+
+  @override
+  Future<Chronique> get({
+    required String accessToken,
+    required int id,
+  }) async {
+    getCalls += 1;
+    lastAccessToken = accessToken;
+    lastGetId = id;
+    for (final item in items) {
+      if (item.id == id) {
+        return item;
+      }
+    }
+    throw const ApiException(message: 'Chronique not found', statusCode: 404);
+  }
+
+  @override
+  Future<Chronique> update({
+    required String accessToken,
+    required int id,
+    required String body,
+    String? title,
+  }) async {
+    updateCalls += 1;
+    lastAccessToken = accessToken;
+    lastUpdateId = id;
+    lastBody = body;
+    lastTitle = title;
+    final error = failUpdateWith;
+    if (error != null) {
+      throw error;
+    }
+    final updated = Chronique(
+      id: id,
+      title: title,
+      body: body,
+      status: 'active',
+      publishedAt: '2026-09-22T10:00:00.000Z',
+    );
+    items = [
+      for (final item in items)
+        if (item.id == id) updated else item,
+    ];
+    return updated;
+  }
+
+  @override
+  Future<void> delete({
+    required String accessToken,
+    required int id,
+  }) async {
+    deleteCalls += 1;
+    lastAccessToken = accessToken;
+    lastDeleteId = id;
+    final error = failDeleteWith;
+    if (error != null) {
+      throw error;
+    }
+    items = [
+      for (final item in items)
+        if (item.id != id) item,
+    ];
   }
 }
 
@@ -248,5 +322,32 @@ void main() {
     expect(find.byType(MonFilScreen), findsOneWidget);
     expect(container.read(authControllerProvider), isA<AuthAuthenticated>());
     expect(find.text('Logout'), findsNothing);
+  });
+
+  testWidgets('Mon Fil pull-to-refresh calls GET /chroniques again', (tester) async {
+    final api = _ChroniqueApiProbe()
+      ..items = const [
+        Chronique(
+          id: 42,
+          title: 'Premier soir',
+          body: 'Le texte de la chronique, d au moins vingt caracteres.',
+          status: 'active',
+          publishedAt: '2026-09-22T10:00:00.000Z',
+        ),
+      ];
+    await _pumpHome(tester, api: api);
+    await _openMonFil(tester);
+
+    expect(api.listCalls, 1);
+    expect(find.byType(RefreshIndicator), findsOneWidget);
+    expect(find.text('Modifier'), findsNothing);
+    expect(find.text('Supprimer'), findsNothing);
+
+    await tester.fling(find.byType(ChroniqueCard), const Offset(0, 400), 1000);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+
+    expect(api.listCalls, greaterThan(1));
   });
 }
