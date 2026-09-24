@@ -4,7 +4,6 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:mobile/core/config/app_config.dart';
 import 'package:mobile/core/network/api_client.dart';
-import 'package:mobile/core/widgets/app_button.dart';
 import 'package:mobile/features/auth/models/auth_account.dart';
 import 'package:mobile/features/auth/models/auth_user.dart';
 import 'package:mobile/features/auth/providers/auth_controller.dart';
@@ -114,13 +113,45 @@ void main() {
     expect(find.text('Welcome back'), findsOneWidget);
     expect(find.text('tgjjk'), findsOneWidget);
     expect(find.text('Session active'), findsOneWidget);
+    expect(find.text('CREATE'), findsOneWidget);
+    expect(find.text('EXPLORE'), findsOneWidget);
     expect(find.text('Your space'), findsOneWidget);
     expect(find.text('Everything is ready.'), findsOneWidget);
-    expect(find.text('Logout'), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-user-avatar')), findsOneWidget);
+    expect(find.text('Logout'), findsNothing);
+    expect(find.text('Déconnexion'), findsNothing);
     expect(api.meCalls, 0);
     expect(api.refreshCalls, 0);
     expect(api.loginCalls, 0);
     expect(api.logoutCalls, 0);
+  });
+
+  testWidgets('avatar opens the user menu with Archives and logout', (tester) async {
+    final api = _ApiProbe();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authApiServiceProvider.overrideWithValue(api),
+          authControllerProvider.overrideWith(
+            () => _SeededHomeAuthController(_LogoutProbe()),
+          ),
+        ],
+        child: const LuminaApp(),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    await tester.tap(find.byKey(const ValueKey('home-user-avatar')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('🕒 À venir'), findsOneWidget);
+    expect(find.text('Archives'), findsOneWidget);
+    expect(find.text('Profil'), findsOneWidget);
+    expect(find.text('Paramètres'), findsOneWidget);
+    expect(find.text('Sécurité'), findsOneWidget);
+    expect(find.text('Déconnexion'), findsOneWidget);
+    expect(find.text('tgjjk'), findsWidgets);
   });
 
   testWidgets('Logout uses AuthController and returns to Login, not the carousel', (tester) async {
@@ -145,7 +176,9 @@ void main() {
     );
     expect(container.read(authControllerProvider), isA<AuthAuthenticated>());
 
-    await tester.tap(find.text('Logout'));
+    await tester.tap(find.byKey(const ValueKey('home-user-avatar')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Déconnexion'));
     var leftHome = false;
     for (var i = 0; i < 20; i++) {
       await tester.pump(const Duration(milliseconds: 50));
@@ -183,13 +216,12 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    final logoutInk = find.descendant(
-      of: find.byType(AppButton),
-      matching: find.byType(InkWell),
-    );
-    await tester.tap(logoutInk);
+    await tester.tap(find.byKey(const ValueKey('home-user-avatar')));
+    await tester.pumpAndSettle();
+    final logoutTile = find.byKey(const ValueKey('home-logout'));
+    await tester.tap(logoutTile);
     await tester.pump();
-    await tester.tap(logoutInk);
+    await tester.tap(find.byKey(const ValueKey('home-user-avatar')));
     await tester.pump(const Duration(milliseconds: 50));
     expect(probe.calls, 1);
     await tester.pump(const Duration(milliseconds: 200));

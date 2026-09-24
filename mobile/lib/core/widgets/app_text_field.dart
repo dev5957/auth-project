@@ -28,6 +28,8 @@ class AppTextField extends StatelessWidget {
     this.onTap,
     this.inputFormatters,
     this.readOnly = false,
+    this.minLines,
+    this.maxLines = 1,
   });
 
   final String? label;
@@ -49,6 +51,8 @@ class AppTextField extends StatelessWidget {
   final VoidCallback? onTap;
   final List<TextInputFormatter>? inputFormatters;
   final bool readOnly;
+  final int? minLines;
+  final int? maxLines;
 
   @override
   Widget build(BuildContext context) {
@@ -78,6 +82,10 @@ class AppTextField extends StatelessWidget {
       onSubmitted: onSubmitted,
       onTap: onTap,
       readOnly: readOnly,
+      minLines: minLines,
+      maxLines: maxLines,
+      textAlignVertical:
+          (maxLines ?? 1) == 1 ? TextAlignVertical.center : TextAlignVertical.top,
       style: AppTextTheme.bodyLarge.copyWith(color: colors.textPrimary),
       cursorColor: colors.borderFocus,
       decoration: InputDecoration(

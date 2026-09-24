@@ -10,6 +10,7 @@ try {
 
 const express = require('express');
 const authRoutes = require('./routes/auth');
+const chroniqueRoutes = require('./routes/chroniques');
 const errorHandler = require('./middleware/errorHandler');
 const { corsMiddleware } = require('./middleware/cors');
 
@@ -27,6 +28,7 @@ app.get('/health', (req, res) => {
 });
 
 app.use('/auth', authRoutes);
+app.use('/chroniques', chroniqueRoutes);
 
 app.use(errorHandler);
 

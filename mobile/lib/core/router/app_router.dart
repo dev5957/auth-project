@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -10,6 +10,13 @@ import '../../features/auth/presentation/screens/register_screen.dart';
 import '../../features/auth/presentation/screens/signup_method_screen.dart';
 import '../../features/auth/providers/auth_controller.dart';
 import '../../features/auth/state/auth_state.dart';
+import '../../features/chronique/models/chronique.dart';
+import '../../features/chronique/presentation/screens/archives_screen.dart';
+import '../../features/chronique/presentation/screens/chronique_detail_screen.dart';
+import '../../features/chronique/presentation/screens/create_chronique_screen.dart';
+import '../../features/chronique/presentation/screens/edit_chronique_screen.dart';
+import '../../features/chronique/presentation/screens/mon_fil_screen.dart';
+import '../../features/chronique/presentation/screens/upcoming_chroniques_screen.dart';
 import '../../features/home/presentation/screens/home_screen.dart';
 import 'app_routes.dart';
 import 'session_splash_screen.dart';
@@ -47,12 +54,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           target = AppRoutes.splash;
         }
       } else if (auth is AuthAuthenticated) {
-        target = location == AppRoutes.home ? null : AppRoutes.home;
+        target = AppRoutes.isAuthenticatedLocation(location)
+            ? null
+            : AppRoutes.home;
       } else if (location == AppRoutes.splash) {
         // Cas 1 / 5 : premier lancement ou refresh invalide au cold start → carousel.
         target = AppRoutes.entry;
-      } else if (location == AppRoutes.home) {
-        // Cas 4 : logout (ou session tombée pendant Home) → formulaire Login.
+      } else if (AppRoutes.isAuthenticatedLocation(location)) {
+        // Cas 4 : logout (ou session tombée pendant Home / CREATE / EXPLORE / détail) → Login.
         target = AppRoutes.login;
       } else {
         // Cas 2 : /auth/login (ou register / carousel) reste en place.
@@ -100,6 +109,50 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.home,
         builder: (context, state) => const HomeScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.create,
+        pageBuilder: (context, state) => MaterialPage<void>(
+          key: state.pageKey,
+          fullscreenDialog: true,
+          child: const CreateChroniqueScreen(),
+        ),
+      ),
+      GoRoute(
+        path: AppRoutes.explore,
+        builder: (context, state) => const MonFilScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.archives,
+        builder: (context, state) => const ArchivesScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.upcoming,
+        builder: (context, state) => const UpcomingChroniquesScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.exploreEdit,
+        builder: (context, state) {
+          final extra = state.extra;
+          if (extra is! Chronique) {
+            return const Scaffold(
+              body: Center(child: Text('Chronique introuvable')),
+            );
+          }
+          return EditChroniqueScreen(chronique: extra);
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.exploreDetail,
+        builder: (context, state) {
+          final rawId = state.pathParameters['chroniqueId'];
+          final id = int.tryParse(rawId ?? '');
+          final extra = state.extra;
+          return ChroniqueDetailScreen(
+            chroniqueId: id,
+            chronique: extra is Chronique ? extra : null,
+          );
+        },
       ),
     ],
   );

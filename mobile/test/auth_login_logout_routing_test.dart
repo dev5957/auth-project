@@ -194,6 +194,8 @@ void main() {
     expect(find.byType(HomeScreen), findsOneWidget);
     expect(find.text('Welcome back'), findsOneWidget);
     expect(find.text('ada'), findsOneWidget);
+    expect(find.text('CREATE'), findsOneWidget);
+    expect(find.text('EXPLORE'), findsOneWidget);
     expect(find.byType(LoginScreen), findsNothing);
     expect(_carousel, findsNothing);
   });

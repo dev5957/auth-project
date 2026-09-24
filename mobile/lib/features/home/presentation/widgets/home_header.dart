@@ -7,14 +7,16 @@ import '../../../../core/theme/app_text_theme.dart';
 import '../../../../core/widgets/app_logo.dart';
 import '../home_user_initials.dart';
 
-/// Bandeau Home : identité Lumina + initiales du login Auth.
+/// Bandeau Home : identité Lumina + menu utilisateur (avatar).
 class HomeHeader extends StatelessWidget {
   const HomeHeader({
     super.key,
     required this.login,
+    this.onAvatarTap,
   });
 
   final String login;
+  final VoidCallback? onAvatarTap;
 
   @override
   Widget build(BuildContext context) {
@@ -42,14 +44,20 @@ class HomeHeader extends StatelessWidget {
         ),
         if (initials.isNotEmpty)
           Semantics(
+            button: true,
             label: login,
-            child: CircleAvatar(
-              radius: 24,
-              backgroundColor: colors.bgRaised,
-              foregroundColor: colors.primary,
-              child: Text(
-                initials,
-                style: AppTextTheme.labelLarge.copyWith(color: colors.primary),
+            child: InkWell(
+              key: const ValueKey('home-user-avatar'),
+              customBorder: const CircleBorder(),
+              onTap: onAvatarTap,
+              child: CircleAvatar(
+                radius: 24,
+                backgroundColor: colors.bgRaised,
+                foregroundColor: colors.primary,
+                child: Text(
+                  initials,
+                  style: AppTextTheme.labelLarge.copyWith(color: colors.primary),
+                ),
               ),
             ),
           ),
