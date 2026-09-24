@@ -85,7 +85,7 @@ class DeviceChroniqueLocalMediaPicker implements ChroniqueLocalMediaPicker {
     List<String>? allowedExtensions,
   }) async {
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         type: type,
         allowedExtensions: allowedExtensions,
         allowMultiple: false,
