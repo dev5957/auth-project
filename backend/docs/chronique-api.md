@@ -898,6 +898,8 @@ Pas de table `themes` en V1.
 
 Jobs **simples**, CLI `npm run jobs:chronique -- --confirm --job=all`.
 
+Déclencheur **interne optionnel** (dev/staging) : `ENABLE_INTERNAL_CRON=true` et `CRON_INTERVAL_MS=60000`. Défaut : **désactivé**. Le scheduler n’ajoute pas de route HTTP ; il appelle uniquement `runChroniqueLifecycleJobs`. Un Cron cloud / CronJob k8s / EventBridge pourra plus tard lancer le **même** CLI, sans changer `chroniqueJobs.js`.
+
 | Job | Effet |
 |---|---|
 | `publish` | `scheduled` → `active` quand `scheduled_at <= NOW()` ; pose `published_at` |
