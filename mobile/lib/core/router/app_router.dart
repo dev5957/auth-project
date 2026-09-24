@@ -16,6 +16,7 @@ import '../../features/chronique/presentation/screens/chronique_detail_screen.da
 import '../../features/chronique/presentation/screens/create_chronique_screen.dart';
 import '../../features/chronique/presentation/screens/edit_chronique_screen.dart';
 import '../../features/chronique/presentation/screens/mon_fil_screen.dart';
+import '../../features/chronique/presentation/screens/upcoming_chroniques_screen.dart';
 import '../../features/home/presentation/screens/home_screen.dart';
 import 'app_routes.dart';
 import 'session_splash_screen.dart';
@@ -124,6 +125,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.archives,
         builder: (context, state) => const ArchivesScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.upcoming,
+        builder: (context, state) => const UpcomingChroniquesScreen(),
       ),
       GoRoute(
         path: AppRoutes.exploreEdit,

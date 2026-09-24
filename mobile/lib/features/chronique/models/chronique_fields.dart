@@ -40,4 +40,12 @@ abstract final class ChroniqueFields {
   }
 
   static bool canPublishBody(String raw) => bodyError(raw) == null;
+
+  static String excerpt(String raw, {int maxRunes = 140}) {
+    final body = trimmedBody(raw);
+    if (runeLength(body) <= maxRunes) {
+      return body;
+    }
+    return '${String.fromCharCodes(body.runes.take(maxRunes))}…';
+  }
 }

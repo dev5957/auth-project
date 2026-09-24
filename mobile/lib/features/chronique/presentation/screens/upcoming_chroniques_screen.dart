@@ -9,20 +9,21 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_text_theme.dart';
 import '../../../../core/widgets/app_loading.dart';
 import '../../models/chronique.dart';
+import '../../models/chronique_fields.dart';
 import '../../providers/chronique_providers.dart';
-import '../state/mon_fil_controller.dart';
+import '../state/upcoming_chroniques_controller.dart';
 import '../widgets/chronique_card.dart';
 import '../widgets/chronique_card_menu.dart';
 import '../widgets/chronique_lifecycle_dialogs.dart';
 
-/// Fil personnel V1. Route technique : `/explore`.
-class MonFilScreen extends ConsumerWidget {
-  const MonFilScreen({super.key});
+/// Publications programmées : `GET /chroniques?status=scheduled`.
+class UpcomingChroniquesScreen extends ConsumerWidget {
+  const UpcomingChroniquesScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = context.luminaColors;
-    final state = ref.watch(monFilControllerProvider);
+    final state = ref.watch(upcomingChroniquesControllerProvider);
 
     return Scaffold(
       backgroundColor: colors.bgBase,
@@ -31,7 +32,7 @@ class MonFilScreen extends ConsumerWidget {
         foregroundColor: colors.textPrimary,
         elevation: 0,
         title: Text(
-          'Mon Fil',
+          'À venir',
           style: AppTextTheme.titleMedium.copyWith(color: colors.textPrimary),
         ),
       ),
@@ -40,7 +41,25 @@ class MonFilScreen extends ConsumerWidget {
   }
 
   Future<void> _onRefresh(WidgetRef ref) {
-    return ref.read(monFilControllerProvider.notifier).refresh();
+    return ref.read(upcomingChroniquesControllerProvider.notifier).refresh();
+  }
+
+  Widget _refreshable({
+    required WidgetRef ref,
+    required Widget child,
+  }) {
+    return RefreshIndicator(
+      onRefresh: () => _onRefresh(ref),
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
+          SizedBox(
+            height: 360,
+            child: child,
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _onMenu(
@@ -56,42 +75,16 @@ class MonFilScreen extends ConsumerWidget {
           extra: chronique,
         );
         if (updated != null) {
-          ref.read(monFilControllerProvider.notifier).upsert(updated);
-        }
-      case ChroniqueCardMenuAction.archive:
-        final confirmed = await confirmArchiveChronique(context);
-        if (!confirmed) {
-          return;
-        }
-        try {
-          await ref.read(chroniqueRepositoryProvider).archive(chronique.id);
-          ref.read(monFilControllerProvider.notifier).removeById(chronique.id);
-        } on ApiException catch (error) {
-          if (!context.mounted) {
-            return;
-          }
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(messageForChroniqueApiError(error))),
-          );
-        } on FormatException {
-          if (!context.mounted) {
-            return;
-          }
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Unexpected error')),
-          );
+          ref.read(upcomingChroniquesControllerProvider.notifier).upsert(updated);
         }
       case ChroniqueCardMenuAction.delete:
-        final confirmed = await confirmDeleteChronique(
-          context,
-          scheduled: chronique.status == 'scheduled',
-        );
+        final confirmed = await confirmDeleteChronique(context, scheduled: true);
         if (!confirmed) {
           return;
         }
         try {
           await ref.read(chroniqueRepositoryProvider).delete(chronique.id);
-          ref.read(monFilControllerProvider.notifier).removeById(chronique.id);
+          ref.read(upcomingChroniquesControllerProvider.notifier).removeById(chronique.id);
         } on ApiException catch (error) {
           if (!context.mounted) {
             return;
@@ -107,37 +100,17 @@ class MonFilScreen extends ConsumerWidget {
             const SnackBar(content: Text('Unexpected error')),
           );
         }
+      case ChroniqueCardMenuAction.archive:
+        break;
     }
   }
 
-  Widget _refreshable({
-    required WidgetRef ref,
-    required Widget child,
-    bool alwaysScrollable = false,
-  }) {
-    return RefreshIndicator(
-      onRefresh: () => _onRefresh(ref),
-      child: alwaysScrollable
-          ? ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              children: [
-                SizedBox(
-                  height: 360,
-                  child: child,
-                ),
-              ],
-            )
-          : child,
-    );
-  }
-
-  Widget _body(BuildContext context, WidgetRef ref, MonFilState state) {
+  Widget _body(BuildContext context, WidgetRef ref, UpcomingChroniquesState state) {
     final colors = context.luminaColors;
     return switch (state) {
-      MonFilLoading() => const AppLoading(),
-      MonFilError(:final message) => _refreshable(
+      UpcomingChroniquesLoading() => const AppLoading(),
+      UpcomingChroniquesError(:final message) => _refreshable(
           ref: ref,
-          alwaysScrollable: true,
           child: Center(
             child: Padding(
               padding: const EdgeInsets.all(AppSpacing.xxl),
@@ -149,21 +122,20 @@ class MonFilScreen extends ConsumerWidget {
             ),
           ),
         ),
-      MonFilReady(:final items) when items.isEmpty => _refreshable(
+      UpcomingChroniquesReady(:final items) when items.isEmpty => _refreshable(
           ref: ref,
-          alwaysScrollable: true,
           child: Center(
             child: Padding(
               padding: const EdgeInsets.all(AppSpacing.xxl),
               child: Text(
-                'Aucune chronique pour le moment.',
+                'Aucune chronique programmée.',
                 textAlign: TextAlign.center,
                 style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
               ),
             ),
           ),
         ),
-      MonFilReady(:final items) => RefreshIndicator(
+      UpcomingChroniquesReady(:final items) => RefreshIndicator(
           onRefresh: () => _onRefresh(ref),
           child: ListView.separated(
             physics: const AlwaysScrollableScrollPhysics(),
@@ -174,6 +146,7 @@ class MonFilScreen extends ConsumerWidget {
               final item = items[index];
               return ChroniqueCard(
                 chronique: item,
+                excerpt: ChroniqueFields.excerpt(item.body),
                 onTap: () => context.push(
                   AppRoutes.chroniqueDetail(item.id),
                   extra: item,

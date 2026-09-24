@@ -50,6 +50,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     await showHomeUserMenu(
       context,
       login: auth.user.login,
+      onUpcoming: () {
+        if (!mounted) {
+          return;
+        }
+        context.push(AppRoutes.upcoming);
+      },
       onArchives: () {
         if (!mounted) {
           return;

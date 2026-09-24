@@ -10,8 +10,10 @@ import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_text_field.dart';
 import '../../models/chronique.dart';
 import '../../models/chronique_fields.dart';
+import '../../models/chronique_schedule_draft.dart';
 import '../../models/media_draft.dart';
 import '../state/edit_chronique_controller.dart';
+import '../widgets/chronique_publication_fields.dart';
 import '../widgets/media_draft_list.dart';
 
 /// Édition V1 d’une chronique publiée (texte uniquement).
@@ -35,6 +37,9 @@ class _EditChroniqueScreenState extends ConsumerState<EditChroniqueScreen> {
   String? _bodyError;
   String? _formError;
   bool _submitting = false;
+  late ChroniqueScheduleDraft _schedule;
+
+  bool get _isScheduled => widget.chronique.status == 'scheduled';
 
   String? get _originalTitle => ChroniqueFields.trimmedTitle(widget.chronique.title ?? '');
 
@@ -45,7 +50,9 @@ class _EditChroniqueScreenState extends ConsumerState<EditChroniqueScreen> {
   bool get _isDirty {
     final title = ChroniqueFields.trimmedTitle(_titleController.text);
     final body = ChroniqueFields.trimmedBody(_bodyController.text);
-    return title != _originalTitle || body != _originalBody;
+    return title != _originalTitle ||
+        body != _originalBody ||
+        (_isScheduled && _schedule != ChroniqueScheduleDraft.fromChronique(widget.chronique));
   }
 
   bool get _canSave =>
@@ -59,6 +66,7 @@ class _EditChroniqueScreenState extends ConsumerState<EditChroniqueScreen> {
     super.initState();
     _titleController = TextEditingController(text: widget.chronique.title ?? '');
     _bodyController = TextEditingController(text: widget.chronique.body);
+    _schedule = ChroniqueScheduleDraft.fromChronique(widget.chronique);
     _bodyController.addListener(_onFieldsEdited);
     _titleController.addListener(_onFieldsEdited);
   }
@@ -82,12 +90,13 @@ class _EditChroniqueScreenState extends ConsumerState<EditChroniqueScreen> {
   bool _validate() {
     final bodyError = ChroniqueFields.bodyError(_bodyController.text);
     final titleError = ChroniqueFields.titleError(_titleController.text);
+    final scheduleError = _isScheduled ? _schedule.validationError() : null;
     setState(() {
       _bodyError = bodyError;
       _titleError = titleError;
-      _formError = null;
+      _formError = scheduleError;
     });
-    return bodyError == null && titleError == null;
+    return bodyError == null && titleError == null && scheduleError == null;
   }
 
   String _messageFor(ApiException error) {
@@ -126,6 +135,10 @@ class _EditChroniqueScreenState extends ConsumerState<EditChroniqueScreen> {
             id: widget.chronique.id,
             body: body,
             title: title,
+            publish: _isScheduled ? _schedule.publish : null,
+            scheduledAt: _isScheduled ? _schedule.apiScheduledAt() : null,
+            isTimeLimited: _isScheduled ? _schedule.apiIsTimeLimited : null,
+            expiresAt: _isScheduled ? _schedule.apiExpiresAt() : null,
           );
       if (!mounted) {
         return;
@@ -165,74 +178,101 @@ class _EditChroniqueScreenState extends ConsumerState<EditChroniqueScreen> {
         ),
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xxl),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: AppSpacing.lg),
-              Text(
-                'Édition',
-                style: AppTextTheme.titleSmall.copyWith(color: colors.textSecondary),
-              ),
-              const SizedBox(height: AppSpacing.xxl),
-              AppTextField(
-                label: 'Titre (optionnel)',
-                hint: 'Titre',
-                controller: _titleController,
-                errorText: _titleError,
-                enabled: !_submitting,
-                textInputAction: TextInputAction.next,
-                textCapitalization: TextCapitalization.sentences,
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              AppTextField(
-                label: 'Texte *',
-                hint: 'Votre texte',
-                controller: _bodyController,
-                errorText: _bodyError,
-                enabled: !_submitting,
-                keyboardType: TextInputType.multiline,
-                textInputAction: TextInputAction.newline,
-                textCapitalization: TextCapitalization.sentences,
-                minLines: 6,
-                maxLines: 12,
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              Text(
-                '$_bodyCount / ${ChroniqueFields.bodyMax}',
-                textAlign: TextAlign.right,
-                style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
-              ),
-              if (widget.chronique.media.isNotEmpty) ...[
-                const SizedBox(height: AppSpacing.xxl),
-                Text(
-                  'Médias',
-                  style: AppTextTheme.titleSmall.copyWith(color: colors.textSecondary),
+        child: Column(
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xxl),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: AppSpacing.lg),
+                    Text(
+                      'Édition',
+                      style: AppTextTheme.titleSmall.copyWith(color: colors.textSecondary),
+                    ),
+                    const SizedBox(height: AppSpacing.xxl),
+                    AppTextField(
+                      label: 'Titre (optionnel)',
+                      hint: 'Titre',
+                      controller: _titleController,
+                      errorText: _titleError,
+                      enabled: !_submitting,
+                      textInputAction: TextInputAction.next,
+                      textCapitalization: TextCapitalization.sentences,
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    AppTextField(
+                      label: 'Texte *',
+                      hint: 'Votre texte',
+                      controller: _bodyController,
+                      errorText: _bodyError,
+                      enabled: !_submitting,
+                      keyboardType: TextInputType.multiline,
+                      textInputAction: TextInputAction.newline,
+                      textCapitalization: TextCapitalization.sentences,
+                      minLines: 6,
+                      maxLines: 12,
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Text(
+                      '$_bodyCount / ${ChroniqueFields.bodyMax}',
+                      textAlign: TextAlign.right,
+                      style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
+                    ),
+                    if (widget.chronique.media.isNotEmpty) ...[
+                      const SizedBox(height: AppSpacing.xxl),
+                      Text(
+                        'Médias',
+                        style: AppTextTheme.titleSmall.copyWith(color: colors.textSecondary),
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      for (final media in widget.chronique.media) ...[
+                        _ReadOnlyMediaRow(media: media),
+                        const SizedBox(height: AppSpacing.sm),
+                      ],
+                    ],
+                    if (_isScheduled) ...[
+                      const SizedBox(height: AppSpacing.xxl),
+                      ChroniquePublicationFields(
+                        draft: _schedule,
+                        showPublishMode: false,
+                        enabled: !_submitting,
+                        onChanged: (draft) => setState(() => _schedule = draft),
+                      ),
+                    ],
+                    const SizedBox(height: AppSpacing.xxl),
+                  ],
                 ),
-                const SizedBox(height: AppSpacing.md),
-                for (final media in widget.chronique.media) ...[
-                  _ReadOnlyMediaRow(media: media),
-                  const SizedBox(height: AppSpacing.sm),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.xxl,
+                AppSpacing.md,
+                AppSpacing.xxl,
+                AppSpacing.lg,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (_formError != null) ...[
+                    Text(
+                      _formError!,
+                      textAlign: TextAlign.center,
+                      style: AppTextTheme.labelSmall.copyWith(color: colors.danger),
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                  ],
+                  AppButton(
+                    label: 'Enregistrer',
+                    isLoading: _submitting,
+                    onPressed: _canSave ? _save : null,
+                  ),
                 ],
-              ],
-              if (_formError != null) ...[
-                const SizedBox(height: AppSpacing.md),
-                Text(
-                  _formError!,
-                  textAlign: TextAlign.center,
-                  style: AppTextTheme.labelSmall.copyWith(color: colors.danger),
-                ),
-              ],
-              const SizedBox(height: AppSpacing.xxl),
-              AppButton(
-                label: 'Enregistrer',
-                isLoading: _submitting,
-                onPressed: _canSave ? _save : null,
               ),
-              const SizedBox(height: AppSpacing.xxl),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

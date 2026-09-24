@@ -18,10 +18,10 @@ const _monthLabels = <String>[
 ];
 
 const String kScheduleRequiredMessage = 'Choisissez une date de publication';
-const String kSchedulePastMessage = 'La date de publication doit être dans le futur';
+const String kSchedulePastMessage = 'La date de publication doit être dans le futur.';
 const String kExpiresRequiredMessage = 'Choisissez une date d\'expiration';
 const String kExpiresBeforeActivationMessage =
-    'La date d\'expiration doit être après la publication';
+    'L\'expiration doit être après la publication.';
 
 enum ChroniqueExpirationPreset {
   none,

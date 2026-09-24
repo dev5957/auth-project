@@ -44,11 +44,11 @@ class MediaDraftList extends StatelessWidget {
   const MediaDraftList({
     super.key,
     required this.medias,
-    required this.onRemove,
+    this.onRemove,
   });
 
   final List<MediaDraft> medias;
-  final ValueChanged<int> onRemove;
+  final ValueChanged<int>? onRemove;
 
   @override
   Widget build(BuildContext context) {
@@ -58,7 +58,7 @@ class MediaDraftList extends StatelessWidget {
           if (i > 0) const SizedBox(height: AppSpacing.sm),
           _MediaDraftTile(
             media: medias[i],
-            onRemove: () => onRemove(medias[i].id),
+            onRemove: onRemove == null ? null : () => onRemove!(medias[i].id),
           ),
         ],
       ],
@@ -69,11 +69,11 @@ class MediaDraftList extends StatelessWidget {
 class _MediaDraftTile extends StatelessWidget {
   const _MediaDraftTile({
     required this.media,
-    required this.onRemove,
+    this.onRemove,
   });
 
   final MediaDraft media;
-  final VoidCallback onRemove;
+  final VoidCallback? onRemove;
 
   @override
   Widget build(BuildContext context) {
@@ -107,11 +107,12 @@ class _MediaDraftTile extends StatelessWidget {
               ],
             ),
           ),
-          IconButton(
-            tooltip: 'Supprimer',
-            onPressed: onRemove,
-            icon: Icon(Icons.close, color: colors.textSecondary),
-          ),
+          if (onRemove != null)
+            IconButton(
+              tooltip: 'Supprimer',
+              onPressed: onRemove,
+              icon: Icon(Icons.close, color: colors.textSecondary),
+            ),
         ],
       ),
     );

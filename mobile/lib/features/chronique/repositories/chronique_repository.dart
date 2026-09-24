@@ -55,12 +55,20 @@ class ChroniqueRepository {
     required int id,
     required String body,
     String? title,
+    String? publish,
+    String? scheduledAt,
+    bool? isTimeLimited,
+    String? expiresAt,
   }) async {
     return _api.update(
       accessToken: await _requireAccessToken(),
       id: id,
       body: body,
       title: title,
+      publish: publish,
+      scheduledAt: scheduledAt,
+      isTimeLimited: isTimeLimited,
+      expiresAt: expiresAt,
     );
   }
 

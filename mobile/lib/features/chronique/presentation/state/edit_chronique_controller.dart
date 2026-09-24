@@ -12,11 +12,19 @@ class EditChroniqueController extends AutoDisposeNotifier<void> {
     required int id,
     required String body,
     String? title,
+    String? publish,
+    String? scheduledAt,
+    bool? isTimeLimited,
+    String? expiresAt,
   }) {
     return ref.read(chroniqueRepositoryProvider).update(
           id: id,
           body: body,
           title: title,
+          publish: publish,
+          scheduledAt: scheduledAt,
+          isTimeLimited: isTimeLimited,
+          expiresAt: expiresAt,
         );
   }
 }

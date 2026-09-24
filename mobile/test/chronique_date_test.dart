@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:mobile/features/chronique/models/chronique.dart';
 import 'package:mobile/features/chronique/models/chronique_date.dart';
+import 'package:mobile/features/chronique/models/chronique_schedule_draft.dart';
 
 void main() {
   test('active chroniques use published_at as day, month, year, hour and minute', () {
@@ -83,6 +84,14 @@ void main() {
     );
     expect(
       ChroniqueDateHelper.expirationError(
+        preset: ChroniqueExpirationPreset.custom,
+        activationLocal: activation,
+        customLocal: activation,
+      ),
+      kExpiresBeforeActivationMessage,
+    );
+    expect(
+      ChroniqueDateHelper.expirationError(
         preset: ChroniqueExpirationPreset.oneHour,
         activationLocal: activation,
       ),
@@ -109,5 +118,17 @@ void main() {
       expiresAt: DateTime.parse('2026-09-21T10:00:00.000Z'),
     );
     expect(chroniqueDateLabel(expired), isNotEmpty);
+  });
+
+  test('quick expiration is computed from scheduled activation not now', () {
+    final scheduled = DateTime(2026, 9, 25, 14);
+    final draft = ChroniqueScheduleDraft(
+      publishMode: ChroniquePublishMode.schedule,
+      scheduledAt: scheduled,
+      expirationEnabled: true,
+      expirationPreset: ChroniqueExpirationPreset.oneHour,
+    );
+    expect(draft.resolvedExpiresLocal(), DateTime(2026, 9, 25, 15));
+    expect(draft.validationError(now: DateTime(2026, 9, 25, 10)), isNull);
   });
 }

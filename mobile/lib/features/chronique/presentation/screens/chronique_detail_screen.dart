@@ -12,6 +12,8 @@ import '../../models/chronique_date.dart';
 import '../../providers/chronique_providers.dart';
 import '../state/chronique_detail_controller.dart';
 import '../state/mon_fil_controller.dart';
+import '../state/upcoming_chroniques_controller.dart';
+import '../widgets/chronique_lifecycle_dialogs.dart';
 
 enum _DetailAction { edit, archive, delete }
 
@@ -130,6 +132,7 @@ class _ChroniqueDetailScreenState extends ConsumerState<ChroniqueDetailScreen> {
       _error = null;
     });
     ref.read(monFilControllerProvider.notifier).upsert(updated);
+    ref.read(upcomingChroniquesControllerProvider.notifier).upsert(updated);
   }
 
   Future<void> _confirmDelete() async {
@@ -137,23 +140,9 @@ class _ChroniqueDetailScreenState extends ConsumerState<ChroniqueDetailScreen> {
     if (id == null) {
       return;
     }
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Supprimer cette chronique ?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Annuler'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Supprimer'),
-            ),
-          ],
-        );
-      },
+    final confirmed = await confirmDeleteChronique(
+      context,
+      scheduled: _chronique?.status == 'scheduled',
     );
     if (confirmed != true || !mounted) {
       return;
@@ -168,6 +157,7 @@ class _ChroniqueDetailScreenState extends ConsumerState<ChroniqueDetailScreen> {
         return;
       }
       ref.read(monFilControllerProvider.notifier).removeById(id);
+      ref.read(upcomingChroniquesControllerProvider.notifier).removeById(id);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Chronique supprimée')),
       );
@@ -197,27 +187,7 @@ class _ChroniqueDetailScreenState extends ConsumerState<ChroniqueDetailScreen> {
     if (id == null) {
       return;
     }
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Archiver cette chronique ?'),
-          content: const Text(
-            'Elle sera retirée de Mon Fil\nmais conservée dans vos archives.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Annuler'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Archiver'),
-            ),
-          ],
-        );
-      },
-    );
+    final confirmed = await confirmArchiveChronique(context);
     if (confirmed != true || !mounted) {
       return;
     }
@@ -271,27 +241,45 @@ class _ChroniqueDetailScreenState extends ConsumerState<ChroniqueDetailScreen> {
           style: AppTextTheme.titleMedium.copyWith(color: colors.textPrimary),
         ),
         actions: [
-          if (resolved != null)
+          if (resolved != null &&
+              (resolved.status == 'active' || resolved.status == 'scheduled'))
             PopupMenuButton<_DetailAction>(
               key: const ValueKey('chronique-detail-menu'),
               tooltip: 'Actions',
               enabled: !_busy,
               onSelected: _onAction,
-              itemBuilder: (context) => [
-                const PopupMenuItem(
-                  value: _DetailAction.edit,
-                  child: Text('Modifier'),
-                ),
-                if (resolved.status == 'active')
+              itemBuilder: (context) {
+                if (resolved.status == 'scheduled') {
+                  return const [
+                    PopupMenuItem(
+                      value: _DetailAction.edit,
+                      child: Text('Modifier'),
+                    ),
+                    PopupMenuItem(
+                      value: _DetailAction.delete,
+                      child: Text('Supprimer'),
+                    ),
+                  ];
+                }
+                if (resolved.status == 'archived' || resolved.status == 'expired') {
+                  return const <PopupMenuEntry<_DetailAction>>[];
+                }
+                return [
                   const PopupMenuItem(
-                    value: _DetailAction.archive,
-                    child: Text('Archiver'),
+                    value: _DetailAction.edit,
+                    child: Text('Modifier'),
                   ),
-                const PopupMenuItem(
-                  value: _DetailAction.delete,
-                  child: Text('Supprimer'),
-                ),
-              ],
+                  if (resolved.status == 'active')
+                    const PopupMenuItem(
+                      value: _DetailAction.archive,
+                      child: Text('Archiver'),
+                    ),
+                  const PopupMenuItem(
+                    value: _DetailAction.delete,
+                    child: Text('Supprimer'),
+                  ),
+                ];
+              },
             ),
         ],
       ),

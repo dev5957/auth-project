@@ -86,6 +86,10 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
   String? lastAccessToken;
   String? lastBody;
   String? lastTitle;
+  String? lastPublish;
+  String? lastScheduledAt;
+  bool? lastIsTimeLimited;
+  String? lastExpiresAt;
   String? lastListStatus;
   int? lastUpdateId;
   int? lastDeleteId;
@@ -139,12 +143,20 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
     required int id,
     required String body,
     String? title,
+    String? publish,
+    String? scheduledAt,
+    bool? isTimeLimited,
+    String? expiresAt,
   }) async {
     updateCalls += 1;
     lastAccessToken = accessToken;
     lastUpdateId = id;
     lastBody = body;
     lastTitle = title;
+    lastPublish = publish;
+    lastScheduledAt = scheduledAt;
+    lastIsTimeLimited = isTimeLimited;
+    lastExpiresAt = expiresAt;
     final error = failUpdateWith;
     if (error != null) {
       throw error;
@@ -246,7 +258,7 @@ Future<void> _openDetail(WidgetTester tester, {_ChroniqueApiProbe? api}) async {
   await tester.tap(find.text('EXPLORE'));
   await tester.pumpAndSettle();
   expect(find.byType(MonFilScreen), findsOneWidget);
-  await tester.tap(find.byType(ChroniqueCard));
+  await tester.tap(find.text('Premier soir').first);
   await tester.pumpAndSettle();
   expect(find.byType(ChroniqueDetailScreen), findsOneWidget);
   if (api != null) {

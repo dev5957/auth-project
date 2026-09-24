@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -9,22 +10,26 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_text_theme.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_text_field.dart';
-import '../../models/chronique_date.dart';
 import '../../models/chronique_fields.dart';
+import '../../models/chronique_schedule_draft.dart';
 import '../../models/media_draft.dart';
 import '../state/create_chronique_controller.dart';
 import '../widgets/add_media_kind_sheet.dart';
+import '../widgets/chronique_preview.dart';
+import '../widgets/chronique_publication_fields.dart';
 import '../widgets/media_draft_list.dart';
 
-/// Assistant de création V1 (modal plein écran). Publication texte ; médias locaux.
+enum CreateChroniqueStep { content, publication, preview }
+
+/// Assistant de création V1 en 3 étapes (modal plein écran).
 class CreateChroniqueScreen extends ConsumerStatefulWidget {
   const CreateChroniqueScreen({super.key});
 
   @override
-  ConsumerState<CreateChroniqueScreen> createState() => _CreateChroniqueScreenState();
+  ConsumerState<CreateChroniqueScreen> createState() => CreateChroniqueScreenState();
 }
 
-class _CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
+class CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
   final _titleController = TextEditingController();
   final _bodyController = TextEditingController();
 
@@ -32,15 +37,24 @@ class _CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
   String? _bodyError;
   String? _formError;
   bool _submitting = false;
-  bool _schedule = false;
-  DateTime? _scheduledLocal;
-  ChroniqueExpirationPreset _expiration = ChroniqueExpirationPreset.none;
-  DateTime? _customExpiresLocal;
+  CreateChroniqueStep _step = CreateChroniqueStep.content;
+  ChroniqueScheduleDraft _schedule = const ChroniqueScheduleDraft();
 
   int get _bodyCount => ChroniqueFields.runeLength(_bodyController.text.trim());
 
-  bool get _canPublish =>
+  bool get _canGoNext =>
       !_submitting && ChroniqueFields.canPublishBody(_bodyController.text);
+
+  @visibleForTesting
+  ChroniqueScheduleDraft get scheduleDraft => _schedule;
+
+  @visibleForTesting
+  CreateChroniqueStep get currentStep => _step;
+
+  @visibleForTesting
+  void debugSetScheduleDraft(ChroniqueScheduleDraft draft) {
+    setState(() => _schedule = draft);
+  }
 
   @override
   void initState() {
@@ -70,37 +84,21 @@ class _CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
     });
   }
 
-  bool _validate() {
+  bool _validateContent() {
     final bodyError = ChroniqueFields.bodyError(_bodyController.text);
     final titleError = ChroniqueFields.titleError(_titleController.text);
-    final temporalError = _temporalError();
     setState(() {
       _bodyError = bodyError;
       _titleError = titleError;
-      _formError = temporalError;
+      _formError = null;
     });
-    return bodyError == null && titleError == null && temporalError == null;
+    return bodyError == null && titleError == null;
   }
 
-  DateTime get _activationLocal {
-    if (_schedule) {
-      return _scheduledLocal ?? ChroniqueDateHelper.defaultScheduleLocal();
-    }
-    return DateTime.now();
-  }
-
-  String? _temporalError() {
-    if (_schedule) {
-      final scheduleError = ChroniqueDateHelper.scheduleError(_scheduledLocal);
-      if (scheduleError != null) {
-        return scheduleError;
-      }
-    }
-    return ChroniqueDateHelper.expirationError(
-      preset: _expiration,
-      activationLocal: _activationLocal,
-      customLocal: _customExpiresLocal,
-    );
+  bool _validatePublication() {
+    final error = _schedule.validationError();
+    setState(() => _formError = error);
+    return error == null;
   }
 
   Future<void> _addMedia() async {
@@ -140,11 +138,55 @@ class _CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
     }
   }
 
+  void _goNext() {
+    if (_submitting) {
+      return;
+    }
+    switch (_step) {
+      case CreateChroniqueStep.content:
+        if (!_validateContent()) {
+          return;
+        }
+        ref.read(createChroniqueControllerProvider.notifier).saveDraft(
+              title: ChroniqueFields.trimmedTitle(_titleController.text) ?? '',
+              body: ChroniqueFields.trimmedBody(_bodyController.text),
+            );
+        setState(() {
+          _step = CreateChroniqueStep.publication;
+          _formError = null;
+        });
+      case CreateChroniqueStep.publication:
+        if (!_validatePublication()) {
+          return;
+        }
+        setState(() {
+          _step = CreateChroniqueStep.preview;
+          _formError = null;
+        });
+      case CreateChroniqueStep.preview:
+        break;
+    }
+  }
+
+  void _goBack() {
+    if (_submitting) {
+      return;
+    }
+    setState(() {
+      _formError = null;
+      _step = switch (_step) {
+        CreateChroniqueStep.preview => CreateChroniqueStep.publication,
+        CreateChroniqueStep.publication => CreateChroniqueStep.content,
+        CreateChroniqueStep.content => CreateChroniqueStep.content,
+      };
+    });
+  }
+
   Future<void> _publish() async {
     if (_submitting) {
       return;
     }
-    if (!_validate()) {
+    if (!_validateContent() || !_validatePublication()) {
       return;
     }
 
@@ -155,19 +197,6 @@ class _CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
           body: body,
         );
 
-    final publish = _schedule ? 'schedule' : 'now';
-    final scheduledAt = _schedule && _scheduledLocal != null
-        ? ChroniqueDateHelper.toUtcIso(_scheduledLocal!)
-        : null;
-    final expiresLocal = ChroniqueDateHelper.resolveExpirationLocal(
-      preset: _expiration,
-      activationLocal: _activationLocal,
-      customLocal: _customExpiresLocal,
-    );
-    final isTimeLimited = _expiration != ChroniqueExpirationPreset.none;
-    final expiresAt =
-        isTimeLimited && expiresLocal != null ? ChroniqueDateHelper.toUtcIso(expiresLocal) : null;
-
     setState(() {
       _submitting = true;
       _formError = null;
@@ -177,16 +206,19 @@ class _CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
       await ref.read(createChroniqueControllerProvider.notifier).publish(
             body: body,
             title: title,
-            publish: publish,
-            scheduledAt: scheduledAt,
-            isTimeLimited: isTimeLimited,
-            expiresAt: expiresAt,
+            publish: _schedule.publish,
+            scheduledAt: _schedule.apiScheduledAt(),
+            isTimeLimited: _schedule.apiIsTimeLimited,
+            expiresAt: _schedule.apiExpiresAt(),
           );
       ref.read(createChroniqueControllerProvider.notifier).clearDraft();
       if (!mounted) {
         return;
       }
-      context.pushReplacement(AppRoutes.explore);
+      final destination = _schedule.publishMode == ChroniquePublishMode.schedule
+          ? AppRoutes.upcoming
+          : AppRoutes.explore;
+      context.pushReplacement(destination);
     } on ApiException catch (error) {
       if (!mounted) {
         return;
@@ -206,101 +238,11 @@ class _CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
     }
   }
 
-  Future<void> _pickScheduledDate() async {
-    final initial = _scheduledLocal ?? ChroniqueDateHelper.defaultScheduleLocal();
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: initial,
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now().add(const Duration(days: 365 * 5)),
-    );
-    if (picked == null || !mounted) {
-      return;
-    }
-    setState(() {
-      _scheduledLocal = ChroniqueDateHelper.combineLocal(
-        picked,
-        TimeOfDay.fromDateTime(_scheduledLocal ?? initial),
-      );
-    });
-  }
-
-  Future<void> _pickScheduledTime() async {
-    final initial = _scheduledLocal ?? ChroniqueDateHelper.defaultScheduleLocal();
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(initial),
-    );
-    if (picked == null || !mounted) {
-      return;
-    }
-    setState(() {
-      _scheduledLocal = ChroniqueDateHelper.combineLocal(initial, picked);
-    });
-  }
-
-  Future<void> _pickExpiresDate() async {
-    final initial = _customExpiresLocal ?? DateTime.now().add(const Duration(hours: 1));
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: initial,
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now().add(const Duration(days: 365 * 5)),
-    );
-    if (picked == null || !mounted) {
-      return;
-    }
-    setState(() {
-      _customExpiresLocal = ChroniqueDateHelper.combineLocal(
-        picked,
-        TimeOfDay.fromDateTime(_customExpiresLocal ?? initial),
-      );
-    });
-  }
-
-  Future<void> _pickExpiresTime() async {
-    final initial = _customExpiresLocal ?? DateTime.now().add(const Duration(hours: 1));
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(initial),
-    );
-    if (picked == null || !mounted) {
-      return;
-    }
-    setState(() {
-      _customExpiresLocal = ChroniqueDateHelper.combineLocal(initial, picked);
-    });
-  }
-
-  Widget _sectionTitle(String label, Color color) {
-    return Text(
-      label,
-      style: AppTextTheme.titleSmall.copyWith(color: color),
-    );
-  }
-
-  Widget _dateButton({
-    required Key key,
-    required String label,
-    required String value,
-    required VoidCallback? onPressed,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(label, style: AppTextTheme.labelSmall),
-        const SizedBox(height: AppSpacing.xs),
-        OutlinedButton(
-          key: key,
-          onPressed: onPressed,
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: Text(value),
-          ),
-        ),
-      ],
-    );
-  }
+  String get _stepTitle => switch (_step) {
+        CreateChroniqueStep.content => 'Contenu',
+        CreateChroniqueStep.publication => 'Publication',
+        CreateChroniqueStep.preview => 'Aperçu',
+      };
 
   @override
   Widget build(BuildContext context) {
@@ -313,195 +255,189 @@ class _CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
         foregroundColor: colors.textPrimary,
         elevation: 0,
         title: Text(
-          'Créer une chronique',
+          _stepTitle,
           style: AppTextTheme.titleMedium.copyWith(color: colors.textPrimary),
         ),
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xxl),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: AppSpacing.lg),
-              Text(
-                'Nouvelle chronique',
-                style: AppTextTheme.titleSmall.copyWith(color: colors.textSecondary),
-              ),
-              const SizedBox(height: AppSpacing.xxl),
-              AppTextField(
-                label: 'Titre (optionnel)',
-                hint: 'Titre',
-                controller: _titleController,
-                errorText: _titleError,
-                enabled: !_submitting,
-                textInputAction: TextInputAction.next,
-                textCapitalization: TextCapitalization.sentences,
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              AppTextField(
-                label: 'Texte *',
-                hint: 'Votre texte',
-                controller: _bodyController,
-                errorText: _bodyError,
-                enabled: !_submitting,
-                keyboardType: TextInputType.multiline,
-                textInputAction: TextInputAction.newline,
-                textCapitalization: TextCapitalization.sentences,
-                minLines: 6,
-                maxLines: 12,
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              Text(
-                '$_bodyCount / ${ChroniqueFields.bodyMax}',
-                textAlign: TextAlign.right,
-                style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
-              ),
-              const SizedBox(height: AppSpacing.xxl),
-              _sectionTitle('Publication', colors.textSecondary),
-              ListTile(
-                key: const ValueKey('publish-now'),
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(
-                  _schedule ? Icons.radio_button_off : Icons.radio_button_checked,
-                  color: colors.primary,
-                ),
-                title: Text(
-                  'Maintenant',
-                  style: AppTextTheme.bodyMedium.copyWith(color: colors.textPrimary),
-                ),
-                onTap: _submitting
-                    ? null
-                    : () => setState(() => _schedule = false),
-              ),
-              ListTile(
-                key: const ValueKey('publish-schedule'),
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(
-                  _schedule ? Icons.radio_button_checked : Icons.radio_button_off,
-                  color: colors.primary,
-                ),
-                title: Text(
-                  'Programmer',
-                  style: AppTextTheme.bodyMedium.copyWith(color: colors.textPrimary),
-                ),
-                onTap: _submitting
-                    ? null
-                    : () {
-                        setState(() {
-                          _schedule = true;
-                          _scheduledLocal ??= ChroniqueDateHelper.defaultScheduleLocal();
-                        });
-                      },
-              ),
-              if (_schedule) ...[
-                _dateButton(
-                  key: const ValueKey('schedule-date'),
-                  label: 'Date de publication',
-                  value: _scheduledLocal == null
-                      ? 'Choisir'
-                      : ChroniqueDateHelper.formatLocal(_scheduledLocal!).split(' • ').first,
-                  onPressed: _submitting ? null : _pickScheduledDate,
-                ),
-                const SizedBox(height: AppSpacing.md),
-                _dateButton(
-                  key: const ValueKey('schedule-time'),
-                  label: 'Heure',
-                  value: _scheduledLocal == null
-                      ? 'Choisir'
-                      : ChroniqueDateHelper.formatLocal(_scheduledLocal!).split(' • ').last,
-                  onPressed: _submitting ? null : _pickScheduledTime,
-                ),
-              ],
-              const SizedBox(height: AppSpacing.xxl),
-              _sectionTitle('Expiration', colors.textSecondary),
-              const SizedBox(height: AppSpacing.sm),
-              DropdownButtonFormField<ChroniqueExpirationPreset>(
-                key: const ValueKey('expiration-dropdown'),
-                value: _expiration,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                ),
-                items: [
-                  for (final preset in ChroniqueExpirationPreset.values)
-                    DropdownMenuItem(
-                      value: preset,
-                      child: Text(ChroniqueDateHelper.expirationLabel(preset)),
+        child: Column(
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xxl),
+                child: switch (_step) {
+                  CreateChroniqueStep.content => _contentStep(colors, medias),
+                  CreateChroniqueStep.publication => _publicationStep(),
+                  CreateChroniqueStep.preview => ChroniquePreview(
+                      title: _titleController.text,
+                      body: ChroniqueFields.trimmedBody(_bodyController.text),
+                      medias: medias,
+                      schedule: _schedule,
                     ),
-                ],
-                onChanged: _submitting
-                    ? null
-                    : (value) {
-                        if (value == null) {
-                          return;
-                        }
-                        setState(() {
-                          _expiration = value;
-                          if (value == ChroniqueExpirationPreset.custom) {
-                            _customExpiresLocal ??= DateTime.now();
-                          }
-                        });
-                      },
+                },
               ),
-              if (_expiration == ChroniqueExpirationPreset.custom) ...[
-                const SizedBox(height: AppSpacing.md),
-                _dateButton(
-                  key: const ValueKey('expires-date'),
-                  label: 'Date d\'expiration',
-                  value: _customExpiresLocal == null
-                      ? 'Choisir'
-                      : ChroniqueDateHelper.formatLocal(_customExpiresLocal!).split(' • ').first,
-                  onPressed: _submitting ? null : _pickExpiresDate,
-                ),
-                const SizedBox(height: AppSpacing.md),
-                _dateButton(
-                  key: const ValueKey('expires-time'),
-                  label: 'Heure d\'expiration',
-                  value: _customExpiresLocal == null
-                      ? 'Choisir'
-                      : ChroniqueDateHelper.formatLocal(_customExpiresLocal!).split(' • ').last,
-                  onPressed: _submitting ? null : _pickExpiresTime,
-                ),
-              ],
-              const SizedBox(height: AppSpacing.xxl),
-              AppButton(
-                label: '+ Ajouter un média',
-                variant: AppButtonVariant.secondary,
-                onPressed: _submitting ? null : _addMedia,
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.xxl,
+                AppSpacing.md,
+                AppSpacing.xxl,
+                AppSpacing.lg,
               ),
-              const SizedBox(height: AppSpacing.lg),
-              if (medias.isEmpty)
-                Text(
-                  'Aucun média ajouté',
-                  textAlign: TextAlign.center,
-                  style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
-                )
-              else
-                MediaDraftList(
-                  medias: medias,
-                  onRemove: (id) {
-                    ref.read(createChroniqueControllerProvider.notifier).removeMediaDraft(id);
-                  },
-                ),
-              if (_formError != null) ...[
-                const SizedBox(height: AppSpacing.md),
-                Text(
-                  _formError!,
-                  textAlign: TextAlign.center,
-                  style: AppTextTheme.labelSmall.copyWith(color: colors.danger),
-                ),
-              ],
-              const SizedBox(height: AppSpacing.xxl),
-              AppButton(
-                label: 'Publier',
-                isLoading: _submitting,
-                onPressed: _canPublish ? _publish : null,
-              ),
-              const SizedBox(height: AppSpacing.xxl),
-            ],
-          ),
+              child: _footer(),
+            ),
+          ],
         ),
       ),
+    );
+  }
+
+  Widget _contentStep(LuminaColors colors, List<MediaDraft> medias) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: AppSpacing.lg),
+        Text(
+          'Nouvelle chronique',
+          style: AppTextTheme.titleSmall.copyWith(color: colors.textSecondary),
+        ),
+        const SizedBox(height: AppSpacing.xxl),
+        AppTextField(
+          label: 'Titre (optionnel)',
+          hint: 'Titre',
+          controller: _titleController,
+          errorText: _titleError,
+          enabled: !_submitting,
+          textInputAction: TextInputAction.next,
+          textCapitalization: TextCapitalization.sentences,
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        AppTextField(
+          label: 'Texte *',
+          hint: 'Votre texte',
+          controller: _bodyController,
+          errorText: _bodyError,
+          enabled: !_submitting,
+          keyboardType: TextInputType.multiline,
+          textInputAction: TextInputAction.newline,
+          textCapitalization: TextCapitalization.sentences,
+          minLines: 6,
+          maxLines: 12,
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Text(
+          '$_bodyCount / ${ChroniqueFields.bodyMax}',
+          textAlign: TextAlign.right,
+          style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
+        ),
+        const SizedBox(height: AppSpacing.xxl),
+        AppButton(
+          label: '+ Ajouter un média',
+          variant: AppButtonVariant.secondary,
+          onPressed: _submitting ? null : _addMedia,
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        if (medias.isEmpty)
+          Text(
+            'Aucun média ajouté',
+            textAlign: TextAlign.center,
+            style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
+          )
+        else
+          MediaDraftList(
+            medias: medias,
+            onRemove: (id) {
+              ref.read(createChroniqueControllerProvider.notifier).removeMediaDraft(id);
+            },
+          ),
+        if (_formError != null) ...[
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            _formError!,
+            textAlign: TextAlign.center,
+            style: AppTextTheme.labelSmall.copyWith(color: colors.danger),
+          ),
+        ],
+        const SizedBox(height: AppSpacing.xxl),
+      ],
+    );
+  }
+
+  Widget _publicationStep() {
+    final colors = context.luminaColors;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: AppSpacing.lg),
+        ChroniquePublicationFields(
+          draft: _schedule,
+          enabled: !_submitting,
+          onChanged: (draft) => setState(() {
+            _schedule = draft;
+            _formError = null;
+          }),
+        ),
+        if (_formError != null) ...[
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            _formError!,
+            textAlign: TextAlign.center,
+            style: AppTextTheme.labelSmall.copyWith(color: colors.danger),
+          ),
+        ],
+        const SizedBox(height: AppSpacing.xxl),
+      ],
+    );
+  }
+
+  Widget _footer() {
+    final colors = context.luminaColors;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (_step == CreateChroniqueStep.preview && _formError != null) ...[
+          Text(
+            _formError!,
+            textAlign: TextAlign.center,
+            style: AppTextTheme.labelSmall.copyWith(color: colors.danger),
+          ),
+          const SizedBox(height: AppSpacing.md),
+        ],
+        if (_step == CreateChroniqueStep.content)
+          AppButton(
+            key: const ValueKey('wizard-next'),
+            label: 'Suivant',
+            onPressed: _canGoNext ? _goNext : null,
+          )
+        else
+          Row(
+            children: [
+              Expanded(
+                child: AppButton(
+                  key: const ValueKey('wizard-back'),
+                  label: 'Retour',
+                  variant: AppButtonVariant.secondary,
+                  onPressed: _submitting ? null : _goBack,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: _step == CreateChroniqueStep.publication
+                    ? AppButton(
+                        key: const ValueKey('wizard-next'),
+                        label: 'Suivant',
+                        onPressed: _submitting ? null : _goNext,
+                      )
+                    : AppButton(
+                        key: const ValueKey('wizard-publish'),
+                        label: 'Publier',
+                        isLoading: _submitting,
+                        onPressed: _submitting ? null : _publish,
+                      ),
+              ),
+            ],
+          ),
+      ],
     );
   }
 }

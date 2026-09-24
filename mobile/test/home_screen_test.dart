@@ -145,6 +145,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('home-user-avatar')));
     await tester.pumpAndSettle();
 
+    expect(find.text('🕒 À venir'), findsOneWidget);
     expect(find.text('Archives'), findsOneWidget);
     expect(find.text('Profil'), findsOneWidget);
     expect(find.text('Paramètres'), findsOneWidget);

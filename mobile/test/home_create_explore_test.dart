@@ -132,7 +132,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(CreateChroniqueScreen), findsOneWidget);
-    expect(find.text('Créer une chronique'), findsOneWidget);
+    expect(find.text('Contenu'), findsOneWidget);
+    expect(find.text('Nouvelle chronique'), findsOneWidget);
     expect(find.byType(MonFilScreen), findsNothing);
     expect(api.listCalls, 0);
 

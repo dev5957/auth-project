@@ -15,8 +15,10 @@ import 'package:mobile/features/chronique/media/chronique_local_media_picker.dar
 import 'package:mobile/features/chronique/models/chronique.dart';
 import 'package:mobile/features/chronique/models/chronique_date.dart';
 import 'package:mobile/features/chronique/models/chronique_page.dart';
+import 'package:mobile/features/chronique/models/chronique_schedule_draft.dart';
 import 'package:mobile/features/chronique/models/media_draft.dart';
 import 'package:mobile/features/chronique/presentation/screens/create_chronique_screen.dart';
+import 'package:mobile/features/chronique/presentation/screens/upcoming_chroniques_screen.dart';
 import 'package:mobile/features/chronique/presentation/state/create_chronique_controller.dart';
 import 'package:mobile/features/chronique/presentation/widgets/media_draft_list.dart';
 import 'package:mobile/features/chronique/presentation/screens/mon_fil_screen.dart';
@@ -88,6 +90,7 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
   String? lastTitle;
   String? lastPublish;
   String? lastScheduledAt;
+  String? lastListStatus;
   bool? lastIsTimeLimited;
   String? lastExpiresAt;
   ApiException? failWith;
@@ -119,8 +122,11 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
       id: 42,
       title: title,
       body: body,
-      status: 'active',
-      publishedAt: '2026-09-23T12:00:00.000Z',
+      status: publish == 'schedule' ? 'scheduled' : 'active',
+      publishedAt: publish == 'schedule' ? null : '2026-09-23T12:00:00.000Z',
+      scheduledAt: scheduledAt == null ? null : DateTime.tryParse(scheduledAt),
+      isTimeLimited: isTimeLimited,
+      expiresAt: expiresAt == null ? null : DateTime.tryParse(expiresAt),
     );
   }
 
@@ -131,6 +137,7 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
   }) async {
     listCalls += 1;
     lastAccessToken = accessToken;
+    lastListStatus = status;
     return ChroniquePage(items: listItems);
   }
 
@@ -205,18 +212,42 @@ Future<void> _openCreate(WidgetTester tester) async {
   expect(find.byType(CreateChroniqueScreen), findsOneWidget);
 }
 
-Finder _publishInk() {
+const _validBody = 'Le texte de la chronique, d au moins vingt caracteres.';
+
+Future<void> _enterValidBody(WidgetTester tester, {String body = _validBody}) async {
+  await tester.enterText(find.byType(TextField).at(1), body);
+  await tester.pump();
+}
+
+Future<void> _goToPublication(WidgetTester tester) async {
+  await tester.tap(find.text('Suivant'));
+  await tester.pumpAndSettle();
+  expect(find.text('Publication'), findsWidgets);
+}
+
+Future<void> _goToPreview(WidgetTester tester) async {
+  await _goToPublication(tester);
+  await tester.tap(find.text('Suivant'));
+  await tester.pumpAndSettle();
+  expect(find.text('Aperçu'), findsWidgets);
+}
+
+Finder _actionInk(String label) {
   return find.descendant(
     of: find.ancestor(
-      of: find.text('Publier'),
+      of: find.text(label),
       matching: find.byType(AppButton),
     ),
     matching: find.byType(InkWell),
   );
 }
 
+InkWell _nextInkWell(WidgetTester tester) {
+  return tester.widget<InkWell>(_actionInk('Suivant'));
+}
+
 InkWell _publishInkWell(WidgetTester tester) {
-  return tester.widget<InkWell>(_publishInk());
+  return tester.widget<InkWell>(_actionInk('Publier'));
 }
 
 void main() {
@@ -260,19 +291,17 @@ void main() {
     final container = await _pumpHome(tester, api: api);
     await _openCreate(tester);
 
-    expect(find.text('Créer une chronique'), findsOneWidget);
+    expect(find.text('Contenu'), findsOneWidget);
     expect(find.text('Nouvelle chronique'), findsOneWidget);
     expect(find.text('Titre (optionnel)'), findsOneWidget);
     expect(find.text('Texte *'), findsOneWidget);
-    expect(find.text('Publier'), findsOneWidget);
+    expect(find.text('Suivant'), findsOneWidget);
+    expect(find.text('Publier'), findsNothing);
     expect(find.text('0 / 5000'), findsOneWidget);
     expect(find.text('+ Ajouter un média'), findsOneWidget);
     expect(find.text('Aucun média ajouté'), findsOneWidget);
-    expect(find.text('Publication'), findsOneWidget);
-    expect(find.text('Maintenant'), findsOneWidget);
-    expect(find.text('Programmer'), findsOneWidget);
-    expect(find.text('Expiration'), findsOneWidget);
-    expect(_publishInkWell(tester).onTap, isNull);
+    expect(find.text('Programmer'), findsNothing);
+    expect(_nextInkWell(tester).onTap, isNull);
     expect(find.byType(CloseButton), findsOneWidget);
     expect(find.text('Chapitre'), findsNothing);
     expect(container.read(authControllerProvider), isA<AuthAuthenticated>());
@@ -290,7 +319,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('Le texte est obligatoire'), findsOneWidget);
-    expect(_publishInkWell(tester).onTap, isNull);
+    expect(_nextInkWell(tester).onTap, isNull);
     expect(api.createCalls, 0);
     expect(find.byType(CreateChroniqueScreen), findsOneWidget);
   });
@@ -305,8 +334,8 @@ void main() {
 
     expect(find.text('Le texte doit contenir au moins 20 caractères'), findsOneWidget);
     expect(find.text('10 / 5000'), findsOneWidget);
-    expect(_publishInkWell(tester).onTap, isNull);
-    await tester.tap(find.text('Publier'));
+    expect(_nextInkWell(tester).onTap, isNull);
+    await tester.tap(find.text('Suivant'));
     await tester.pump();
     expect(api.createCalls, 0);
   });
@@ -322,7 +351,7 @@ void main() {
 
     expect(find.text('Le texte est trop long'), findsOneWidget);
     expect(find.text('5001 / 5000'), findsOneWidget);
-    expect(_publishInkWell(tester).onTap, isNull);
+    expect(_nextInkWell(tester).onTap, isNull);
     expect(api.createCalls, 0);
   });
 
@@ -332,14 +361,14 @@ void main() {
     await _openCreate(tester);
 
     expect(find.text('0 / 5000'), findsOneWidget);
-    expect(_publishInkWell(tester).onTap, isNull);
+    expect(_nextInkWell(tester).onTap, isNull);
 
     const body = 'Le texte de la chronique, d au moins vingt caracteres.';
     await tester.enterText(find.byType(TextField).at(1), body);
     await tester.pump();
 
     expect(find.text('${body.trim().runes.length} / 5000'), findsOneWidget);
-    expect(_publishInkWell(tester).onTap, isNotNull);
+    expect(_nextInkWell(tester).onTap, isNotNull);
     expect(api.createCalls, 0);
   });
 
@@ -354,6 +383,7 @@ void main() {
     await tester.enterText(find.byType(TextField).at(0), 'Premier soir');
     await tester.enterText(find.byType(TextField).at(1), body);
     await tester.pump();
+    await _goToPreview(tester);
     await tester.ensureVisible(find.text('Publier'));
     await tester.tap(find.text('Publier'));
     await tester.pumpAndSettle();
@@ -394,6 +424,7 @@ void main() {
       'Le texte de la chronique, d au moins vingt caracteres.',
     );
     await tester.pump();
+    await _goToPreview(tester);
     await tester.ensureVisible(find.text('Publier'));
     await tester.tap(find.text('Publier'));
     await tester.pump();
@@ -572,6 +603,7 @@ void main() {
     const body = 'Le texte de la chronique, d au moins vingt caracteres.';
     await tester.enterText(find.byType(TextField).at(1), body);
     await tester.pump();
+    await _goToPreview(tester);
     await tester.ensureVisible(find.text('Publier'));
     await tester.tap(find.text('Publier'));
     await tester.pumpAndSettle();
@@ -587,13 +619,15 @@ void main() {
     final api = _ChroniqueApiProbe();
     await _pumpHome(tester, api: api);
     await _openCreate(tester);
+    await _enterValidBody(tester);
+    await _goToPublication(tester);
 
     await tester.ensureVisible(find.text('Programmer'));
     await tester.tap(find.text('Programmer'));
     await tester.pumpAndSettle();
 
     expect(find.text('Date de publication'), findsOneWidget);
-    expect(find.text('Heure'), findsOneWidget);
+    expect(find.text('Heure de publication'), findsOneWidget);
 
     await tester.ensureVisible(find.byKey(const ValueKey('schedule-date')));
     await tester.tap(find.byKey(const ValueKey('schedule-date')));
@@ -607,16 +641,17 @@ void main() {
     expect(find.byType(TimePickerDialog), findsOneWidget);
   });
 
-  testWidgets('scheduled publish sends UTC scheduled_at', (tester) async {
+  testWidgets('scheduled publish sends UTC scheduled_at and opens À venir', (tester) async {
     final api = _ChroniqueApiProbe();
     await _pumpHome(tester, api: api);
     await _openCreate(tester);
 
-    const body = 'Le texte de la chronique, d au moins vingt caracteres.';
-    await tester.enterText(find.byType(TextField).at(1), body);
-    await tester.pump();
+    await _enterValidBody(tester);
+    await _goToPublication(tester);
     await tester.ensureVisible(find.text('Programmer'));
     await tester.tap(find.text('Programmer'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Suivant'));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('Publier'));
     await tester.tap(find.text('Publier'));
@@ -630,6 +665,8 @@ void main() {
     expect(scheduled.isUtc, isTrue);
     expect(scheduled.isAfter(DateTime.now().toUtc()), isTrue);
     expect(api.lastExpiresAt, isNull);
+    expect(find.byType(UpcomingChroniquesScreen), findsOneWidget);
+    expect(api.lastListStatus, 'scheduled');
   });
 
   testWidgets('ephemeral now sends UTC expires_at without scheduled_at', (tester) async {
@@ -637,13 +674,16 @@ void main() {
     await _pumpHome(tester, api: api);
     await _openCreate(tester);
 
-    const body = 'Le texte de la chronique, d au moins vingt caracteres.';
-    await tester.enterText(find.byType(TextField).at(1), body);
-    await tester.pump();
+    await _enterValidBody(tester);
+    await _goToPublication(tester);
+    await tester.tap(find.byKey(const ValueKey('expiration-yes')));
+    await tester.pumpAndSettle();
     await tester.ensureVisible(find.byKey(const ValueKey('expiration-dropdown')));
     await tester.tap(find.byKey(const ValueKey('expiration-dropdown')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('1 heure').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Suivant'));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('Publier'));
     await tester.tap(find.text('Publier'));
@@ -666,16 +706,19 @@ void main() {
     await _pumpHome(tester, api: api);
     await _openCreate(tester);
 
-    const body = 'Le texte de la chronique, d au moins vingt caracteres.';
-    await tester.enterText(find.byType(TextField).at(1), body);
-    await tester.pump();
+    await _enterValidBody(tester);
+    await _goToPublication(tester);
     await tester.ensureVisible(find.text('Programmer'));
     await tester.tap(find.text('Programmer'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('expiration-yes')));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.byKey(const ValueKey('expiration-dropdown')));
     await tester.tap(find.byKey(const ValueKey('expiration-dropdown')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('1 heure').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Suivant'));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('Publier'));
     await tester.tap(find.text('Publier'));
@@ -696,23 +739,95 @@ void main() {
     await _pumpHome(tester, api: api);
     await _openCreate(tester);
 
-    const body = 'Le texte de la chronique, d au moins vingt caracteres.';
-    await tester.enterText(find.byType(TextField).at(1), body);
-    await tester.pump();
+    await _enterValidBody(tester);
+    await _goToPublication(tester);
     await tester.ensureVisible(find.text('Programmer'));
     await tester.tap(find.text('Programmer'));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byKey(const ValueKey('expiration-dropdown')));
-    await tester.tap(find.byKey(const ValueKey('expiration-dropdown')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Date personnalisée').last);
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Publier'));
-    await tester.tap(find.text('Publier'));
+    final state = tester.state<CreateChroniqueScreenState>(find.byType(CreateChroniqueScreen));
+    final scheduled = state.scheduleDraft.scheduledAt!;
+    state.debugSetScheduleDraft(
+      state.scheduleDraft.copyWith(
+        expirationEnabled: true,
+        expirationPreset: ChroniqueExpirationPreset.custom,
+        customExpiresAt: scheduled.subtract(const Duration(hours: 2)),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.text('Suivant'));
     await tester.pump();
 
     expect(find.text(kExpiresBeforeActivationMessage), findsOneWidget);
     expect(api.createCalls, 0);
     expect(find.byType(CreateChroniqueScreen), findsOneWidget);
+  });
+
+  testWidgets('wizard back keeps content and close leaves without publishing', (tester) async {
+    final api = _ChroniqueApiProbe();
+    await _pumpHome(tester, api: api);
+    await _openCreate(tester);
+
+    await tester.enterText(find.byType(TextField).at(0), 'Premier soir');
+    await _enterValidBody(tester);
+    await _goToPreview(tester);
+    expect(find.text('Premier soir'), findsWidgets);
+    expect(find.text(_validBody), findsWidgets);
+    expect(find.text('Maintenant'), findsWidgets);
+    expect(find.text('Pas d\'expiration'), findsOneWidget);
+
+    await tester.tap(find.text('Retour'));
+    await tester.pumpAndSettle();
+    expect(find.text('Publication'), findsWidgets);
+    expect(find.text('Retour'), findsOneWidget);
+
+    await tester.tap(find.text('Retour'));
+    await tester.pumpAndSettle();
+    expect(find.text('Contenu'), findsOneWidget);
+    expect(
+      tester.widget<TextField>(find.byType(TextField).at(0)).controller?.text,
+      'Premier soir',
+    );
+
+    await tester.tap(find.byType(CloseButton));
+    await tester.pumpAndSettle();
+    expect(find.byType(HomeScreen), findsOneWidget);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('past schedule is rejected and equal expiration is rejected', (tester) async {
+    final api = _ChroniqueApiProbe();
+    await _pumpHome(tester, api: api);
+    await _openCreate(tester);
+    await _enterValidBody(tester);
+    await _goToPublication(tester);
+
+    final state = tester.state<CreateChroniqueScreenState>(find.byType(CreateChroniqueScreen));
+    final past = DateTime.now().subtract(const Duration(hours: 1));
+    state.debugSetScheduleDraft(
+      ChroniqueScheduleDraft(
+        publishMode: ChroniquePublishMode.schedule,
+        scheduledAt: past,
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.text('Suivant'));
+    await tester.pump();
+    expect(find.text(kSchedulePastMessage), findsOneWidget);
+
+    final scheduled = DateTime.now().add(const Duration(hours: 2));
+    state.debugSetScheduleDraft(
+      ChroniqueScheduleDraft(
+        publishMode: ChroniquePublishMode.schedule,
+        scheduledAt: scheduled,
+        expirationEnabled: true,
+        expirationPreset: ChroniqueExpirationPreset.custom,
+        customExpiresAt: scheduled,
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.text('Suivant'));
+    await tester.pump();
+    expect(find.text(kExpiresBeforeActivationMessage), findsOneWidget);
+    expect(api.createCalls, 0);
   });
 }

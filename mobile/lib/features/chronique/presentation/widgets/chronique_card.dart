@@ -6,6 +6,7 @@ import '../../../../core/theme/app_text_theme.dart';
 import '../../../../core/widgets/app_card.dart';
 import '../../models/chronique.dart';
 import '../../models/chronique_date.dart';
+import 'chronique_card_menu.dart';
 
 /// Carte V1 d’une chronique du fil (date, titre optionnel, texte).
 class ChroniqueCard extends StatelessWidget {
@@ -13,35 +14,66 @@ class ChroniqueCard extends StatelessWidget {
     super.key,
     required this.chronique,
     this.onTap,
+    this.onMenuSelected,
+    this.excerpt,
   });
 
   final Chronique chronique;
   final VoidCallback? onTap;
+  final ValueChanged<ChroniqueCardMenuAction>? onMenuSelected;
+  final String? excerpt;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.luminaColors;
     final title = chronique.title?.trim();
-    return GestureDetector(
-      onTap: onTap,
-      child: AppCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ..._temporalLines(colors),
-            if (title != null && title.isNotEmpty) ...[
-              Text(
-                title,
-                style: AppTextTheme.titleSmall.copyWith(color: colors.textPrimary),
+    final body = excerpt ?? chronique.body;
+    final showMenu = onMenuSelected != null && ChroniqueCardMenu.isAvailable(chronique);
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: onTap,
+                  behavior: HitTestBehavior.opaque,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: _temporalLines(colors),
+                  ),
+                ),
               ),
-              const SizedBox(height: AppSpacing.sm),
+              if (showMenu)
+                ChroniqueCardMenu(
+                  chronique: chronique,
+                  onSelected: onMenuSelected!,
+                ),
             ],
-            Text(
-              chronique.body,
-              style: AppTextTheme.bodyMedium.copyWith(color: colors.textPrimary),
+          ),
+          GestureDetector(
+            onTap: onTap,
+            behavior: HitTestBehavior.opaque,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (title != null && title.isNotEmpty) ...[
+                  Text(
+                    title,
+                    style: AppTextTheme.titleSmall.copyWith(color: colors.textPrimary),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                ],
+                Text(
+                  body,
+                  style: AppTextTheme.bodyMedium.copyWith(color: colors.textPrimary),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

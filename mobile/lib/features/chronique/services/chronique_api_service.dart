@@ -88,22 +88,31 @@ class ChroniqueApiService {
     return _chroniqueFrom(json);
   }
 
-  /// `PATCH /chroniques/:id` — titre et corps uniquement.
+  /// `PATCH /chroniques/:id` — titre/corps ; scheduled peut aussi envoyer la programmation.
   Future<Chronique> update({
     required String accessToken,
     required int id,
     required String body,
     String? title,
+    String? publish,
+    String? scheduledAt,
+    bool? isTimeLimited,
+    String? expiresAt,
   }) async {
     debugPrint('[chronique-http] ChroniqueApiService.update() → PATCH /chroniques/$id');
+    final data = <String, dynamic>{
+      'title': title,
+      'body': body,
+      if (publish != null) 'publish': publish,
+      if (scheduledAt != null) 'scheduled_at': scheduledAt,
+      if (isTimeLimited != null) 'is_time_limited': isTimeLimited,
+      if (isTimeLimited == true && expiresAt != null) 'expires_at': expiresAt,
+    };
     final json = await _send(
       'PATCH',
       '/chroniques/$id',
       accessToken: accessToken,
-      data: <String, dynamic>{
-        'title': title,
-        'body': body,
-      },
+      data: data,
     );
     return _chroniqueFrom(json);
   }

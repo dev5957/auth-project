@@ -11,6 +11,7 @@ const String kSoonAvailableMessage = 'Bientôt disponible';
 Future<void> showHomeUserMenu(
   BuildContext context, {
   required String login,
+  required VoidCallback onUpcoming,
   required VoidCallback onArchives,
   required VoidCallback onLogout,
 }) {
@@ -41,6 +42,14 @@ Future<void> showHomeUserMenu(
                 ),
               ),
               const Divider(),
+              ListTile(
+                leading: Icon(Icons.schedule, color: colors.textPrimary),
+                title: const Text('🕒 À venir'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  onUpcoming();
+                },
+              ),
               ListTile(
                 leading: Icon(Icons.folder_outlined, color: colors.textPrimary),
                 title: const Text('Archives'),
