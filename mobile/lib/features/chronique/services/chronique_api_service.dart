@@ -12,17 +12,26 @@ class ChroniqueApiService {
 
   final ApiClient _client;
 
-  /// `POST /chroniques` — publication immédiate : `publish: "now"`.
+  /// `POST /chroniques`. Défaut V1 : `publish: "now"` (aucune régression).
   Future<Chronique> create({
     required String accessToken,
     required String body,
     String? title,
+    String publish = 'now',
+    String? scheduledAt,
+    bool isTimeLimited = false,
+    String? expiresAt,
   }) async {
-    debugPrint('[chronique-http] ChroniqueApiService.create() → POST /chroniques');
+    debugPrint(
+      '[chronique-http] ChroniqueApiService.create() → POST /chroniques publish=$publish',
+    );
     final data = <String, dynamic>{
       'body': body,
-      'publish': 'now',
+      'publish': publish,
       if (title != null && title.isNotEmpty) 'title': title,
+      if (publish == 'schedule' && scheduledAt != null) 'scheduled_at': scheduledAt,
+      if (isTimeLimited) 'is_time_limited': true,
+      if (isTimeLimited && expiresAt != null) 'expires_at': expiresAt,
     };
     final json = await _send(
       'POST',

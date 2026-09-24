@@ -13,6 +13,7 @@ import 'package:mobile/features/auth/providers/auth_providers.dart';
 import 'package:mobile/features/auth/state/auth_state.dart';
 import 'package:mobile/features/chronique/media/chronique_local_media_picker.dart';
 import 'package:mobile/features/chronique/models/chronique.dart';
+import 'package:mobile/features/chronique/models/chronique_date.dart';
 import 'package:mobile/features/chronique/models/chronique_page.dart';
 import 'package:mobile/features/chronique/models/media_draft.dart';
 import 'package:mobile/features/chronique/presentation/screens/create_chronique_screen.dart';
@@ -85,6 +86,10 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
   String? lastAccessToken;
   String? lastBody;
   String? lastTitle;
+  String? lastPublish;
+  String? lastScheduledAt;
+  bool? lastIsTimeLimited;
+  String? lastExpiresAt;
   ApiException? failWith;
   List<Chronique> listItems = const [];
 
@@ -93,11 +98,19 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
     required String accessToken,
     required String body,
     String? title,
+    String publish = 'now',
+    String? scheduledAt,
+    bool isTimeLimited = false,
+    String? expiresAt,
   }) async {
     createCalls += 1;
     lastAccessToken = accessToken;
     lastBody = body;
     lastTitle = title;
+    lastPublish = publish;
+    lastScheduledAt = scheduledAt;
+    lastIsTimeLimited = isTimeLimited;
+    lastExpiresAt = expiresAt;
     final error = failWith;
     if (error != null) {
       throw error;
@@ -215,12 +228,29 @@ void main() {
       'body': 'Le texte de la chronique, d au moins vingt caracteres.',
       'status': 'active',
       'published_at': '2026-09-22T10:00:00.000Z',
+      'scheduled_at': null,
+      'is_time_limited': false,
+      'expires_at': null,
       'created_at': '2026-09-22T09:50:00.000Z',
       'updated_at': '2026-09-22T10:00:00.000Z',
     });
     expect(chronique.id, 42);
     expect(chronique.title, 'Premier soir');
     expect(chronique.status, 'active');
+    expect(chronique.isTimeLimited, isFalse);
+    expect(chronique.scheduledAt, isNull);
+
+    final scheduled = Chronique.fromJson({
+      'id': 7,
+      'body': 'Le texte de la chronique, d au moins vingt caracteres.',
+      'status': 'scheduled',
+      'scheduled_at': '2026-09-24T15:30:00.000Z',
+      'is_time_limited': true,
+      'expires_at': '2026-09-25T15:30:00.000Z',
+    });
+    expect(scheduled.scheduledAt, DateTime.parse('2026-09-24T15:30:00.000Z'));
+    expect(scheduled.isTimeLimited, isTrue);
+    expect(scheduled.expiresAt, DateTime.parse('2026-09-25T15:30:00.000Z'));
   });
 
   testWidgets('authenticated user opens CREATE as a full-screen create assistant', (
@@ -238,6 +268,10 @@ void main() {
     expect(find.text('0 / 5000'), findsOneWidget);
     expect(find.text('+ Ajouter un média'), findsOneWidget);
     expect(find.text('Aucun média ajouté'), findsOneWidget);
+    expect(find.text('Publication'), findsOneWidget);
+    expect(find.text('Maintenant'), findsOneWidget);
+    expect(find.text('Programmer'), findsOneWidget);
+    expect(find.text('Expiration'), findsOneWidget);
     expect(_publishInkWell(tester).onTap, isNull);
     expect(find.byType(CloseButton), findsOneWidget);
     expect(find.text('Chapitre'), findsNothing);
@@ -320,6 +354,7 @@ void main() {
     await tester.enterText(find.byType(TextField).at(0), 'Premier soir');
     await tester.enterText(find.byType(TextField).at(1), body);
     await tester.pump();
+    await tester.ensureVisible(find.text('Publier'));
     await tester.tap(find.text('Publier'));
     await tester.pumpAndSettle();
 
@@ -327,6 +362,10 @@ void main() {
     expect(api.lastAccessToken, 'access-test');
     expect(api.lastTitle, 'Premier soir');
     expect(api.lastBody, body);
+    expect(api.lastPublish, 'now');
+    expect(api.lastScheduledAt, isNull);
+    expect(api.lastIsTimeLimited, isFalse);
+    expect(api.lastExpiresAt, isNull);
     expect(find.byType(MonFilScreen), findsOneWidget);
     expect(find.text('Mon Fil'), findsOneWidget);
     expect(find.byType(CreateChroniqueScreen), findsNothing);
@@ -355,6 +394,7 @@ void main() {
       'Le texte de la chronique, d au moins vingt caracteres.',
     );
     await tester.pump();
+    await tester.ensureVisible(find.text('Publier'));
     await tester.tap(find.text('Publier'));
     await tester.pump();
 
@@ -539,6 +579,140 @@ void main() {
     expect(api.createCalls, 1);
     expect(api.lastBody, body);
     expect(api.lastTitle, isNull);
+    expect(api.lastPublish, 'now');
     expect(find.byType(MonFilScreen), findsOneWidget);
+  });
+
+  testWidgets('schedule mode shows date and time pickers', (tester) async {
+    final api = _ChroniqueApiProbe();
+    await _pumpHome(tester, api: api);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('Programmer'));
+    await tester.tap(find.text('Programmer'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Date de publication'), findsOneWidget);
+    expect(find.text('Heure'), findsOneWidget);
+
+    await tester.ensureVisible(find.byKey(const ValueKey('schedule-date')));
+    await tester.tap(find.byKey(const ValueKey('schedule-date')));
+    await tester.pumpAndSettle();
+    expect(find.byType(DatePickerDialog), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('schedule-time')));
+    await tester.pumpAndSettle();
+    expect(find.byType(TimePickerDialog), findsOneWidget);
+  });
+
+  testWidgets('scheduled publish sends UTC scheduled_at', (tester) async {
+    final api = _ChroniqueApiProbe();
+    await _pumpHome(tester, api: api);
+    await _openCreate(tester);
+
+    const body = 'Le texte de la chronique, d au moins vingt caracteres.';
+    await tester.enterText(find.byType(TextField).at(1), body);
+    await tester.pump();
+    await tester.ensureVisible(find.text('Programmer'));
+    await tester.tap(find.text('Programmer'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Publier'));
+    await tester.tap(find.text('Publier'));
+    await tester.pumpAndSettle();
+
+    expect(api.createCalls, 1);
+    expect(api.lastPublish, 'schedule');
+    expect(api.lastScheduledAt, isNotNull);
+    expect(api.lastScheduledAt, contains('Z'));
+    final scheduled = DateTime.parse(api.lastScheduledAt!);
+    expect(scheduled.isUtc, isTrue);
+    expect(scheduled.isAfter(DateTime.now().toUtc()), isTrue);
+    expect(api.lastExpiresAt, isNull);
+  });
+
+  testWidgets('ephemeral now sends UTC expires_at without scheduled_at', (tester) async {
+    final api = _ChroniqueApiProbe();
+    await _pumpHome(tester, api: api);
+    await _openCreate(tester);
+
+    const body = 'Le texte de la chronique, d au moins vingt caracteres.';
+    await tester.enterText(find.byType(TextField).at(1), body);
+    await tester.pump();
+    await tester.ensureVisible(find.byKey(const ValueKey('expiration-dropdown')));
+    await tester.tap(find.byKey(const ValueKey('expiration-dropdown')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('1 heure').last);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Publier'));
+    await tester.tap(find.text('Publier'));
+    await tester.pumpAndSettle();
+
+    expect(api.createCalls, 1);
+    expect(api.lastPublish, 'now');
+    expect(api.lastScheduledAt, isNull);
+    expect(api.lastIsTimeLimited, isTrue);
+    expect(api.lastExpiresAt, contains('Z'));
+    final expires = DateTime.parse(api.lastExpiresAt!);
+    expect(expires.isUtc, isTrue);
+    final delta = expires.difference(DateTime.now().toUtc());
+    expect(delta.inMinutes, greaterThan(50));
+    expect(delta.inMinutes, lessThan(70));
+  });
+
+  testWidgets('scheduled plus ephemeral sends both UTC timestamps', (tester) async {
+    final api = _ChroniqueApiProbe();
+    await _pumpHome(tester, api: api);
+    await _openCreate(tester);
+
+    const body = 'Le texte de la chronique, d au moins vingt caracteres.';
+    await tester.enterText(find.byType(TextField).at(1), body);
+    await tester.pump();
+    await tester.ensureVisible(find.text('Programmer'));
+    await tester.tap(find.text('Programmer'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const ValueKey('expiration-dropdown')));
+    await tester.tap(find.byKey(const ValueKey('expiration-dropdown')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('1 heure').last);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Publier'));
+    await tester.tap(find.text('Publier'));
+    await tester.pumpAndSettle();
+
+    expect(api.createCalls, 1);
+    expect(api.lastPublish, 'schedule');
+    expect(api.lastIsTimeLimited, isTrue);
+    final scheduled = DateTime.parse(api.lastScheduledAt!);
+    final expires = DateTime.parse(api.lastExpiresAt!);
+    expect(scheduled.isUtc, isTrue);
+    expect(expires.isUtc, isTrue);
+    expect(expires.difference(scheduled).inMinutes, closeTo(60, 1));
+  });
+
+  testWidgets('custom expiration before publication is rejected', (tester) async {
+    final api = _ChroniqueApiProbe();
+    await _pumpHome(tester, api: api);
+    await _openCreate(tester);
+
+    const body = 'Le texte de la chronique, d au moins vingt caracteres.';
+    await tester.enterText(find.byType(TextField).at(1), body);
+    await tester.pump();
+    await tester.ensureVisible(find.text('Programmer'));
+    await tester.tap(find.text('Programmer'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const ValueKey('expiration-dropdown')));
+    await tester.tap(find.byKey(const ValueKey('expiration-dropdown')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Date personnalisée').last);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Publier'));
+    await tester.tap(find.text('Publier'));
+    await tester.pump();
+
+    expect(find.text(kExpiresBeforeActivationMessage), findsOneWidget);
+    expect(api.createCalls, 0);
+    expect(find.byType(CreateChroniqueScreen), findsOneWidget);
   });
 }

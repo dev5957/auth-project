@@ -95,14 +95,22 @@ class CreateChroniqueController extends AutoDisposeNotifier<ChroniqueDraft> {
     }
   }
 
-  /// `POST /chroniques` immédiat. Les médias locaux ne partent pas dans ce lot.
+  /// `POST /chroniques`. Les médias locaux ne partent pas dans ce lot.
   Future<Chronique> publish({
     required String body,
     String? title,
+    String publish = 'now',
+    String? scheduledAt,
+    bool isTimeLimited = false,
+    String? expiresAt,
   }) {
     return ref.read(chroniqueRepositoryProvider).create(
           body: body,
           title: title,
+          publish: publish,
+          scheduledAt: scheduledAt,
+          isTimeLimited: isTimeLimited,
+          expiresAt: expiresAt,
         );
   }
 }

@@ -363,4 +363,33 @@ void main() {
 
     expect(api.listCalls, greaterThan(1));
   });
+
+  testWidgets('scheduled and ephemeral cards show temporal labels', (tester) async {
+    final api = _ChroniqueApiProbe()
+      ..items = [
+        Chronique(
+          id: 8,
+          title: 'Plus tard',
+          body: 'Le texte de la chronique, d au moins vingt caracteres.',
+          status: 'scheduled',
+          scheduledAt: DateTime.parse('2026-09-24T16:30:00.000Z'),
+        ),
+        Chronique(
+          id: 9,
+          title: 'Éphémère',
+          body: 'Le texte de la chronique, d au moins vingt caracteres.',
+          status: 'active',
+          publishedAt: '2026-09-23T15:57:00.000Z',
+          isTimeLimited: true,
+          expiresAt: DateTime.parse('2026-09-25T15:57:00.000Z'),
+        ),
+      ];
+    await _pumpHome(tester, api: api);
+    await _openMonFil(tester);
+
+    expect(find.text('Programmée'), findsOneWidget);
+    expect(find.text('Expire le'), findsOneWidget);
+    expect(find.text('Plus tard'), findsOneWidget);
+    expect(find.text('Éphémère'), findsOneWidget);
+  });
 }

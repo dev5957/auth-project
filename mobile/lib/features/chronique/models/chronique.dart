@@ -10,6 +10,10 @@ class Chronique {
     this.archivedAt,
     this.createdAt,
     this.updatedAt,
+    this.scheduledAt,
+    this.expiresAt,
+    this.expiredAt,
+    this.isTimeLimited = false,
     this.media = const [],
   });
 
@@ -22,6 +26,10 @@ class Chronique {
   final String? archivedAt;
   final String? createdAt;
   final String? updatedAt;
+  final DateTime? scheduledAt;
+  final DateTime? expiresAt;
+  final DateTime? expiredAt;
+  final bool isTimeLimited;
   final List<ChroniqueMedia> media;
 
   Chronique copyWith({
@@ -34,6 +42,10 @@ class Chronique {
     String? archivedAt,
     String? createdAt,
     String? updatedAt,
+    DateTime? scheduledAt,
+    DateTime? expiresAt,
+    DateTime? expiredAt,
+    bool? isTimeLimited,
     List<ChroniqueMedia>? media,
     bool clearTitle = false,
   }) {
@@ -47,6 +59,10 @@ class Chronique {
       archivedAt: archivedAt ?? this.archivedAt,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      scheduledAt: scheduledAt ?? this.scheduledAt,
+      expiresAt: expiresAt ?? this.expiresAt,
+      expiredAt: expiredAt ?? this.expiredAt,
+      isTimeLimited: isTimeLimited ?? this.isTimeLimited,
       media: media ?? this.media,
     );
   }
@@ -67,6 +83,10 @@ class Chronique {
       archivedAt: json['archived_at'] as String?,
       createdAt: json['created_at'] as String?,
       updatedAt: json['updated_at'] as String?,
+      scheduledAt: parseChroniqueDateTime(json['scheduled_at']),
+      expiresAt: parseChroniqueDateTime(json['expires_at']),
+      expiredAt: parseChroniqueDateTime(json['expired_at']),
+      isTimeLimited: json['is_time_limited'] == true,
       media: parseChroniqueMediaList(json['media']),
     );
   }
@@ -135,4 +155,18 @@ int parseChroniqueId(Object? value) {
     }
   }
   throw const FormatException('Invalid integer id');
+}
+
+DateTime? parseChroniqueDateTime(Object? value) {
+  if (value is DateTime) {
+    return value;
+  }
+  if (value is String) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      return null;
+    }
+    return DateTime.tryParse(trimmed);
+  }
+  return null;
 }

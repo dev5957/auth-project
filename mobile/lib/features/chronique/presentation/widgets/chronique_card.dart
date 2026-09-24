@@ -21,7 +21,6 @@ class ChroniqueCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.luminaColors;
-    final dateLabel = chroniqueDateLabel(chronique);
     final title = chronique.title?.trim();
     return GestureDetector(
       onTap: onTap,
@@ -29,13 +28,7 @@ class ChroniqueCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (dateLabel.isNotEmpty) ...[
-              Text(
-                dateLabel,
-                style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
-              ),
-              const SizedBox(height: AppSpacing.sm),
-            ],
+            ..._temporalLines(colors),
             if (title != null && title.isNotEmpty) ...[
               Text(
                 title,
@@ -51,5 +44,47 @@ class ChroniqueCard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  List<Widget> _temporalLines(LuminaColors colors) {
+    final style = AppTextTheme.labelSmall.copyWith(color: colors.textSecondary);
+    if (chronique.status == 'scheduled') {
+      final when = formatOptionalChroniqueDate(chronique.scheduledAt) ??
+          chroniqueDateLabel(chronique);
+      return [
+        Text('Programmée', style: style),
+        if (when.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.xs),
+          Text(when, style: style),
+        ],
+        const SizedBox(height: AppSpacing.sm),
+      ];
+    }
+
+    final lines = <Widget>[];
+    final dateLabel = chroniqueDateLabel(chronique);
+    if (dateLabel.isNotEmpty) {
+      lines.add(Text(dateLabel, style: style));
+    }
+    if (chronique.status == 'active' &&
+        chronique.isTimeLimited &&
+        chronique.expiresAt != null) {
+      if (lines.isNotEmpty) {
+        lines.add(const SizedBox(height: AppSpacing.xs));
+      }
+      lines.add(Text('Expire le', style: style));
+      lines.add(const SizedBox(height: AppSpacing.xs));
+      lines.add(Text(ChroniqueDateHelper.formatLocal(chronique.expiresAt!), style: style));
+    }
+    if (chronique.status == 'expired') {
+      if (lines.isNotEmpty) {
+        lines.add(const SizedBox(height: AppSpacing.xs));
+      }
+      lines.add(Text('Expirée', style: style));
+    }
+    if (lines.isNotEmpty) {
+      lines.add(const SizedBox(height: AppSpacing.sm));
+    }
+    return lines;
   }
 }

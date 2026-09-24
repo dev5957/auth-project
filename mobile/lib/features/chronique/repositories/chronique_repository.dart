@@ -15,15 +15,23 @@ class ChroniqueRepository {
   final ChroniqueApiService _api;
   final AuthTokenStorage _tokenStorage;
 
-  /// Publication immédiate (`publish: "now"`).
+  /// Publication (`publish: "now"` par défaut, ou `schedule`).
   Future<Chronique> create({
     required String body,
     String? title,
+    String publish = 'now',
+    String? scheduledAt,
+    bool isTimeLimited = false,
+    String? expiresAt,
   }) async {
     return _api.create(
       accessToken: await _requireAccessToken(),
       body: body,
       title: title,
+      publish: publish,
+      scheduledAt: scheduledAt,
+      isTimeLimited: isTimeLimited,
+      expiresAt: expiresAt,
     );
   }
 

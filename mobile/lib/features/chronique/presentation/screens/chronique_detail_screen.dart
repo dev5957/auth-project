@@ -323,6 +323,24 @@ class _ChroniqueDetailScreenState extends ConsumerState<ChroniqueDetailScreen> {
                       ),
                       const SizedBox(height: AppSpacing.lg),
                     ],
+                    if (resolved.status == 'scheduled' && resolved.scheduledAt != null) ...[
+                      Text(
+                        'Programmée le ${ChroniqueDateHelper.formatLocal(resolved.scheduledAt!)}',
+                        style: AppTextTheme.labelSmall.copyWith(
+                          color: colors.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                    ],
+                    if (resolved.isTimeLimited && resolved.expiresAt != null) ...[
+                      Text(
+                        'Expire le ${ChroniqueDateHelper.formatLocal(resolved.expiresAt!)}',
+                        style: AppTextTheme.labelSmall.copyWith(
+                          color: colors.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.lg),
+                    ],
                     if (title != null && title.isNotEmpty) ...[
                       Text(
                         title,
