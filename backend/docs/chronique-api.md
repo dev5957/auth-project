@@ -894,19 +894,18 @@ Tentative client (`is_public`, `audience`, `comments_enabled`, `theme_id`) → `
 Aucun endpoint public. UI sociale ou thèmes éventuelle **non branchée**.  
 Pas de table `themes` en V1.
 
-### 4.8 Jobs futurs (hors de cette étape)
+### 4.8 Jobs testables V1 (sans hard delete)
 
-Le contrat **exige** ces traitements pour un cycle complet. **L’implémentation des jobs n’est pas dans cette étape.**
+Jobs **simples**, CLI `npm run jobs:chronique -- --confirm --job=all`.
 
 | Job | Effet |
 |---|---|
-| Publication programmée | `scheduled` → `active` quand `scheduled_at <= NOW()` |
-| Expiration automatique | **uniquement** `status = active` **et** `is_time_limited` → `expired` à `expires_at` ; pose `expired_at` et `purge_after`. **Jamais** une ligne `archived` |
-| Passage expirés → deleted | `expired` → `deleted` à `purge_after` (`expired_at + 30 j`). Pose `deleted_at = NOW()` |
-| Purge hard | `status = deleted` **et** `deleted_at + 30 jours <= NOW()` : 1) `StorageService.delete` des objets ; 2) `DELETE` SQL de la ligne `publications` (les lignes `publication_media` partent par **`ON DELETE CASCADE`**). S’applique aux `DELETE` manuels **et** aux expirés déjà passés en `deleted` |
-| (complément technique) | `pending_upload` trop vieux (ex. 24 h) → `failed` + libération quota |
+| `publish` | `scheduled` → `active` quand `scheduled_at <= NOW()` ; pose `published_at` |
+| `expire` | **uniquement** `status = active` **et** `is_time_limited` → `expired` à `expires_at` ; pose `expired_at` et `purge_after = expired_at + 30 j`. **Jamais** une ligne `archived` |
+| `purge` | `expired` → `deleted` à `purge_after`. Pose `deleted_at = NOW()`. **Pas de hard delete** |
+| Purge hard | **hors de cette étape** : `deleted_at + 30 jours` + `StorageService` |
 
-Sans ces jobs, planification, expiration et alignement storage / SQL ne se matérialisent pas.
+Tests : `test:chronique-temporal`.
 
 ---
 
@@ -1098,6 +1097,8 @@ Style `check-*.js`, **sans** APPLY SQL, **sans** toucher aux `test:*` Auth :
 |---|---|---|
 | `test:chronique-crud` | `check-chronique-crud.js` | create (3 modes) / list / get / patch, 401, 404 |
 | `test:chronique-lifecycle` | `check-chronique-lifecycle.js` | archive, restore, delete logique, transitions interdites |
+| `test:chronique-temporal` | `check-chronique-temporal.js` | expiration vs activation, jobs scheduled/expire/purge |
+| `test:chronique-security` | `check-chronique-security.js` | JWT absent, user_id injecté, autre utilisateur |
 | `test:chronique-media` | `check-chronique-media.js` | uploads/complete avec StorageService **mock**, quota, MIME, document/`upload` |
 | `test:chronique-cursor` | `check-chronique-cursor.js` | `before_at` + `before_id` |
 

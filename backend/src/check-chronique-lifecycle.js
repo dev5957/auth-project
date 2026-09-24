@@ -359,6 +359,31 @@ async function main() {
   );
   console.log('I OK active ne revient pas en draft');
 
+  const archivedEditDb = createMemoryDb([
+    sampleRow({ id: 9, status: 'archived', archived_at: new Date() }),
+  ]);
+  await expectStatus(
+    () => updateChronique(OWNER_ID, 9, { title: 'Nope' }, { db: archivedEditDb }),
+    400,
+    'Chronique cannot be edited in this status'
+  );
+  console.log('I2 OK patch archived refuse');
+
+  const expiredArchiveDb = createMemoryDb([
+    sampleRow({ id: 10, status: 'expired', expired_at: new Date() }),
+  ]);
+  await expectStatus(
+    () => archiveChronique(OWNER_ID, 10, { db: expiredArchiveDb }),
+    400,
+    'Chronique cannot be archived in this status'
+  );
+  const expiredDeleted = createMemoryDb([
+    sampleRow({ id: 11, status: 'expired', expired_at: new Date() }),
+  ]);
+  await deleteChronique(OWNER_ID, 11, { db: expiredDeleted });
+  assert(expiredDeleted.state.rows[0].status === 'deleted', 'expired -> deleted');
+  console.log('I3 OK expired archive refusee, delete logique');
+
   const { child, logs } = startTestServer(TEST_PORT);
   try {
     await waitForLog(logs, 'Server listening', 8000);
