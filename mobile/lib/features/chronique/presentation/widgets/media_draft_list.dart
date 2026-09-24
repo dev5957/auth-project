@@ -16,14 +16,27 @@ String mediaDraftKindLabel(MediaDraftKind kind) {
 }
 
 String? mediaDraftSizeLabel(int? byteSize) {
-  if (byteSize == null) {
+  if (byteSize == null || byteSize < 1) {
     return null;
   }
-  if (byteSize < 1024) {
-    return '$byteSize o';
+  const mo = 1024 * 1024;
+  const ko = 1024;
+  if (byteSize >= mo) {
+    return '${(byteSize / mo).toStringAsFixed(1)} Mo';
   }
-  final ko = (byteSize / 1024).floor();
-  return '$ko Ko';
+  if (byteSize >= ko) {
+    return '${(byteSize / ko).floor()} Ko';
+  }
+  return '$byteSize o';
+}
+
+IconData mediaDraftKindIcon(MediaDraftKind kind) {
+  return switch (kind) {
+    MediaDraftKind.image => Icons.image_outlined,
+    MediaDraftKind.video => Icons.videocam_outlined,
+    MediaDraftKind.audio => Icons.audiotrack_outlined,
+    MediaDraftKind.document => Icons.description_outlined,
+  };
 }
 
 /// Liste locale des médias du brouillon. Aucun appel réseau.
@@ -74,18 +87,15 @@ class _MediaDraftTile extends StatelessWidget {
       ),
       child: Row(
         children: [
+          Icon(mediaDraftKindIcon(media.kind), color: colors.primary),
+          const SizedBox(width: AppSpacing.md),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  mediaDraftKindLabel(media.kind),
-                  style: AppTextTheme.titleSmall.copyWith(color: colors.textPrimary),
-                ),
-                const SizedBox(height: AppSpacing.xs),
-                Text(
                   (name == null || name.isEmpty) ? 'Sans nom' : name,
-                  style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
+                  style: AppTextTheme.titleSmall.copyWith(color: colors.textPrimary),
                 ),
                 if (size != null) ...[
                   const SizedBox(height: AppSpacing.xs),

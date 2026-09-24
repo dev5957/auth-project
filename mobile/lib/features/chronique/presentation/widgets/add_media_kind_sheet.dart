@@ -6,7 +6,7 @@ import '../../../../core/theme/app_text_theme.dart';
 import '../../models/media_draft.dart';
 import 'media_draft_list.dart';
 
-/// Choix de type média. N’ouvre ni galerie, ni caméra, ni fichiers.
+/// Choix de type média. La galerie / le sélecteur système s’ouvrent ensuite.
 Future<MediaDraftKind?> showAddMediaKindSheet(BuildContext context) {
   return showModalBottomSheet<MediaDraftKind>(
     context: context,

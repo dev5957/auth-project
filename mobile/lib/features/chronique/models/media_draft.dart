@@ -42,7 +42,7 @@ class MediaDraft {
     return switch (kind) {
       MediaDraftKind.image => MediaDraftSourceType.gallery,
       MediaDraftKind.video => MediaDraftSourceType.gallery,
-      MediaDraftKind.audio => MediaDraftSourceType.microphone,
+      MediaDraftKind.audio => MediaDraftSourceType.upload,
       MediaDraftKind.document => MediaDraftSourceType.upload,
     };
   }

@@ -11,6 +11,7 @@ import 'package:mobile/features/auth/models/auth_account.dart';
 import 'package:mobile/features/auth/providers/auth_controller.dart';
 import 'package:mobile/features/auth/providers/auth_providers.dart';
 import 'package:mobile/features/auth/state/auth_state.dart';
+import 'package:mobile/features/chronique/media/chronique_local_media_picker.dart';
 import 'package:mobile/features/chronique/models/chronique.dart';
 import 'package:mobile/features/chronique/models/chronique_page.dart';
 import 'package:mobile/features/chronique/models/media_draft.dart';
@@ -118,10 +119,30 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
   }
 }
 
+class _FakeLocalMediaPicker implements ChroniqueLocalMediaPicker {
+  MediaPickResult imageResult = const MediaPickCancelled();
+  MediaPickResult videoResult = const MediaPickCancelled();
+  MediaPickResult audioResult = const MediaPickCancelled();
+  MediaPickResult documentResult = const MediaPickCancelled();
+
+  @override
+  Future<MediaPickResult> pickImage() async => imageResult;
+
+  @override
+  Future<MediaPickResult> pickVideo() async => videoResult;
+
+  @override
+  Future<MediaPickResult> pickAudio() async => audioResult;
+
+  @override
+  Future<MediaPickResult> pickDocument() async => documentResult;
+}
+
 Future<ProviderContainer> _pumpHome(
   WidgetTester tester, {
   required _ChroniqueApiProbe api,
   AuthTokenStorage? storage,
+  _FakeLocalMediaPicker? picker,
 }) async {
   await tester.pumpWidget(
     ProviderScope(
@@ -135,6 +156,9 @@ Future<ProviderContainer> _pumpHome(
         ),
         authControllerProvider.overrideWith(() => _SeededHomeAuthController()),
         chroniqueApiServiceProvider.overrideWithValue(api),
+        chroniqueLocalMediaPickerProvider.overrideWithValue(
+          picker ?? _FakeLocalMediaPicker(),
+        ),
       ],
       child: const LuminaApp(),
     ),
@@ -340,7 +364,15 @@ void main() {
 
   testWidgets('local media can be added and removed without API calls', (tester) async {
     final api = _ChroniqueApiProbe();
-    final container = await _pumpHome(tester, api: api);
+    final picker = _FakeLocalMediaPicker()
+      ..imageResult = const MediaPickSelected(
+        kind: MediaDraftKind.image,
+        sourceType: MediaDraftSourceType.gallery,
+        fileName: 'photo.jpg',
+        byteSize: 2516582,
+        localPath: '/tmp/photo.jpg',
+      );
+    final container = await _pumpHome(tester, api: api, picker: picker);
     await _openCreate(tester);
 
     await tester.ensureVisible(find.text('+ Ajouter un média'));
@@ -355,16 +387,17 @@ void main() {
     await tester.tap(find.text('Image'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Fonction disponible prochainement'), findsOneWidget);
     expect(find.text('Aucun média ajouté'), findsNothing);
     expect(find.byType(MediaDraftList), findsOneWidget);
-    expect(find.text('Image'), findsOneWidget);
-    expect(find.text('Sans nom'), findsOneWidget);
+    expect(find.text('photo.jpg'), findsOneWidget);
+    expect(find.text('2.4 Mo'), findsOneWidget);
+    expect(find.byIcon(Icons.image_outlined), findsOneWidget);
     expect(container.read(createChroniqueControllerProvider).medias, hasLength(1));
-    expect(
-      container.read(createChroniqueControllerProvider).medias.single.kind,
-      MediaDraftKind.image,
-    );
+    final image = container.read(createChroniqueControllerProvider).medias.single;
+    expect(image.kind, MediaDraftKind.image);
+    expect(image.sourceType, MediaDraftSourceType.gallery);
+    expect(image.localPath, '/tmp/photo.jpg');
+    expect(image.status, MediaDraftStatus.selected);
     expect(api.createCalls, 0);
 
     await tester.tap(find.byTooltip('Supprimer'));
@@ -376,9 +409,100 @@ void main() {
     expect(api.createCalls, 0);
   });
 
+  testWidgets('cancelling gallery selection does not change the draft', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final container = await _pumpHome(tester, api: api);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Image'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Aucun média ajouté'), findsOneWidget);
+    expect(container.read(createChroniqueControllerProvider).medias, isEmpty);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('inaccessible file shows a message without logout', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final picker = _FakeLocalMediaPicker()
+      ..imageResult = const MediaPickFailed(kMediaInaccessibleMessage);
+    final container = await _pumpHome(tester, api: api, picker: picker);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Image'));
+    await tester.pumpAndSettle();
+
+    expect(find.text(kMediaInaccessibleMessage), findsOneWidget);
+    expect(find.text('Aucun média ajouté'), findsOneWidget);
+    expect(container.read(createChroniqueControllerProvider).medias, isEmpty);
+    expect(container.read(authControllerProvider), isA<AuthAuthenticated>());
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('unsupported file type shows a message without logout', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final picker = _FakeLocalMediaPicker()
+      ..documentResult = const MediaPickFailed(kMediaUnsupportedMessage);
+    final container = await _pumpHome(tester, api: api, picker: picker);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Document'));
+    await tester.pumpAndSettle();
+
+    expect(find.text(kMediaUnsupportedMessage), findsOneWidget);
+    expect(container.read(createChroniqueControllerProvider).medias, isEmpty);
+    expect(container.read(authControllerProvider), isA<AuthAuthenticated>());
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('document picker adds a local MediaDraft', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final picker = _FakeLocalMediaPicker()
+      ..documentResult = const MediaPickSelected(
+        kind: MediaDraftKind.document,
+        sourceType: MediaDraftSourceType.upload,
+        fileName: 'notes.pdf',
+        byteSize: 2048,
+        localPath: '/tmp/notes.pdf',
+      );
+    final container = await _pumpHome(tester, api: api, picker: picker);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Document'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('notes.pdf'), findsOneWidget);
+    expect(find.text('2 Ko'), findsOneWidget);
+    expect(find.byIcon(Icons.description_outlined), findsOneWidget);
+    final doc = container.read(createChroniqueControllerProvider).medias.single;
+    expect(doc.kind, MediaDraftKind.document);
+    expect(doc.sourceType, MediaDraftSourceType.upload);
+    expect(api.createCalls, 0);
+  });
+
   testWidgets('publish still sends text only after a local media draft', (tester) async {
     final api = _ChroniqueApiProbe();
-    await _pumpHome(tester, api: api);
+    final picker = _FakeLocalMediaPicker()
+      ..documentResult = const MediaPickSelected(
+        kind: MediaDraftKind.document,
+        sourceType: MediaDraftSourceType.upload,
+        fileName: 'notes.pdf',
+        byteSize: 2048,
+        localPath: '/tmp/notes.pdf',
+      );
+    await _pumpHome(tester, api: api, picker: picker);
     await _openCreate(tester);
 
     await tester.ensureVisible(find.text('+ Ajouter un média'));

@@ -10,11 +10,12 @@ import '../../../../core/theme/app_text_theme.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_text_field.dart';
 import '../../models/chronique_fields.dart';
+import '../../models/media_draft.dart';
 import '../state/create_chronique_controller.dart';
 import '../widgets/add_media_kind_sheet.dart';
 import '../widgets/media_draft_list.dart';
 
-/// Assistant de création V1 (modal plein écran). Texte uniquement.
+/// Assistant de création V1 (modal plein écran). Publication texte ; médias locaux.
 class CreateChroniqueScreen extends ConsumerStatefulWidget {
   const CreateChroniqueScreen({super.key});
 
@@ -83,10 +84,18 @@ class _CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
     if (!mounted || kind == null) {
       return;
     }
-    ref.read(createChroniqueControllerProvider.notifier).addMediaDraft(kind: kind);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Fonction disponible prochainement')),
-    );
+    setState(() => _formError = null);
+    final controller = ref.read(createChroniqueControllerProvider.notifier);
+    final error = await switch (kind) {
+      MediaDraftKind.image => controller.pickImage(),
+      MediaDraftKind.video => controller.pickVideo(),
+      MediaDraftKind.audio => controller.pickAudio(),
+      MediaDraftKind.document => controller.pickDocument(),
+    };
+    if (!mounted || error == null) {
+      return;
+    }
+    setState(() => _formError = error);
   }
 
   String _messageFor(ApiException error) {

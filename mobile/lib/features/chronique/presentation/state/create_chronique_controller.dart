@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../media/chronique_local_media_picker.dart';
 import '../../models/chronique.dart';
 import '../../models/chronique_draft.dart';
 import '../../models/media_draft.dart';
@@ -8,6 +9,9 @@ import '../../providers/chronique_providers.dart';
 /// Brouillon local (texte + médias). La publication HTTP reste texte seul.
 class CreateChroniqueController extends AutoDisposeNotifier<ChroniqueDraft> {
   int _nextMediaId = 0;
+
+  ChroniqueLocalMediaPicker get _picker =>
+      ref.read(chroniqueLocalMediaPickerProvider);
 
   @override
   ChroniqueDraft build() => const ChroniqueDraft();
@@ -56,6 +60,39 @@ class CreateChroniqueController extends AutoDisposeNotifier<ChroniqueDraft> {
   void clearDraft() {
     _nextMediaId = 0;
     state = const ChroniqueDraft();
+  }
+
+  Future<String?> pickImage() => _pick(_picker.pickImage);
+
+  Future<String?> pickVideo() => _pick(_picker.pickVideo);
+
+  Future<String?> pickAudio() => _pick(_picker.pickAudio);
+
+  Future<String?> pickDocument() => _pick(_picker.pickDocument);
+
+  Future<String?> _pick(Future<MediaPickResult> Function() pick) async {
+    final result = await pick();
+    switch (result) {
+      case MediaPickCancelled():
+        return null;
+      case MediaPickFailed(:final message):
+        return message;
+      case MediaPickSelected(
+          :final kind,
+          :final sourceType,
+          :final fileName,
+          :final byteSize,
+          :final localPath,
+        ):
+        addMediaDraft(
+          kind: kind,
+          sourceType: sourceType,
+          fileName: fileName,
+          byteSize: byteSize,
+          localPath: localPath,
+        );
+        return null;
+    }
   }
 
   /// `POST /chroniques` immédiat. Les médias locaux ne partent pas dans ce lot.
