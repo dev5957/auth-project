@@ -18,9 +18,10 @@ Future<void> showHomeUserMenu(
   final initials = homeUserInitials(login);
   return showModalBottomSheet<void>(
     context: context,
+    isScrollControlled: true,
     builder: (sheetContext) {
       return SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
           child: Column(
             mainAxisSize: MainAxisSize.min,
