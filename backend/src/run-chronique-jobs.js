@@ -6,6 +6,7 @@ const {
   runExpireActiveJob,
   runPurgeExpiredJob,
   runChroniqueLifecycleJobs,
+  formatChroniqueJobLogs,
 } = require('./services/chroniqueJobs');
 
 const JOBS = {
@@ -44,12 +45,15 @@ async function main() {
 
   const result = await JOBS[jobName]();
   if (jobName === 'all') {
-    console.log(
-      `Chronique jobs: published=${result.published} expired=${result.expired} deleted=${result.deleted}`
-    );
+    console.log(formatChroniqueJobLogs(result, 'all'));
     return;
   }
-  console.log(`Chronique job ${jobName}: ${result.length} row(s).`);
+  const summary = {
+    published: jobName === 'publish' ? result.length : 0,
+    expired: jobName === 'expire' ? result.length : 0,
+    deleted: jobName === 'purge' ? result.length : 0,
+  };
+  console.log(formatChroniqueJobLogs(summary, jobName));
 }
 
 main()
