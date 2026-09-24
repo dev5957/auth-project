@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../../core/router/app_routes.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
-import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_loading.dart';
 import '../../../auth/providers/auth_controller.dart';
 import '../../../auth/state/auth_state.dart';
 import '../widgets/home_create_explore_actions.dart';
 import '../widgets/home_header.dart';
 import '../widgets/home_space_card.dart';
+import '../widgets/home_user_menu.dart';
 import '../widgets/home_welcome.dart';
 
 /// Home authentifié V1. Données : [AuthAuthenticated.user] uniquement.
@@ -37,6 +39,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
   }
 
+  Future<void> _openUserMenu() async {
+    if (_loggingOut) {
+      return;
+    }
+    final auth = ref.read(authControllerProvider);
+    if (auth is! AuthAuthenticated) {
+      return;
+    }
+    await showHomeUserMenu(
+      context,
+      login: auth.user.login,
+      onArchives: () {
+        if (!mounted) {
+          return;
+        }
+        context.push(AppRoutes.archives);
+      },
+      onLogout: _logout,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.luminaColors;
@@ -62,21 +85,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     const SizedBox(height: AppSpacing.lg),
-                    HomeHeader(login: login),
+                    HomeHeader(
+                      login: login,
+                      onAvatarTap: _loggingOut ? null : _openUserMenu,
+                    ),
                     const SizedBox(height: AppSpacing.xxxl),
                     HomeWelcome(login: login),
                     const SizedBox(height: AppSpacing.xxxl),
                     const HomeCreateExploreActions(),
                     const SizedBox(height: AppSpacing.xxxl),
                     const HomeSpaceCard(),
-                    const SizedBox(height: AppSpacing.xxxl),
-                    AppButton(
-                      key: const ValueKey('home-logout'),
-                      label: 'Logout',
-                      variant: AppButtonVariant.secondary,
-                      isLoading: _loggingOut,
-                      onPressed: _loggingOut ? null : _logout,
-                    ),
                     const SizedBox(height: AppSpacing.xxl),
                   ],
                 ),

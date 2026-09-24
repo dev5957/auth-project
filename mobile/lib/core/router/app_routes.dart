@@ -21,6 +21,9 @@ abstract final class AppRoutes {
   /// Édition d’une chronique existante.
   static const String exploreEdit = '/explore/:chroniqueId/edit';
 
+  /// Archives volontaires.
+  static const String archives = '/archives';
+
   static String chroniqueDetail(int id) => '/explore/$id';
 
   static String chroniqueEdit(int id) => '/explore/$id/edit';
@@ -32,6 +35,7 @@ abstract final class AppRoutes {
     return location == home ||
         location == create ||
         location == explore ||
+        location == archives ||
         _exploreDetailLocation.hasMatch(location) ||
         _exploreEditLocation.hasMatch(location);
   }

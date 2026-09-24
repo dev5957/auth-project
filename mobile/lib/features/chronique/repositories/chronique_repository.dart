@@ -28,8 +28,15 @@ class ChroniqueRepository {
   }
 
   /// Fil personnel V1 : `GET /chroniques` (première page, pas de pagination).
-  Future<ChroniquePage> list() async {
-    return _api.list(accessToken: await _requireAccessToken());
+  Future<ChroniquePage> list({String? status}) async {
+    return _api.list(
+      accessToken: await _requireAccessToken(),
+      status: status,
+    );
+  }
+
+  Future<Chronique> archive(int id) async {
+    return _api.archive(accessToken: await _requireAccessToken(), id: id);
   }
 
   Future<Chronique> get(int id) async {

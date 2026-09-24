@@ -11,6 +11,7 @@ import 'package:mobile/features/auth/providers/auth_controller.dart';
 import 'package:mobile/features/auth/providers/auth_providers.dart';
 import 'package:mobile/features/auth/state/auth_state.dart';
 import 'package:mobile/features/chronique/models/chronique.dart';
+import 'package:mobile/features/chronique/models/chronique_date.dart';
 import 'package:mobile/features/chronique/models/chronique_page.dart';
 import 'package:mobile/features/chronique/presentation/screens/chronique_detail_screen.dart';
 import 'package:mobile/features/chronique/presentation/screens/mon_fil_screen.dart';
@@ -80,24 +81,36 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
   int getCalls = 0;
   int updateCalls = 0;
   int deleteCalls = 0;
+  int archiveCalls = 0;
   String? lastAccessToken;
   String? lastBody;
   String? lastTitle;
+  String? lastListStatus;
   int? lastGetId;
   int? lastUpdateId;
   int? lastDeleteId;
+  int? lastArchiveId;
   List<Chronique> items = const [];
+  List<Chronique> archivedItems = const [];
   ApiException? failWith;
   ApiException? failUpdateWith;
   ApiException? failDeleteWith;
+  ApiException? failArchiveWith;
 
   @override
-  Future<ChroniquePage> list({required String accessToken}) async {
+  Future<ChroniquePage> list({
+    required String accessToken,
+    String? status,
+  }) async {
     listCalls += 1;
     lastAccessToken = accessToken;
+    lastListStatus = status;
     final error = failWith;
     if (error != null) {
       throw error;
+    }
+    if (status == 'archived') {
+      return ChroniquePage(items: archivedItems);
     }
     return ChroniquePage(items: items);
   }
@@ -260,7 +273,7 @@ void main() {
       find.text('Le texte de la chronique, d au moins vingt caracteres.'),
       findsOneWidget,
     );
-    expect(find.text('22/09/2026'), findsOneWidget);
+    expect(find.text(chroniqueDateLabel(api.items.single)), findsOneWidget);
     expect(find.text('Aucune chronique pour le moment.'), findsNothing);
   });
 
@@ -289,7 +302,7 @@ void main() {
       find.text('Le texte de la chronique, d au moins vingt caracteres.'),
       findsWidgets,
     );
-    expect(find.text('22/09/2026'), findsWidgets);
+    expect(find.text(chroniqueDateLabel(api.items.single)), findsWidgets);
     expect(container.read(authControllerProvider), isA<AuthAuthenticated>());
 
     await tester.tap(find.byType(BackButton));

@@ -11,12 +11,14 @@ import 'package:mobile/features/auth/providers/auth_controller.dart';
 import 'package:mobile/features/auth/providers/auth_providers.dart';
 import 'package:mobile/features/auth/state/auth_state.dart';
 import 'package:mobile/features/chronique/models/chronique.dart';
+import 'package:mobile/features/chronique/models/chronique_date.dart';
 import 'package:mobile/features/chronique/models/chronique_page.dart';
-import 'package:mobile/features/chronique/presentation/screens/create_chronique_screen.dart';
-import 'package:mobile/features/chronique/presentation/screens/mon_fil_screen.dart';
+import 'package:mobile/features/chronique/presentation/screens/archives_screen.dart';
+import 'package:mobile/features/chronique/presentation/widgets/chronique_card.dart';
 import 'package:mobile/features/chronique/providers/chronique_providers.dart';
 import 'package:mobile/features/chronique/services/chronique_api_service.dart';
 import 'package:mobile/features/home/presentation/screens/home_screen.dart';
+import 'package:mobile/features/home/presentation/widgets/home_user_menu.dart';
 import 'package:mobile/main.dart';
 
 class InMemoryAuthTokenStorage implements AuthTokenStorage {
@@ -76,7 +78,10 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
       : super(ApiClient(config: const AppConfig(apiBaseUrl: 'http://test.invalid')));
 
   int listCalls = 0;
-  int getCalls = 0;
+  String? lastAccessToken;
+  String? lastListStatus;
+  List<Chronique> archivedItems = const [];
+  ApiException? failWith;
 
   @override
   Future<ChroniquePage> list({
@@ -84,20 +89,20 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
     String? status,
   }) async {
     listCalls += 1;
+    lastAccessToken = accessToken;
+    lastListStatus = status;
+    final error = failWith;
+    if (error != null) {
+      throw error;
+    }
+    if (status == 'archived') {
+      return ChroniquePage(items: archivedItems);
+    }
     return const ChroniquePage(items: []);
-  }
-
-  @override
-  Future<Chronique> get({
-    required String accessToken,
-    required int id,
-  }) async {
-    getCalls += 1;
-    throw const ApiException(message: 'Chronique not found', statusCode: 404);
   }
 }
 
-Future<void> _pumpHome(
+Future<ProviderContainer> _pumpHome(
   WidgetTester tester, {
   required _ChroniqueApiProbe api,
 }) async {
@@ -118,65 +123,74 @@ Future<void> _pumpHome(
   );
   await tester.pump();
   await tester.pump();
+  return ProviderScope.containerOf(tester.element(find.byType(LuminaApp)));
+}
+
+Future<void> _openArchives(WidgetTester tester) async {
+  expect(find.byType(HomeScreen), findsOneWidget);
+  await tester.tap(find.byKey(const ValueKey('home-user-avatar')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Archives'));
+  await tester.pumpAndSettle();
+  expect(find.byType(ArchivesScreen), findsOneWidget);
 }
 
 void main() {
-  testWidgets('CREATE opens the creation assistant without leaving the session', (
+  testWidgets('inactive menu items show a coming-soon message', (tester) async {
+    final api = _ChroniqueApiProbe();
+    await _pumpHome(tester, api: api);
+    await tester.tap(find.byKey(const ValueKey('home-user-avatar')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Profil'));
+    await tester.pump();
+    expect(find.text(kSoonAvailableMessage), findsOneWidget);
+    expect(find.byType(HomeScreen), findsOneWidget);
+  });
+
+  testWidgets('Archives navigates from avatar and calls GET status=archived', (
     tester,
   ) async {
     final api = _ChroniqueApiProbe();
-    await _pumpHome(tester, api: api);
+    final container = await _pumpHome(tester, api: api);
+    await _openArchives(tester);
 
-    expect(find.byType(HomeScreen), findsOneWidget);
-    await tester.tap(find.text('CREATE'));
-    await tester.pumpAndSettle();
-
-    expect(find.byType(CreateChroniqueScreen), findsOneWidget);
-    expect(find.text('Créer une chronique'), findsOneWidget);
-    expect(find.byType(MonFilScreen), findsNothing);
-    expect(api.listCalls, 0);
-
-    final container = ProviderScope.containerOf(
-      tester.element(find.byType(LuminaApp)),
-    );
-    expect(container.read(authControllerProvider), isA<AuthAuthenticated>());
-  });
-
-  testWidgets('EXPLORE opens Mon Fil without leaving the session', (tester) async {
-    final api = _ChroniqueApiProbe();
-    await _pumpHome(tester, api: api);
-
-    await tester.tap(find.text('EXPLORE'));
-    await tester.pumpAndSettle();
-
-    expect(find.byType(MonFilScreen), findsOneWidget);
-    expect(find.text('Mon Fil'), findsOneWidget);
-    expect(find.byType(CreateChroniqueScreen), findsNothing);
+    expect(find.text('Archives'), findsWidgets);
     expect(api.listCalls, 1);
-
-    final container = ProviderScope.containerOf(
-      tester.element(find.byType(LuminaApp)),
-    );
+    expect(api.lastListStatus, 'archived');
+    expect(api.lastAccessToken, 'access-test');
+    expect(find.text('Aucune chronique archivée.'), findsOneWidget);
     expect(container.read(authControllerProvider), isA<AuthAuthenticated>());
   });
 
-  testWidgets('back from CREATE returns to Home V1 with Logout', (tester) async {
-    final api = _ChroniqueApiProbe();
+  testWidgets('Archives displays archived cards with archive date', (tester) async {
+    const archived = Chronique(
+      id: 7,
+      title: 'Mon souvenir',
+      body: 'Texte de la chronique archivee pour les tests.',
+      status: 'archived',
+      publishedAt: '2026-09-01T08:00:00.000Z',
+      archivedAt: '2026-09-23T15:40:00.000Z',
+    );
+    final api = _ChroniqueApiProbe()..archivedItems = const [archived];
     await _pumpHome(tester, api: api);
+    await _openArchives(tester);
 
-    await tester.tap(find.text('CREATE'));
-    await tester.pumpAndSettle();
-    expect(find.byType(CreateChroniqueScreen), findsOneWidget);
+    expect(find.byType(ChroniqueCard), findsOneWidget);
+    expect(find.text('Mon souvenir'), findsOneWidget);
+    expect(find.text('Texte de la chronique archivee pour les tests.'), findsOneWidget);
+    expect(find.text(chroniqueDateLabel(archived)), findsOneWidget);
+    expect(find.text('Aucune chronique archivée.'), findsNothing);
+  });
 
-    await tester.tap(find.byType(CloseButton));
-    await tester.pumpAndSettle();
+  testWidgets('Archives API error is shown without logout', (tester) async {
+    final api = _ChroniqueApiProbe()
+      ..failWith = const ApiException(message: 'Too many requests', statusCode: 429);
+    final container = await _pumpHome(tester, api: api);
+    await _openArchives(tester);
 
-    expect(find.byType(HomeScreen), findsOneWidget);
-    expect(find.byType(CreateChroniqueScreen), findsNothing);
-    expect(find.text('Welcome back'), findsOneWidget);
-    expect(find.byKey(const ValueKey('home-user-avatar')), findsOneWidget);
-    expect(find.text('CREATE'), findsOneWidget);
-    expect(find.text('EXPLORE'), findsOneWidget);
-    expect(api.listCalls, 0);
+    expect(find.text('Too many requests'), findsOneWidget);
+    expect(find.byType(ArchivesScreen), findsOneWidget);
+    expect(container.read(authControllerProvider), isA<AuthAuthenticated>());
+    expect(find.text('Logout'), findsNothing);
   });
 }

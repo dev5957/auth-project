@@ -112,7 +112,10 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
   }
 
   @override
-  Future<ChroniquePage> list({required String accessToken}) async {
+  Future<ChroniquePage> list({
+    required String accessToken,
+    String? status,
+  }) async {
     listCalls += 1;
     lastAccessToken = accessToken;
     return ChroniquePage(items: listItems);
@@ -334,7 +337,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(HomeScreen), findsOneWidget);
-    expect(find.text('Logout'), findsOneWidget);
+    expect(find.text('Logout'), findsNothing);
+    expect(find.byKey(const ValueKey('home-user-avatar')), findsOneWidget);
     expect(find.byType(MonFilScreen), findsNothing);
     expect(find.byType(CreateChroniqueScreen), findsNothing);
     expect(container.read(authControllerProvider), isA<AuthAuthenticated>());
@@ -372,7 +376,7 @@ void main() {
 
     expect(find.byType(HomeScreen), findsOneWidget);
     expect(find.byType(CreateChroniqueScreen), findsNothing);
-    expect(find.text('Logout'), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-user-avatar')), findsOneWidget);
     expect(api.createCalls, 0);
   });
 

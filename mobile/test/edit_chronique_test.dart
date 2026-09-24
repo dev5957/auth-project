@@ -82,14 +82,19 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
   int getCalls = 0;
   int updateCalls = 0;
   int deleteCalls = 0;
+  int archiveCalls = 0;
   String? lastAccessToken;
   String? lastBody;
   String? lastTitle;
+  String? lastListStatus;
   int? lastUpdateId;
   int? lastDeleteId;
+  int? lastArchiveId;
   List<Chronique> items = const [];
+  List<Chronique> archivedItems = const [];
   ApiException? failUpdateWith;
   ApiException? failDeleteWith;
+  ApiException? failArchiveWith;
 
   static const sample = Chronique(
     id: 42,
@@ -100,9 +105,16 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
   );
 
   @override
-  Future<ChroniquePage> list({required String accessToken}) async {
+  Future<ChroniquePage> list({
+    required String accessToken,
+    String? status,
+  }) async {
     listCalls += 1;
     lastAccessToken = accessToken;
+    lastListStatus = status;
+    if (status == 'archived') {
+      return ChroniquePage(items: archivedItems);
+    }
     return ChroniquePage(items: items);
   }
 
@@ -167,6 +179,41 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
       for (final item in items)
         if (item.id != id) item,
     ];
+  }
+
+  @override
+  Future<Chronique> archive({
+    required String accessToken,
+    required int id,
+  }) async {
+    archiveCalls += 1;
+    lastAccessToken = accessToken;
+    lastArchiveId = id;
+    final error = failArchiveWith;
+    if (error != null) {
+      throw error;
+    }
+    Chronique? source;
+    for (final item in items) {
+      if (item.id == id) {
+        source = item;
+        break;
+      }
+    }
+    final archived = Chronique(
+      id: id,
+      title: source?.title,
+      body: source?.body ?? '',
+      status: 'archived',
+      publishedAt: source?.publishedAt,
+      archivedAt: '2026-09-23T15:40:00.000Z',
+    );
+    items = [
+      for (final item in items)
+        if (item.id != id) item,
+    ];
+    archivedItems = [...archivedItems, archived];
+    return archived;
   }
 }
 
@@ -234,6 +281,7 @@ void main() {
 
     await _openMenu(tester);
     expect(find.text('Modifier'), findsOneWidget);
+    expect(find.text('Archiver'), findsOneWidget);
     expect(find.text('Supprimer'), findsOneWidget);
 
     await tester.tap(find.text('Modifier'));
@@ -394,6 +442,56 @@ void main() {
 
     expect(api.deleteCalls, 1);
     expect(find.text('Too many requests'), findsOneWidget);
+    expect(find.byType(ChroniqueDetailScreen), findsOneWidget);
+    expect(container.read(authControllerProvider), isA<AuthAuthenticated>());
+    expect(find.text('Logout'), findsNothing);
+  });
+
+  testWidgets('archive confirms then returns to Mon Fil without the item', (tester) async {
+    final api = _ChroniqueApiProbe()..items = const [_ChroniqueApiProbe.sample];
+    final container = await _pumpHome(tester, api: api);
+    await _openDetail(tester);
+    await _openMenu(tester);
+    await tester.tap(find.text('Archiver'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Archiver cette chronique ?'), findsOneWidget);
+    expect(
+      find.text('Elle sera retirée de Mon Fil\nmais conservée dans vos archives.'),
+      findsOneWidget,
+    );
+    expect(find.text('Annuler'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(TextButton, 'Archiver'));
+    await tester.pumpAndSettle();
+
+    expect(api.archiveCalls, 1);
+    expect(api.lastArchiveId, 42);
+    expect(api.lastAccessToken, 'access-test');
+    expect(find.byType(ChroniqueDetailScreen), findsNothing);
+    expect(find.byType(MonFilScreen), findsOneWidget);
+    expect(find.byType(ChroniqueCard), findsNothing);
+    expect(find.text('Aucune chronique pour le moment.'), findsOneWidget);
+    expect(container.read(authControllerProvider), isA<AuthAuthenticated>());
+  });
+
+  testWidgets('archive API error is shown without logout', (tester) async {
+    final api = _ChroniqueApiProbe()
+      ..items = const [_ChroniqueApiProbe.sample]
+      ..failArchiveWith = const ApiException(
+        message: 'Chronique cannot be archived in this status',
+        statusCode: 400,
+      );
+    final container = await _pumpHome(tester, api: api);
+    await _openDetail(tester);
+    await _openMenu(tester);
+    await tester.tap(find.text('Archiver'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Archiver'));
+    await tester.pump();
+
+    expect(api.archiveCalls, 1);
+    expect(find.text('Chronique cannot be archived in this status'), findsOneWidget);
     expect(find.byType(ChroniqueDetailScreen), findsOneWidget);
     expect(container.read(authControllerProvider), isA<AuthAuthenticated>());
     expect(find.text('Logout'), findsNothing);

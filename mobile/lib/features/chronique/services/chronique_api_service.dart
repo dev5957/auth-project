@@ -33,15 +33,36 @@ class ChroniqueApiService {
     return _chroniqueFrom(json);
   }
 
-  /// `GET /chroniques` — première page du fil `active` (défauts serveur).
-  Future<ChroniquePage> list({required String accessToken}) async {
-    debugPrint('[chronique-http] ChroniqueApiService.list() → GET /chroniques');
+  /// `GET /chroniques` — première page. `status` omis = défaut serveur (`active`).
+  Future<ChroniquePage> list({
+    required String accessToken,
+    String? status,
+  }) async {
+    debugPrint(
+      '[chronique-http] ChroniqueApiService.list() → GET /chroniques'
+      '${status == null ? '' : '?status=$status'}',
+    );
     final json = await _send(
       'GET',
       '/chroniques',
       accessToken: accessToken,
+      queryParameters: status == null ? null : <String, dynamic>{'status': status},
     );
     return ChroniquePage.fromJson(json);
+  }
+
+  /// `POST /chroniques/:id/archive`
+  Future<Chronique> archive({
+    required String accessToken,
+    required int id,
+  }) async {
+    debugPrint('[chronique-http] ChroniqueApiService.archive() → POST /chroniques/$id/archive');
+    final json = await _send(
+      'POST',
+      '/chroniques/$id/archive',
+      accessToken: accessToken,
+    );
+    return _chroniqueFrom(json);
   }
 
   /// `GET /chroniques/:id`
@@ -103,12 +124,14 @@ class ChroniqueApiService {
     String method,
     String path, {
     Map<String, dynamic>? data,
+    Map<String, dynamic>? queryParameters,
     String? accessToken,
   }) async {
     try {
       final response = await _client.dio.request<dynamic>(
         path,
         data: data,
+        queryParameters: queryParameters,
         options: Options(
           method: method,
           headers: accessToken == null

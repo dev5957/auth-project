@@ -7,6 +7,7 @@ class Chronique {
     this.themeId,
     this.title,
     this.publishedAt,
+    this.archivedAt,
     this.createdAt,
     this.updatedAt,
     this.media = const [],
@@ -18,6 +19,7 @@ class Chronique {
   final String body;
   final String status;
   final String? publishedAt;
+  final String? archivedAt;
   final String? createdAt;
   final String? updatedAt;
   final List<ChroniqueMedia> media;
@@ -29,6 +31,7 @@ class Chronique {
     String? body,
     String? status,
     String? publishedAt,
+    String? archivedAt,
     String? createdAt,
     String? updatedAt,
     List<ChroniqueMedia>? media,
@@ -41,6 +44,7 @@ class Chronique {
       body: body ?? this.body,
       status: status ?? this.status,
       publishedAt: publishedAt ?? this.publishedAt,
+      archivedAt: archivedAt ?? this.archivedAt,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       media: media ?? this.media,
@@ -60,6 +64,7 @@ class Chronique {
       body: body,
       status: status,
       publishedAt: json['published_at'] as String?,
+      archivedAt: json['archived_at'] as String?,
       createdAt: json['created_at'] as String?,
       updatedAt: json['updated_at'] as String?,
       media: parseChroniqueMediaList(json['media']),

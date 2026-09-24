@@ -8,13 +8,14 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_text_theme.dart';
 import '../../models/chronique.dart';
+import '../../models/chronique_date.dart';
 import '../../providers/chronique_providers.dart';
+import '../state/chronique_detail_controller.dart';
 import '../state/mon_fil_controller.dart';
-import '../widgets/chronique_card.dart';
 
-enum _DetailAction { edit, delete }
+enum _DetailAction { edit, archive, delete }
 
-/// Lecture détaillée V1. Menu ⋮ : modifier (texte) / supprimer.
+/// Lecture détaillée V1. Menu ⋮ : modifier / archiver / supprimer.
 class ChroniqueDetailScreen extends ConsumerStatefulWidget {
   const ChroniqueDetailScreen({
     super.key,
@@ -32,7 +33,7 @@ class ChroniqueDetailScreen extends ConsumerStatefulWidget {
 class _ChroniqueDetailScreenState extends ConsumerState<ChroniqueDetailScreen> {
   Chronique? _chronique;
   String? _error;
-  bool _deleting = false;
+  bool _busy = false;
 
   int? get _id => widget.chroniqueId ?? widget.chronique?.id;
 
@@ -97,12 +98,14 @@ class _ChroniqueDetailScreenState extends ConsumerState<ChroniqueDetailScreen> {
   }
 
   Future<void> _onAction(_DetailAction action) async {
-    if (_deleting) {
+    if (_busy) {
       return;
     }
     switch (action) {
       case _DetailAction.edit:
         await _openEdit();
+      case _DetailAction.archive:
+        await _confirmArchive();
       case _DetailAction.delete:
         await _confirmDelete();
     }
@@ -156,7 +159,7 @@ class _ChroniqueDetailScreenState extends ConsumerState<ChroniqueDetailScreen> {
       return;
     }
     setState(() {
-      _deleting = true;
+      _busy = true;
       _error = null;
     });
     try {
@@ -175,7 +178,7 @@ class _ChroniqueDetailScreenState extends ConsumerState<ChroniqueDetailScreen> {
         return;
       }
       setState(() {
-        _deleting = false;
+        _busy = false;
         _error = _messageFor(error);
       });
     } on FormatException {
@@ -183,7 +186,67 @@ class _ChroniqueDetailScreenState extends ConsumerState<ChroniqueDetailScreen> {
         return;
       }
       setState(() {
-        _deleting = false;
+        _busy = false;
+        _error = 'Unexpected error';
+      });
+    }
+  }
+
+  Future<void> _confirmArchive() async {
+    final id = _id;
+    if (id == null) {
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Archiver cette chronique ?'),
+          content: const Text(
+            'Elle sera retirée de Mon Fil\nmais conservée dans vos archives.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Annuler'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Archiver'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true || !mounted) {
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await ref.read(chroniqueDetailControllerProvider.notifier).archive(id);
+      if (!mounted) {
+        return;
+      }
+      ref.read(monFilControllerProvider.notifier).removeById(id);
+      context.pop();
+      ref.read(monFilControllerProvider.notifier).refresh();
+    } on ApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _busy = false;
+        _error = _messageFor(error);
+      });
+    } on FormatException {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _busy = false;
         _error = 'Unexpected error';
       });
     }
@@ -212,14 +275,19 @@ class _ChroniqueDetailScreenState extends ConsumerState<ChroniqueDetailScreen> {
             PopupMenuButton<_DetailAction>(
               key: const ValueKey('chronique-detail-menu'),
               tooltip: 'Actions',
-              enabled: !_deleting,
+              enabled: !_busy,
               onSelected: _onAction,
-              itemBuilder: (context) => const [
-                PopupMenuItem(
+              itemBuilder: (context) => [
+                const PopupMenuItem(
                   value: _DetailAction.edit,
                   child: Text('Modifier'),
                 ),
-                PopupMenuItem(
+                if (resolved.status == 'active')
+                  const PopupMenuItem(
+                    value: _DetailAction.archive,
+                    child: Text('Archiver'),
+                  ),
+                const PopupMenuItem(
                   value: _DetailAction.delete,
                   child: Text('Supprimer'),
                 ),

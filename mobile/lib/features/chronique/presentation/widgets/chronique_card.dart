@@ -5,6 +5,7 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_text_theme.dart';
 import '../../../../core/widgets/app_card.dart';
 import '../../models/chronique.dart';
+import '../../models/chronique_date.dart';
 
 /// Carte V1 d’une chronique du fil (date, titre optionnel, texte).
 class ChroniqueCard extends StatelessWidget {
@@ -51,19 +52,4 @@ class ChroniqueCard extends StatelessWidget {
       ),
     );
   }
-}
-
-String chroniqueDateLabel(Chronique chronique) {
-  final raw = chronique.publishedAt ?? chronique.createdAt;
-  if (raw == null || raw.isEmpty) {
-    return '';
-  }
-  final parsed = DateTime.tryParse(raw);
-  if (parsed == null) {
-    return raw;
-  }
-  final utc = parsed.toUtc();
-  final day = utc.day.toString().padLeft(2, '0');
-  final month = utc.month.toString().padLeft(2, '0');
-  return '$day/$month/${utc.year}';
 }
