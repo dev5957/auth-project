@@ -88,22 +88,23 @@ function sortValue(row, status) {
   return row[SORT_COLUMN[status]];
 }
 
-async function createChronique(userId, body) {
+async function createChronique(userId, body, deps = {}) {
   const input = parseCreateInput(body);
   requireDatabase();
+  const db = deps.db || pool;
 
   let status = 'draft';
   let publishedAt = null;
   let scheduledAt = null;
   if (input.publish === 'now') {
     status = 'active';
-    publishedAt = new Date();
+    publishedAt = deps.now || new Date();
   } else if (input.publish === 'schedule') {
     status = 'scheduled';
     scheduledAt = input.scheduledAt;
   }
 
-  const result = await pool.query(
+  const result = await db.query(
     `INSERT INTO publications (
        user_id,
        theme_id,
@@ -136,9 +137,10 @@ async function createChronique(userId, body) {
   return toPublicChronique(result.rows[0]);
 }
 
-async function listChroniques(userId, query) {
+async function listChroniques(userId, query, deps = {}) {
   const { status, limit, beforeAt, beforeId } = parseListQuery(query);
   requireDatabase();
+  const db = deps.db || pool;
 
   const column = SORT_COLUMN[status];
   const params = [userId, status];
@@ -161,7 +163,7 @@ async function listChroniques(userId, query) {
       ? `${column} ASC, id ASC`
       : `${column} DESC, id DESC`;
 
-  const result = await pool.query(
+  const result = await db.query(
     `SELECT *
      FROM publications
      WHERE user_id = $1
@@ -191,11 +193,12 @@ async function listChroniques(userId, query) {
   };
 }
 
-async function getChroniqueById(userId, rawId) {
+async function getChroniqueById(userId, rawId, deps = {}) {
   const id = parseChroniqueId(rawId);
   requireDatabase();
+  const db = deps.db || pool;
 
-  const result = await pool.query(
+  const result = await db.query(
     `SELECT *
      FROM publications
      WHERE id = $1
@@ -210,7 +213,7 @@ async function getChroniqueById(userId, rawId) {
     throw new AppError(404, 'Chronique not found');
   }
 
-  const mediaResult = await pool.query(
+  const mediaResult = await db.query(
     `SELECT id, kind, source_type, content_type, byte_size, sort_order, status
      FROM publication_media
      WHERE publication_id = $1

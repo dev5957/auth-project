@@ -18,6 +18,8 @@
     "test:publication-media-schema": "node src/check-publication-media-schema.js",
     "test:chronique-crud": "node src/check-chronique-crud.js",
     "test:chronique-lifecycle": "node src/check-chronique-lifecycle.js",
+    "test:chronique-temporal": "node src/check-chronique-temporal.js",
+    "test:chronique-security": "node src/check-chronique-security.js",
     "test:chronique-media": "node src/check-chronique-media.js",
     "test:chronique-full-flow": "node src/check-chronique-full-flow.js",
     "test:storage-r2": "node src/check-storage-r2.js",
@@ -39,6 +41,7 @@
     "test:cors": "node src/check-cors.js",
     "diagnose:google-id-token": "node src/diagnose-google-id-token.js",
     "purge:refresh-tokens": "node src/purge-refresh-tokens.js",
+    "jobs:chronique": "node src/run-chronique-jobs.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

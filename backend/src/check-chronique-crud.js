@@ -3,6 +3,13 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { generateAccessToken } = require('./services/tokenService');
 const { parseCreateInput, parseListQuery, parseChroniqueId } = require('./validators/chroniqueFields');
+const {
+  createChronique,
+  listChroniques,
+  getChroniqueById,
+  updateChronique,
+} = require('./services/chroniqueService');
+const { createPublicationsMemory } = require('./check-chronique-memory');
 const AppError = require('./errors/AppError');
 
 const TEST_SECRET = 'chronique-crud-test-secret-not-for-production';
@@ -188,14 +195,73 @@ async function main() {
     before_at: new Date().toISOString(),
     before_id: '10',
   });
+  parseListQuery({ status: 'scheduled' });
+  parseListQuery({ status: 'draft' });
+  parseListQuery({ status: 'archived' });
+  parseListQuery({ status: 'expired' });
   try {
     parseListQuery({ before_id: '1' });
     throw new Error('cursor');
   } catch (err) {
     assert(err.message === 'cursor is incomplete', err.message);
   }
+  expectAppError(() => parseListQuery({ status: 'deleted' }), 400, 'status is invalid');
   expectAppError(() => parseChroniqueId('abc'), 400, 'id is invalid');
   console.log('A OK validators create/list/id');
+
+  const previousDb = process.env.DATABASE_URL;
+  process.env.DATABASE_URL = previousDb || 'postgres://chronique-crud-test/local';
+  const db = createPublicationsMemory();
+  const ownerId = 42;
+  const text = validBody().body;
+
+  const nowCreated = await createChronique(ownerId, validBody({ publish: 'now' }), { db });
+  assert(nowCreated.status === 'active', 'create now status');
+  assert(nowCreated.published_at != null, 'create now published_at');
+  assert(nowCreated.scheduled_at == null, 'create now scheduled_at');
+  assert(nowCreated.theme_id == null, 'theme_id inert');
+  assert(nowCreated.is_public === false, 'is_public inert');
+
+  const scheduledAt = new Date(Date.now() + 60 * 60 * 1000);
+  const scheduledCreated = await createChronique(
+    ownerId,
+    validBody({ publish: 'schedule', scheduled_at: scheduledAt.toISOString() }),
+    { db }
+  );
+  assert(scheduledCreated.status === 'scheduled', 'create schedule status');
+  assert(scheduledCreated.scheduled_at != null, 'create schedule scheduled_at');
+  assert(scheduledCreated.published_at == null, 'create schedule published_at');
+
+  const draftCreated = await createChronique(ownerId, validBody({ publish: 'draft' }), { db });
+  assert(draftCreated.status === 'draft', 'create draft status');
+  assert(draftCreated.published_at == null, 'create draft published_at');
+  console.log('A2 OK create now/schedule/draft');
+
+  const listedActive = await listChroniques(ownerId, { status: 'active' }, { db });
+  assert(listedActive.items.length === 1, 'list active count');
+  assert(listedActive.items[0].id === nowCreated.id, 'list active id');
+  assert(listedActive.next == null, 'list next null');
+
+  const listedScheduled = await listChroniques(ownerId, { status: 'scheduled' }, { db });
+  assert(listedScheduled.items.length === 1, 'list scheduled count');
+  const listedDraft = await listChroniques(ownerId, { status: 'draft' }, { db });
+  assert(listedDraft.items.length === 1, 'list draft count');
+  console.log('A3 OK list by status');
+
+  const fetched = await getChroniqueById(ownerId, nowCreated.id, { db });
+  assert(fetched.id === nowCreated.id, 'get id');
+  assert(Array.isArray(fetched.media), 'get media array');
+  const patched = await updateChronique(ownerId, nowCreated.id, { title: 'Soir deux', body: text }, { db });
+  assert(patched.title === 'Soir deux', 'patch title');
+  assert(patched.body === text, 'patch body');
+  assert(patched.status === 'active', 'patch keeps active');
+  console.log('A4 OK get/patch');
+
+  if (!previousDb) {
+    delete process.env.DATABASE_URL;
+  } else {
+    process.env.DATABASE_URL = previousDb;
+  }
 
   const { child, logs } = startTestServer(TEST_PORT);
   try {
