@@ -13,7 +13,10 @@ import 'package:mobile/features/auth/providers/auth_providers.dart';
 import 'package:mobile/features/auth/state/auth_state.dart';
 import 'package:mobile/features/chronique/models/chronique.dart';
 import 'package:mobile/features/chronique/models/chronique_page.dart';
+import 'package:mobile/features/chronique/models/media_draft.dart';
 import 'package:mobile/features/chronique/presentation/screens/create_chronique_screen.dart';
+import 'package:mobile/features/chronique/presentation/state/create_chronique_controller.dart';
+import 'package:mobile/features/chronique/presentation/widgets/media_draft_list.dart';
 import 'package:mobile/features/chronique/presentation/screens/mon_fil_screen.dart';
 import 'package:mobile/features/chronique/providers/chronique_providers.dart';
 import 'package:mobile/features/chronique/services/chronique_api_service.dart';
@@ -192,6 +195,8 @@ void main() {
     expect(find.text('Texte *'), findsOneWidget);
     expect(find.text('Publier'), findsOneWidget);
     expect(find.text('0 / 5000'), findsOneWidget);
+    expect(find.text('+ Ajouter un média'), findsOneWidget);
+    expect(find.text('Aucun média ajouté'), findsOneWidget);
     expect(_publishInkWell(tester).onTap, isNull);
     expect(find.byType(CloseButton), findsOneWidget);
     expect(find.text('Chapitre'), findsNothing);
@@ -331,5 +336,67 @@ void main() {
     expect(find.byType(CreateChroniqueScreen), findsNothing);
     expect(find.text('Logout'), findsOneWidget);
     expect(api.createCalls, 0);
+  });
+
+  testWidgets('local media can be added and removed without API calls', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final container = await _pumpHome(tester, api: api);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Image'), findsOneWidget);
+    expect(find.text('Vidéo'), findsOneWidget);
+    expect(find.text('Audio'), findsOneWidget);
+    expect(find.text('Document'), findsOneWidget);
+
+    await tester.tap(find.text('Image'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Fonction disponible prochainement'), findsOneWidget);
+    expect(find.text('Aucun média ajouté'), findsNothing);
+    expect(find.byType(MediaDraftList), findsOneWidget);
+    expect(find.text('Image'), findsOneWidget);
+    expect(find.text('Sans nom'), findsOneWidget);
+    expect(container.read(createChroniqueControllerProvider).medias, hasLength(1));
+    expect(
+      container.read(createChroniqueControllerProvider).medias.single.kind,
+      MediaDraftKind.image,
+    );
+    expect(api.createCalls, 0);
+
+    await tester.tap(find.byTooltip('Supprimer'));
+    await tester.pump();
+
+    expect(find.text('Aucun média ajouté'), findsOneWidget);
+    expect(find.byType(MediaDraftList), findsNothing);
+    expect(container.read(createChroniqueControllerProvider).medias, isEmpty);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('publish still sends text only after a local media draft', (tester) async {
+    final api = _ChroniqueApiProbe();
+    await _pumpHome(tester, api: api);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Document'));
+    await tester.pumpAndSettle();
+
+    const body = 'Le texte de la chronique, d au moins vingt caracteres.';
+    await tester.enterText(find.byType(TextField).at(1), body);
+    await tester.pump();
+    await tester.ensureVisible(find.text('Publier'));
+    await tester.tap(find.text('Publier'));
+    await tester.pumpAndSettle();
+
+    expect(api.createCalls, 1);
+    expect(api.lastBody, body);
+    expect(api.lastTitle, isNull);
+    expect(find.byType(MonFilScreen), findsOneWidget);
   });
 }

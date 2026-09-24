@@ -11,6 +11,8 @@ import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_text_field.dart';
 import '../../models/chronique_fields.dart';
 import '../state/create_chronique_controller.dart';
+import '../widgets/add_media_kind_sheet.dart';
+import '../widgets/media_draft_list.dart';
 
 /// Assistant de création V1 (modal plein écran). Texte uniquement.
 class CreateChroniqueScreen extends ConsumerStatefulWidget {
@@ -73,6 +75,20 @@ class _CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
     return bodyError == null && titleError == null;
   }
 
+  Future<void> _addMedia() async {
+    if (_submitting) {
+      return;
+    }
+    final kind = await showAddMediaKindSheet(context);
+    if (!mounted || kind == null) {
+      return;
+    }
+    ref.read(createChroniqueControllerProvider.notifier).addMediaDraft(kind: kind);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Fonction disponible prochainement')),
+    );
+  }
+
   String _messageFor(ApiException error) {
     final message = error.message.trim();
     if (message.isNotEmpty) {
@@ -113,6 +129,7 @@ class _CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
             body: body,
             title: title,
           );
+      ref.read(createChroniqueControllerProvider.notifier).clearDraft();
       if (!mounted) {
         return;
       }
@@ -139,6 +156,7 @@ class _CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
   @override
   Widget build(BuildContext context) {
     final colors = context.luminaColors;
+    final medias = ref.watch(createChroniqueControllerProvider.select((d) => d.medias));
     return Scaffold(
       backgroundColor: colors.bgBase,
       appBar: AppBar(
@@ -190,6 +208,26 @@ class _CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
                 textAlign: TextAlign.right,
                 style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
               ),
+              const SizedBox(height: AppSpacing.xxl),
+              AppButton(
+                label: '+ Ajouter un média',
+                variant: AppButtonVariant.secondary,
+                onPressed: _submitting ? null : _addMedia,
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              if (medias.isEmpty)
+                Text(
+                  'Aucun média ajouté',
+                  textAlign: TextAlign.center,
+                  style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
+                )
+              else
+                MediaDraftList(
+                  medias: medias,
+                  onRemove: (id) {
+                    ref.read(createChroniqueControllerProvider.notifier).removeMediaDraft(id);
+                  },
+                ),
               if (_formError != null) ...[
                 const SizedBox(height: AppSpacing.md),
                 Text(
