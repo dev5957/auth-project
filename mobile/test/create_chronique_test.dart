@@ -14,6 +14,7 @@ import 'package:mobile/features/auth/providers/auth_providers.dart';
 import 'package:mobile/features/auth/state/auth_state.dart';
 import 'package:mobile/features/chronique/media/chronique_local_file_access.dart';
 import 'package:mobile/features/chronique/media/chronique_local_media_picker.dart';
+import 'package:mobile/features/chronique/media/chronique_microphone_recorder.dart';
 import 'package:mobile/features/chronique/models/chronique.dart';
 import 'package:mobile/features/chronique/models/chronique_date.dart';
 import 'package:mobile/features/chronique/models/chronique_media_upload.dart';
@@ -265,6 +266,42 @@ class _FakeMediaUploadClient extends ChroniqueMediaUploadClient {
   }
 }
 
+class _FakeMicrophoneRecorder implements ChroniqueMicrophoneRecorder {
+  bool permissionGranted = true;
+  MediaPickResult stopResult = const MediaPickSelected(
+    kind: MediaDraftKind.audio,
+    sourceType: MediaDraftSourceType.microphone,
+    fileName: 'mic.m4a',
+    byteSize: 2048,
+    localPath: '/tmp/mic.m4a',
+    contentType: 'audio/mp4',
+  );
+  int startCalls = 0;
+  int discardCalls = 0;
+
+  @override
+  Future<bool> hasPermission() async => permissionGranted;
+
+  @override
+  Future<void> start() async {
+    startCalls += 1;
+  }
+
+  @override
+  Future<MediaPickResult> stop() async => stopResult;
+
+  @override
+  Future<void> discard() async {
+    discardCalls += 1;
+  }
+
+  @override
+  void keep() {}
+
+  @override
+  Future<void> dispose() async {}
+}
+
 class _FakeLocalMediaPicker implements ChroniqueLocalMediaPicker {
   MediaPickResult imageResult = const MediaPickCancelled();
   MediaPickResult cameraImageResult = const MediaPickCancelled();
@@ -297,6 +334,7 @@ Future<ProviderContainer> _pumpHome(
   required _ChroniqueApiProbe api,
   AuthTokenStorage? storage,
   _FakeLocalMediaPicker? picker,
+  _FakeMicrophoneRecorder? recorder,
 }) async {
   await tester.pumpWidget(
     ProviderScope(
@@ -312,6 +350,9 @@ Future<ProviderContainer> _pumpHome(
         chroniqueApiServiceProvider.overrideWithValue(api),
         chroniqueLocalMediaPickerProvider.overrideWithValue(
           picker ?? _FakeLocalMediaPicker(),
+        ),
+        chroniqueMicrophoneRecorderProvider.overrideWithValue(
+          recorder ?? _FakeMicrophoneRecorder(),
         ),
         chroniqueLocalFileAccessProvider.overrideWithValue(
           const _AlwaysReadableFileAccess(),
@@ -895,6 +936,181 @@ void main() {
     expect(api.lastUploadPayload?['kind'], 'video');
     expect(api.lastUploadPayload?['source_type'], 'camera');
     expect(api.lastUploadPayload?['content_type'], 'video/mp4');
+    expect(api.lastUploadPayload?.containsKey('storage_key'), isFalse);
+    expect(find.byType(MonFilScreen), findsOneWidget);
+  });
+
+  testWidgets('file audio creates an audio MediaDraft with sourceType upload', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final picker = _FakeLocalMediaPicker()
+      ..audioResult = const MediaPickSelected(
+        kind: MediaDraftKind.audio,
+        sourceType: MediaDraftSourceType.upload,
+        fileName: 'voix.m4a',
+        byteSize: 4096,
+        localPath: '/tmp/voix.m4a',
+        contentType: 'audio/mp4',
+      );
+    final container = await _pumpHome(tester, api: api, picker: picker);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Audio'));
+    await tester.pumpAndSettle();
+    expect(find.text('Fichier'), findsOneWidget);
+    expect(find.text('Microphone'), findsOneWidget);
+    await tester.tap(find.text('Fichier'));
+    await tester.pumpAndSettle();
+
+    final audio = container.read(createChroniqueControllerProvider).medias.single;
+    expect(audio.kind, MediaDraftKind.audio);
+    expect(audio.sourceType, MediaDraftSourceType.upload);
+    expect(audio.fileName, 'voix.m4a');
+    expect(audio.contentType, 'audio/mp4');
+    expect(find.text('voix.m4a'), findsOneWidget);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('microphone recording creates an audio MediaDraft with sourceType microphone', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final recorder = _FakeMicrophoneRecorder();
+    final container = await _pumpHome(tester, api: api, recorder: recorder);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Audio'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Microphone'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('🎙️ Prêt à enregistrer'), findsOneWidget);
+    await tester.tap(find.text('Enregistrer'));
+    await tester.pump();
+    expect(find.text('🔴 Enregistrement'), findsOneWidget);
+    expect(recorder.startCalls, 1);
+    await tester.tap(find.text('Arrêter'));
+    await tester.pump();
+    await tester.tap(find.text('Ajouter'));
+    await tester.pumpAndSettle();
+
+    final audio = container.read(createChroniqueControllerProvider).medias.single;
+    expect(audio.kind, MediaDraftKind.audio);
+    expect(audio.sourceType, MediaDraftSourceType.microphone);
+    expect(audio.fileName, 'mic.m4a');
+    expect(audio.localPath, '/tmp/mic.m4a');
+    expect(audio.contentType, 'audio/mp4');
+    expect(find.text('mic.m4a'), findsOneWidget);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('cancelling microphone recording does not change the draft', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final recorder = _FakeMicrophoneRecorder();
+    final container = await _pumpHome(tester, api: api, recorder: recorder);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Audio'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Microphone'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Enregistrer'));
+    await tester.pump();
+    await tester.tap(find.text('Annuler'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Aucun média ajouté'), findsOneWidget);
+    expect(container.read(createChroniqueControllerProvider).medias, isEmpty);
+    expect(recorder.discardCalls, 1);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('microphone access denied shows a short message without crash', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final recorder = _FakeMicrophoneRecorder()..permissionGranted = false;
+    final container = await _pumpHome(tester, api: api, recorder: recorder);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Audio'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Microphone'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Enregistrer'));
+    await tester.pumpAndSettle();
+
+    expect(find.text(kMicrophoneAccessDeniedMessage), findsOneWidget);
+    expect(container.read(createChroniqueControllerProvider).medias, isEmpty);
+    expect(find.byType(CreateChroniqueScreen), findsOneWidget);
+    expect(recorder.startCalls, 0);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('invalid microphone file shows a message without MediaDraft', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final recorder = _FakeMicrophoneRecorder()
+      ..stopResult = const MediaPickFailed(kMediaInaccessibleMessage);
+    final container = await _pumpHome(tester, api: api, recorder: recorder);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Audio'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Microphone'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Enregistrer'));
+    await tester.pump();
+    await tester.tap(find.text('Arrêter'));
+    await tester.pumpAndSettle();
+
+    expect(find.text(kMediaInaccessibleMessage), findsOneWidget);
+    expect(container.read(createChroniqueControllerProvider).medias, isEmpty);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('publish with a microphone audio sends source_type microphone', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final recorder = _FakeMicrophoneRecorder();
+    await _pumpHome(tester, api: api, recorder: recorder);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Audio'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Microphone'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Enregistrer'));
+    await tester.pump();
+    await tester.tap(find.text('Arrêter'));
+    await tester.pump();
+    await tester.tap(find.text('Ajouter'));
+    await tester.pumpAndSettle();
+
+    const body = 'Le texte de la chronique, d au moins vingt caracteres.';
+    await tester.enterText(find.byType(TextField).at(1), body);
+    await tester.pump();
+    await _goToPreview(tester);
+    await tester.ensureVisible(find.text('Publier'));
+    await tester.tap(find.text('Publier'));
+    await tester.pumpAndSettle();
+
+    expect(api.createCalls, 1);
+    expect(api.createMediaUploadCalls, 1);
+    expect(api.lastUploadPayload?['kind'], 'audio');
+    expect(api.lastUploadPayload?['source_type'], 'microphone');
+    expect(api.lastUploadPayload?['content_type'], 'audio/mp4');
     expect(api.lastUploadPayload?.containsKey('storage_key'), isFalse);
     expect(find.byType(MonFilScreen), findsOneWidget);
   });

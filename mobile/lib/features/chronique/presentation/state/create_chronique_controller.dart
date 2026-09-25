@@ -88,8 +88,15 @@ class CreateChroniqueController extends AutoDisposeNotifier<ChroniqueDraft> {
 
   Future<String?> pickDocument() => _pick(_picker.pickDocument);
 
+  Future<String?> applyMediaPick(MediaPickResult result) {
+    return _applyPick(result);
+  }
+
   Future<String?> _pick(Future<MediaPickResult> Function() pick) async {
-    final result = await pick();
+    return _applyPick(await pick());
+  }
+
+  Future<String?> _applyPick(MediaPickResult result) async {
     switch (result) {
       case MediaPickCancelled():
         return null;

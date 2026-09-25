@@ -52,3 +52,5 @@ abstract class ChroniqueLocalMediaPicker {
 const String kMediaInaccessibleMessage = 'Le fichier est inaccessible';
 const String kMediaUnsupportedMessage = 'Ce type de fichier n\'est pas pris en charge';
 const String kCameraAccessDeniedMessage = 'Impossible d\'accéder à l\'appareil photo.';
+const String kMicrophoneAccessDeniedMessage =
+    'Impossible d\'accéder au microphone.';

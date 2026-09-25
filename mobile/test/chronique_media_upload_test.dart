@@ -270,6 +270,10 @@ void main() {
       resolveChroniqueMediaContentType(kind: MediaDraftKind.video, fileName: 'camera.mp4'),
       'video/mp4',
     );
+    expect(
+      resolveChroniqueMediaContentType(kind: MediaDraftKind.audio, fileName: 'mic.m4a'),
+      'audio/mp4',
+    );
     expect(isChroniqueContentTypeAllowed(MediaDraftKind.image, 'image/webp'), isTrue);
     expect(isChroniqueContentTypeAllowed(MediaDraftKind.image, 'image/gif'), isFalse);
   });
@@ -374,6 +378,29 @@ void main() {
     expect(api.lastUploadPayload?['kind'], 'video');
     expect(api.lastUploadPayload?['source_type'], 'camera');
     expect(api.lastUploadPayload?['content_type'], 'video/mp4');
+    expect(put.putCalls, 1);
+    expect(put.headers.single.containsKey('Authorization'), isFalse);
+  });
+
+  test('microphone audio upload sends source_type microphone without JWT on PUT', () async {
+    final api = _Api();
+    final put = _PutClient();
+    final container = _container(api: api, put: put);
+    addTearDown(container.dispose);
+    final controller = container.read(createChroniqueControllerProvider.notifier);
+    controller.addMediaDraft(
+      kind: MediaDraftKind.audio,
+      sourceType: MediaDraftSourceType.microphone,
+      fileName: 'mic.m4a',
+      byteSize: 2048,
+      localPath: '/tmp/mic.m4a',
+      contentType: 'audio/mp4',
+    );
+    await controller.publish(body: body);
+    expect(api.initCalls, 1);
+    expect(api.lastUploadPayload?['kind'], 'audio');
+    expect(api.lastUploadPayload?['source_type'], 'microphone');
+    expect(api.lastUploadPayload?['content_type'], 'audio/mp4');
     expect(put.putCalls, 1);
     expect(put.headers.single.containsKey('Authorization'), isFalse);
   });

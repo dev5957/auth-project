@@ -101,3 +101,37 @@ Future<MediaDraftSourceType?> showAddVideoSourceSheet(BuildContext context) {
     },
   );
 }
+
+/// Après « Audio » : fichier ou microphone.
+Future<MediaDraftSourceType?> showAddAudioSourceSheet(BuildContext context) {
+  return showModalBottomSheet<MediaDraftSourceType>(
+    context: context,
+    builder: (context) {
+      final colors = context.luminaColors;
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.lg),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                title: Text(
+                  'Fichier',
+                  style: AppTextTheme.bodyLarge.copyWith(color: colors.textPrimary),
+                ),
+                onTap: () => Navigator.of(context).pop(MediaDraftSourceType.upload),
+              ),
+              ListTile(
+                title: Text(
+                  'Microphone',
+                  style: AppTextTheme.bodyLarge.copyWith(color: colors.textPrimary),
+                ),
+                onTap: () => Navigator.of(context).pop(MediaDraftSourceType.microphone),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}

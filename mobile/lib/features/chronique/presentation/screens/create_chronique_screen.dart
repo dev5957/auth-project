@@ -13,8 +13,10 @@ import '../../../../core/widgets/app_text_field.dart';
 import '../../models/chronique_fields.dart';
 import '../../models/chronique_schedule_draft.dart';
 import '../../models/media_draft.dart';
+import '../../providers/chronique_providers.dart';
 import '../state/create_chronique_controller.dart';
 import '../widgets/add_media_kind_sheet.dart';
+import '../widgets/audio_recording_sheet.dart';
 import '../widgets/chronique_preview.dart';
 import '../widgets/chronique_publication_fields.dart';
 import '../widgets/media_draft_list.dart';
@@ -129,12 +131,30 @@ class CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
       error = source == MediaDraftSourceType.camera
           ? await controller.pickVideoFromCamera()
           : await controller.pickVideo();
+    } else if (kind == MediaDraftKind.audio) {
+      final source = await showAddAudioSourceSheet(context);
+      if (!mounted || source == null) {
+        return;
+      }
+      setState(() => _formError = null);
+      if (source == MediaDraftSourceType.microphone) {
+        error = await controller.applyMediaPick(
+          await showChroniqueAudioRecordingSheet(
+            context,
+            recorder: ref.read(chroniqueMicrophoneRecorderProvider),
+          ),
+        );
+      } else {
+        error = await controller.pickAudio();
+      }
     } else {
       setState(() => _formError = null);
       error = await switch (kind) {
-        MediaDraftKind.audio => controller.pickAudio(),
         MediaDraftKind.document => controller.pickDocument(),
-        MediaDraftKind.image || MediaDraftKind.video => Future<String?>.value(null),
+        MediaDraftKind.image ||
+        MediaDraftKind.video ||
+        MediaDraftKind.audio =>
+          Future<String?>.value(null),
       };
     }
     if (!mounted || error == null) {
