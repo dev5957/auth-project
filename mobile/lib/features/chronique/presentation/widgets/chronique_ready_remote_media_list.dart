@@ -2,13 +2,17 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_spacing.dart';
 import '../../models/chronique.dart';
+import 'chronique_ready_audio_list.dart';
 import 'chronique_ready_image_list.dart';
 import 'chronique_ready_video_list.dart';
 
 List<ChroniqueMedia> displayableChroniqueRemoteMedia(Iterable<ChroniqueMedia> medias) {
   final items = [
     for (final media in medias)
-      if (chroniqueMediaIsDisplayableImage(media) || chroniqueMediaIsDisplayableVideo(media)) media,
+      if (chroniqueMediaIsDisplayableImage(media) ||
+          chroniqueMediaIsDisplayableVideo(media) ||
+          chroniqueMediaIsDisplayableAudio(media))
+        media,
   ];
   items.sort((a, b) {
     final order = (a.sortOrder ?? 0).compareTo(b.sortOrder ?? 0);
@@ -20,7 +24,17 @@ List<ChroniqueMedia> displayableChroniqueRemoteMedia(Iterable<ChroniqueMedia> me
   return items;
 }
 
-/// Médias distants `ready` (image + vidéo) dans l’ordre `sort_order` global.
+Widget _tileFor(ChroniqueMedia media) {
+  if (chroniqueMediaIsDisplayableImage(media)) {
+    return ChroniqueReadyImageList(medias: [media]);
+  }
+  if (chroniqueMediaIsDisplayableVideo(media)) {
+    return ChroniqueReadyVideoList(medias: [media]);
+  }
+  return ChroniqueReadyAudioList(medias: [media]);
+}
+
+/// Médias distants `ready` (image + vidéo + audio) dans l’ordre `sort_order` global.
 class ChroniqueReadyRemoteMediaList extends StatelessWidget {
   const ChroniqueReadyRemoteMediaList({
     super.key,
@@ -40,10 +54,7 @@ class ChroniqueReadyRemoteMediaList extends StatelessWidget {
       children: [
         for (var i = 0; i < items.length; i++) ...[
           if (i > 0) const SizedBox(height: AppSpacing.lg),
-          if (chroniqueMediaIsDisplayableImage(items[i]))
-            ChroniqueReadyImageList(medias: [items[i]])
-          else
-            ChroniqueReadyVideoList(medias: [items[i]]),
+          _tileFor(items[i]),
         ],
       ],
     );
