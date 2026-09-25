@@ -241,13 +241,21 @@ void main() {
       }),
       _audio(id: 50, sortOrder: 6, status: 'pending_upload'),
     ]);
-    expect(mixed.map((item) => item.kind).toList(), ['image', 'audio', 'video', 'audio', 'image']);
+    expect(mixed.map((item) => item.kind).toList(), [
+      'image',
+      'audio',
+      'video',
+      'audio',
+      'image',
+      'document',
+    ]);
     expect(mixed.map((item) => item.readUrl).toList(), [
       'https://example.test/first.jpg',
       'https://example.test/first.mp3',
       'https://example.test/clip.mp4',
       'https://example.test/second.mp3',
       'https://example.test/last.jpg',
+      'https://example.test/note.pdf',
     ]);
   });
 
