@@ -1,16 +1,22 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_text_theme.dart';
+import '../../media/chronique_document_file.dart';
 import '../../media/chronique_media_mime.dart';
 import '../../models/chronique.dart';
+import '../../services/chronique_document_open_service.dart';
 
-typedef ChroniqueDocumentOpener = Future<bool> Function(Uri uri);
-
-const String kChroniqueDocumentOpenFailedMessage = 'Impossible d\'ouvrir le document.';
-const String kChroniqueDocumentFallbackName = 'Document';
+export '../../media/chronique_document_file.dart' show
+    kChroniqueDocumentFallbackName,
+    kChroniqueDocumentOpenFailedMessage,
+    kChroniqueDocumentPreparingMessage,
+    kChroniqueDocumentRetrieveFailedMessage;
+export '../../services/chronique_document_open_service.dart' show
+    ChroniqueDocumentOpenHandler,
+    ChroniqueDocumentOpenOutcome,
+    ChroniqueDocumentOpenService;
 
 bool chroniqueMediaIsDisplayableDocument(ChroniqueMedia media) {
   if (media.kind != 'document') {
@@ -86,20 +92,18 @@ String? _shortTypeForExtension(String? extension) {
   }
 }
 
-Future<bool> openChroniqueDocumentReadUrl(Uri uri) {
-  return launchUrl(uri, mode: LaunchMode.externalApplication);
-}
-
-/// Documents `ready` avec `read_url`. Ouverture externe, sans JWT.
+/// Documents `ready` avec `read_url`. GET R2 puis ouverture locale, sans JWT.
 class ChroniqueReadyDocumentList extends StatelessWidget {
   const ChroniqueReadyDocumentList({
     super.key,
     required this.medias,
-    this.openDocument,
+    this.openHandler,
+    this.openService,
   });
 
   final List<ChroniqueMedia> medias;
-  final ChroniqueDocumentOpener? openDocument;
+  final ChroniqueDocumentOpenHandler? openHandler;
+  final ChroniqueDocumentOpenService? openService;
 
   @override
   Widget build(BuildContext context) {
@@ -116,7 +120,8 @@ class ChroniqueReadyDocumentList extends StatelessWidget {
             key: ValueKey('chronique-ready-document-${documents[i].id ?? i}'),
             media: documents[i],
             url: documents[i].readUrl!,
-            openDocument: openDocument,
+            openHandler: openHandler,
+            openService: openService,
           ),
         ],
       ],
@@ -124,42 +129,68 @@ class ChroniqueReadyDocumentList extends StatelessWidget {
   }
 }
 
-class ChroniqueReadyDocumentCard extends StatelessWidget {
+class ChroniqueReadyDocumentCard extends StatefulWidget {
   const ChroniqueReadyDocumentCard({
     super.key,
     required this.media,
     required this.url,
-    this.openDocument,
+    this.openHandler,
+    this.openService,
   });
 
   final ChroniqueMedia media;
   final String url;
-  final ChroniqueDocumentOpener? openDocument;
+  final ChroniqueDocumentOpenHandler? openHandler;
+  final ChroniqueDocumentOpenService? openService;
 
-  Future<void> _open(BuildContext context) async {
+  @override
+  State<ChroniqueReadyDocumentCard> createState() => _ChroniqueReadyDocumentCardState();
+}
+
+class _ChroniqueReadyDocumentCardState extends State<ChroniqueReadyDocumentCard> {
+  static final _fallbackOpenService = ChroniqueDocumentOpenService();
+  bool _busy = false;
+
+  Future<void> _open() async {
+    if (_busy) {
+      return;
+    }
+    setState(() => _busy = true);
     try {
-      final opener = openDocument ?? openChroniqueDocumentReadUrl;
-      final opened = await opener(Uri.parse(url));
-      if (!opened && context.mounted) {
-        _showOpenFailed(context);
+        final handler = widget.openHandler ??
+            widget.openService?.open ??
+            _fallbackOpenService.open;
+      final outcome = await handler(widget.media);
+      if (!mounted) {
+        return;
+      }
+      switch (outcome) {
+        case ChroniqueDocumentOpenOutcome.opened:
+          break;
+        case ChroniqueDocumentOpenOutcome.retrieveFailed:
+          _showMessage(kChroniqueDocumentRetrieveFailedMessage);
+        case ChroniqueDocumentOpenOutcome.openFailed:
+          _showMessage(kChroniqueDocumentOpenFailedMessage);
       }
     } catch (_) {
-      if (context.mounted) {
-        _showOpenFailed(context);
+      if (mounted) {
+        _showMessage(kChroniqueDocumentOpenFailedMessage);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
       }
     }
   }
 
-  void _showOpenFailed(BuildContext context) {
+  void _showMessage(String message) {
     final messenger = ScaffoldMessenger.maybeOf(context);
     if (messenger == null) {
       return;
     }
     messenger
       ..hideCurrentSnackBar()
-      ..showSnackBar(
-        const SnackBar(content: Text(kChroniqueDocumentOpenFailedMessage)),
-      );
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -181,24 +212,34 @@ class ChroniqueReadyDocumentCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    chroniqueDocumentDisplayName(media),
-                    key: ValueKey('chronique-document-name-$url'),
+                    chroniqueDocumentDisplayName(widget.media),
+                    key: ValueKey('chronique-document-name-${widget.url}'),
                     style: AppTextTheme.bodyMedium.copyWith(color: colors.textPrimary),
                   ),
                   const SizedBox(height: AppSpacing.xs),
                   Text(
-                    chroniqueDocumentShortType(media),
-                    key: ValueKey('chronique-document-type-$url'),
+                    chroniqueDocumentShortType(widget.media),
+                    key: ValueKey('chronique-document-type-${widget.url}'),
                     style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
                   ),
                 ],
               ),
             ),
-            TextButton(
-              key: ValueKey('chronique-document-open-$url'),
-              onPressed: () => _open(context),
-              child: const Text('Ouvrir'),
-            ),
+            if (_busy)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                child: Text(
+                  kChroniqueDocumentPreparingMessage,
+                  key: const ValueKey('chronique-document-preparing'),
+                  style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
+                ),
+              )
+            else
+              TextButton(
+                key: ValueKey('chronique-document-open-${widget.url}'),
+                onPressed: _open,
+                child: const Text('Ouvrir'),
+              ),
           ],
         ),
       ),

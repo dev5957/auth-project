@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:mobile/core/theme/app_colors.dart';
+import 'package:mobile/features/chronique/media/chronique_document_file.dart';
 import 'package:mobile/features/chronique/models/chronique.dart';
 import 'package:mobile/features/chronique/presentation/widgets/chronique_ready_audio_list.dart';
 import 'package:mobile/features/chronique/presentation/widgets/chronique_ready_document_list.dart';
@@ -337,8 +338,86 @@ void main() {
     );
   });
 
-  testWidgets('19 open uses injected opener with exact readUrl Uri', (tester) async {
-    Uri? opened;
+  test('cache names keep extension and stay a single segment', () {
+    expect(
+      chroniqueDocumentCacheFileName(
+        _document(
+          id: 12,
+          sortOrder: 0,
+          contentType: 'application/pdf',
+          originalFilename: 'rapport.pdf',
+        ),
+      ),
+      '12_rapport.pdf',
+    );
+    expect(
+      chroniqueDocumentMime(_document(id: 1, sortOrder: 0, contentType: 'application/pdf')),
+      'application/pdf',
+    );
+    expect(
+      chroniqueDocumentCacheFileName(
+        _document(id: 3, sortOrder: 0, contentType: 'application/msword', originalFilename: 'lettre.doc'),
+      ),
+      '3_lettre.doc',
+    );
+    expect(
+      chroniqueDocumentMime(_document(id: 1, sortOrder: 0, contentType: 'application/msword')),
+      'application/msword',
+    );
+    expect(
+      chroniqueDocumentCacheFileName(
+        _document(
+          id: 4,
+          sortOrder: 0,
+          contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          originalFilename: 'rapport.docx',
+        ),
+      ),
+      '4_rapport.docx',
+    );
+    expect(
+      chroniqueDocumentCacheFileName(
+        _document(id: 5, sortOrder: 0, contentType: 'text/plain', originalFilename: 'notes.txt'),
+      ),
+      '5_notes.txt',
+    );
+    expect(
+      chroniqueDocumentCacheFileName(
+        _document(
+          id: 8,
+          sortOrder: 0,
+          contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        ),
+      ),
+      '8_document.docx',
+    );
+    expect(
+      chroniqueDocumentCacheFileName(
+        _document(
+          id: 9,
+          sortOrder: 0,
+          contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          originalFilename: '../rapport.docx',
+        ),
+      ),
+      '9_rapport.docx',
+    );
+    expect(
+      chroniqueDocumentCacheFileName(
+        _document(
+          id: 10,
+          sortOrder: 0,
+          contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          originalFilename: r'..\rapport.docx',
+        ),
+      ),
+      '10_rapport.docx',
+    );
+    expect(chroniqueDocumentCacheFileName(_document(id: 9, sortOrder: 0, originalFilename: '../rapport.docx')).contains('..'), isFalse);
+  });
+
+  testWidgets('19 open handler receives media with exact readUrl', (tester) async {
+    ChroniqueMedia? opened;
     await tester.pumpWidget(
       _wrap(
         ChroniqueReadyDocumentList(
@@ -348,27 +427,43 @@ void main() {
               sortOrder: 0,
               readUrl: 'https://example.test/note.pdf',
               originalFilename: 'note.pdf',
+              contentType: 'application/pdf',
             ),
           ],
-          openDocument: (uri) async {
-            opened = uri;
-            return true;
+          openHandler: (media) async {
+            opened = media;
+            return ChroniqueDocumentOpenOutcome.opened;
           },
         ),
       ),
     );
     await tester.tap(find.text('Ouvrir'));
     await tester.pump();
-    expect(opened, Uri.parse('https://example.test/note.pdf'));
+    expect(opened?.readUrl, 'https://example.test/note.pdf');
+    expect(opened?.readUrl?.contains('Authorization'), isFalse);
     expect(find.text(kChroniqueDocumentOpenFailedMessage), findsNothing);
   });
 
-  testWidgets('20 launchUrl false shows message without crash', (tester) async {
+  testWidgets('20 retrieve failure shows message without crash', (tester) async {
     await tester.pumpWidget(
       _wrap(
         ChroniqueReadyDocumentList(
           medias: [_document(id: 1, sortOrder: 0, originalFilename: 'note.pdf')],
-          openDocument: (_) async => false,
+          openHandler: (_) async => ChroniqueDocumentOpenOutcome.retrieveFailed,
+        ),
+      ),
+    );
+    await tester.tap(find.text('Ouvrir'));
+    await tester.pump();
+    expect(find.text(kChroniqueDocumentRetrieveFailedMessage), findsOneWidget);
+  });
+
+  testWidgets('20 open failure shows message without crash', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ChroniqueReadyDocumentList(
+          medias: [_document(id: 1, sortOrder: 0, originalFilename: 'note.pdf')],
+          openHandler: (_) async => ChroniqueDocumentOpenOutcome.openFailed,
         ),
       ),
     );
@@ -377,17 +472,37 @@ void main() {
     expect(find.text(kChroniqueDocumentOpenFailedMessage), findsOneWidget);
   });
 
-  testWidgets('20 launchUrl throw shows message without crash', (tester) async {
+  testWidgets('20 handler throw shows message without crash', (tester) async {
     await tester.pumpWidget(
       _wrap(
         ChroniqueReadyDocumentList(
           medias: [_document(id: 1, sortOrder: 0, originalFilename: 'note.pdf')],
-          openDocument: (_) async => throw Exception('blocked'),
+          openHandler: (_) async => throw Exception('blocked'),
         ),
       ),
     );
     await tester.tap(find.text('Ouvrir'));
     await tester.pump();
     expect(find.text(kChroniqueDocumentOpenFailedMessage), findsOneWidget);
+  });
+
+  testWidgets('pending and failed do not invoke open handler', (tester) async {
+    var calls = 0;
+    await tester.pumpWidget(
+      _wrap(
+        ChroniqueReadyDocumentList(
+          medias: [
+            _document(id: 1, sortOrder: 0, status: 'pending_upload'),
+            _document(id: 2, sortOrder: 1, status: 'failed'),
+          ],
+          openHandler: (_) async {
+            calls += 1;
+            return ChroniqueDocumentOpenOutcome.opened;
+          },
+        ),
+      ),
+    );
+    expect(find.text('Ouvrir'), findsNothing);
+    expect(calls, 0);
   });
 }

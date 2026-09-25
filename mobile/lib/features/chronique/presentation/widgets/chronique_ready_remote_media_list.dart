@@ -26,7 +26,7 @@ List<ChroniqueMedia> displayableChroniqueRemoteMedia(Iterable<ChroniqueMedia> me
   return items;
 }
 
-Widget _tileFor(ChroniqueMedia media, ChroniqueDocumentOpener? openDocument) {
+Widget _tileFor(ChroniqueMedia media, ChroniqueDocumentOpenHandler? openHandler) {
   if (chroniqueMediaIsDisplayableImage(media)) {
     return ChroniqueReadyImageList(medias: [media]);
   }
@@ -37,7 +37,7 @@ Widget _tileFor(ChroniqueMedia media, ChroniqueDocumentOpener? openDocument) {
     return ChroniqueReadyAudioList(medias: [media]);
   }
   if (chroniqueMediaIsDisplayableDocument(media)) {
-    return ChroniqueReadyDocumentList(medias: [media], openDocument: openDocument);
+    return ChroniqueReadyDocumentList(medias: [media], openHandler: openHandler);
   }
   return const SizedBox.shrink();
 }
@@ -47,11 +47,11 @@ class ChroniqueReadyRemoteMediaList extends StatelessWidget {
   const ChroniqueReadyRemoteMediaList({
     super.key,
     required this.medias,
-    this.openDocument,
+    this.openHandler,
   });
 
   final List<ChroniqueMedia> medias;
-  final ChroniqueDocumentOpener? openDocument;
+  final ChroniqueDocumentOpenHandler? openHandler;
 
   @override
   Widget build(BuildContext context) {
@@ -64,7 +64,7 @@ class ChroniqueReadyRemoteMediaList extends StatelessWidget {
       children: [
         for (var i = 0; i < items.length; i++) ...[
           if (i > 0) const SizedBox(height: AppSpacing.lg),
-          _tileFor(items[i], openDocument),
+          _tileFor(items[i], openHandler),
         ],
       ],
     );
