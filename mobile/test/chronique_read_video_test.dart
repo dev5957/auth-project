@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:video_player/video_player.dart';
 
 import 'package:mobile/core/theme/app_colors.dart';
 import 'package:mobile/features/chronique/models/chronique.dart';
@@ -197,5 +198,75 @@ void main() {
     final videoFinder = find.byType(ChroniqueReadyVideoPlayer);
     expect(tester.getTopLeft(imageFinder.first).dy < tester.getTopLeft(videoFinder).dy, isTrue);
     expect(tester.getTopLeft(videoFinder).dy < tester.getTopLeft(imageFinder.last).dy, isTrue);
+  });
+
+  test('clock format is MM:SS under one hour and HH:MM:SS after', () {
+    expect(formatChroniqueVideoClock(Duration.zero), '00:00');
+    expect(formatChroniqueVideoClock(const Duration(seconds: 5)), '00:05');
+    expect(formatChroniqueVideoClock(const Duration(minutes: 3, seconds: 7)), '03:07');
+    expect(formatChroniqueVideoClock(const Duration(hours: 1, minutes: 2, seconds: 3)), '01:02:03');
+  });
+
+  test('pause icon follows real controller state including natural end', () {
+    const playing = VideoPlayerValue(
+      duration: Duration(seconds: 10),
+      position: Duration(seconds: 4),
+      isInitialized: true,
+      isPlaying: true,
+    );
+    const paused = VideoPlayerValue(
+      duration: Duration(seconds: 10),
+      position: Duration(seconds: 4),
+      isInitialized: true,
+    );
+    const endedWhileFlagStillPlaying = VideoPlayerValue(
+      duration: Duration(seconds: 10),
+      position: Duration(seconds: 10),
+      isInitialized: true,
+      isPlaying: true,
+    );
+    const completed = VideoPlayerValue(
+      duration: Duration(seconds: 10),
+      position: Duration(seconds: 10),
+      isInitialized: true,
+      isCompleted: true,
+    );
+    const seekToEndPaused = VideoPlayerValue(
+      duration: Duration(seconds: 10),
+      position: Duration(seconds: 10),
+      isInitialized: true,
+    );
+    expect(chroniqueVideoShowsPauseIcon(playing), isTrue);
+    expect(chroniqueVideoShowsPauseIcon(paused), isFalse);
+    expect(chroniqueVideoShowsPauseIcon(endedWhileFlagStillPlaying), isFalse);
+    expect(chroniqueVideoShowsPauseIcon(completed), isFalse);
+    expect(chroniqueVideoShowsPauseIcon(seekToEndPaused), isFalse);
+    expect(chroniqueVideoIsAtEnd(endedWhileFlagStillPlaying), isTrue);
+    expect(chroniqueVideoIsAtEnd(completed), isTrue);
+    expect(chroniqueVideoIsAtEnd(playing), isFalse);
+  });
+
+  test('slider value and seek target stay within duration without network', () {
+    const duration = Duration(seconds: 10);
+    expect(
+      chroniqueVideoSliderValue(position: const Duration(seconds: 4), duration: duration),
+      4000,
+    );
+    expect(
+      chroniqueVideoSliderValue(
+        position: const Duration(seconds: 4),
+        duration: duration,
+        scrubMilliseconds: 7500,
+      ),
+      7500,
+    );
+    expect(
+      chroniqueVideoSliderValue(position: const Duration(seconds: 20), duration: duration),
+      10000,
+    );
+    expect(chroniqueVideoSeekTarget(duration: duration, milliseconds: 2500), const Duration(milliseconds: 2500));
+    expect(chroniqueVideoSeekTarget(duration: duration, milliseconds: 10000), duration);
+    expect(chroniqueVideoSeekTarget(duration: duration, milliseconds: -5), Duration.zero);
+    expect(chroniqueVideoSeekTarget(duration: Duration.zero, milliseconds: 100), Duration.zero);
   });
 }

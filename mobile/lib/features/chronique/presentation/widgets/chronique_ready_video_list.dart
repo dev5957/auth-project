@@ -32,6 +32,92 @@ List<ChroniqueMedia> displayableChroniqueVideos(Iterable<ChroniqueMedia> medias)
   return videos;
 }
 
+bool chroniqueVideoIsAtEnd(VideoPlayerValue value) {
+  if (!value.isInitialized) {
+    return false;
+  }
+  if (value.isCompleted) {
+    return true;
+  }
+  final duration = value.duration;
+  if (duration <= Duration.zero) {
+    return false;
+  }
+  return value.position >= duration;
+}
+
+/// `true` → icône Pause ; `false` → icône Play.
+bool chroniqueVideoShowsPauseIcon(VideoPlayerValue value) {
+  if (!value.isInitialized || !value.isPlaying) {
+    return false;
+  }
+  return !chroniqueVideoIsAtEnd(value);
+}
+
+String formatChroniqueVideoClock(Duration duration) {
+  final total = duration.inSeconds.abs();
+  final hours = total ~/ 3600;
+  final minutes = (total % 3600) ~/ 60;
+  final seconds = total % 60;
+  final mm = minutes.toString().padLeft(2, '0');
+  final ss = seconds.toString().padLeft(2, '0');
+  if (hours > 0) {
+    return '${hours.toString().padLeft(2, '0')}:$mm:$ss';
+  }
+  return '$mm:$ss';
+}
+
+double chroniqueVideoSliderValue({
+  required Duration position,
+  required Duration duration,
+  double? scrubMilliseconds,
+}) {
+  final maxMs = duration.inMilliseconds.toDouble();
+  if (maxMs <= 0) {
+    return 0;
+  }
+  final raw = scrubMilliseconds ?? position.inMilliseconds.toDouble();
+  if (raw < 0) {
+    return 0;
+  }
+  if (raw > maxMs) {
+    return maxMs;
+  }
+  return raw;
+}
+
+Duration chroniqueVideoSeekTarget({
+  required Duration duration,
+  required double milliseconds,
+}) {
+  if (duration <= Duration.zero) {
+    return Duration.zero;
+  }
+  final ms = milliseconds.round();
+  if (ms <= 0) {
+    return Duration.zero;
+  }
+  if (ms >= duration.inMilliseconds) {
+    return duration;
+  }
+  return Duration(milliseconds: ms);
+}
+
+Future<void> toggleChroniqueVideoPlayback(VideoPlayerController controller) async {
+  final value = controller.value;
+  if (!value.isInitialized) {
+    return;
+  }
+  if (chroniqueVideoShowsPauseIcon(value)) {
+    await controller.pause();
+    return;
+  }
+  if (chroniqueVideoIsAtEnd(value)) {
+    await controller.seekTo(Duration.zero);
+  }
+  await controller.play();
+}
+
 /// Vidéos `ready` avec `read_url`. GET R2 signé, sans JWT.
 class ChroniqueReadyVideoList extends StatelessWidget {
   const ChroniqueReadyVideoList({
@@ -78,6 +164,8 @@ class _ChroniqueReadyVideoPlayerState extends State<ChroniqueReadyVideoPlayer> {
   VideoPlayerController? _controller;
   bool _loading = true;
   bool _failed = false;
+  bool _scrubbing = false;
+  double? _scrubMilliseconds;
 
   @override
   void initState() {
@@ -94,6 +182,7 @@ class _ChroniqueReadyVideoPlayerState extends State<ChroniqueReadyVideoPlayer> {
         await controller.dispose();
         return;
       }
+      controller.addListener(_onControllerUpdate);
       setState(() {
         _loading = false;
         _failed = false;
@@ -111,25 +200,49 @@ class _ChroniqueReadyVideoPlayerState extends State<ChroniqueReadyVideoPlayer> {
     }
   }
 
+  void _onControllerUpdate() {
+    if (!mounted || _scrubbing) {
+      return;
+    }
+    setState(() {});
+  }
+
   @override
   void dispose() {
-    _controller?.dispose();
+    final controller = _controller;
+    controller?.removeListener(_onControllerUpdate);
+    controller?.dispose();
     super.dispose();
   }
 
   Future<void> _togglePlay() async {
     final controller = _controller;
-    if (controller == null || !controller.value.isInitialized) {
+    if (controller == null) {
       return;
     }
-    if (controller.value.isPlaying) {
-      await controller.pause();
-    } else {
-      await controller.play();
-    }
+    await toggleChroniqueVideoPlayback(controller);
     if (mounted) {
       setState(() {});
     }
+  }
+
+  Future<void> _seekTo(double milliseconds) async {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) {
+      return;
+    }
+    final target = chroniqueVideoSeekTarget(
+      duration: controller.value.duration,
+      milliseconds: milliseconds,
+    );
+    await controller.seekTo(target);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _scrubbing = false;
+      _scrubMilliseconds = null;
+    });
   }
 
   @override
@@ -160,31 +273,91 @@ class _ChroniqueReadyVideoPlayerState extends State<ChroniqueReadyVideoPlayer> {
     }
 
     final controller = _controller!;
-    final size = controller.value.size;
+    final value = controller.value;
+    final size = value.size;
     final ratio = size.height == 0 ? 16 / 9 : size.width / size.height;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(AppSpacing.lg),
-      child: AspectRatio(
-        aspectRatio: ratio <= 0 ? 16 / 9 : ratio,
-        child: Stack(
-          alignment: Alignment.center,
+    final showPause = chroniqueVideoShowsPauseIcon(value);
+    final duration = value.duration;
+    final durationMs = duration.inMilliseconds.toDouble();
+    final sliderValue = chroniqueVideoSliderValue(
+      position: value.position,
+      duration: duration,
+      scrubMilliseconds: _scrubbing ? _scrubMilliseconds : null,
+    );
+    final displayPosition = _scrubbing && _scrubMilliseconds != null
+        ? Duration(milliseconds: _scrubMilliseconds!.round())
+        : value.position;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(AppSpacing.lg),
+          child: AspectRatio(
+            aspectRatio: ratio <= 0 ? 16 / 9 : ratio,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                VideoPlayer(controller),
+                Material(
+                  color: const Color(0x40000000),
+                  child: IconButton(
+                    key: const ValueKey('chronique-video-play-pause'),
+                    tooltip: showPause ? 'Pause' : 'Lecture',
+                    onPressed: _togglePlay,
+                    icon: Icon(
+                      showPause ? Icons.pause_circle : Icons.play_circle,
+                      color: colors.textOnPrimary,
+                      size: 48,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Row(
           children: [
-            VideoPlayer(controller),
-            Material(
-              color: const Color(0x40000000),
-              child: IconButton(
-                tooltip: controller.value.isPlaying ? 'Pause' : 'Lecture',
-                onPressed: _togglePlay,
-                icon: Icon(
-                  controller.value.isPlaying ? Icons.pause_circle : Icons.play_circle,
-                  color: colors.textOnPrimary,
-                  size: 48,
+            Text(
+              formatChroniqueVideoClock(displayPosition),
+              key: const ValueKey('chronique-video-position'),
+              style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
+            ),
+            Expanded(
+              child: SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: 2,
+                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                ),
+                child: Slider(
+                  key: const ValueKey('chronique-video-progress'),
+                  min: 0,
+                  max: durationMs > 0 ? durationMs : 1,
+                  value: durationMs > 0 ? sliderValue : 0,
+                  activeColor: colors.primary,
+                  inactiveColor: colors.border,
+                  onChanged: durationMs > 0
+                      ? (next) {
+                          setState(() {
+                            _scrubbing = true;
+                            _scrubMilliseconds = next;
+                          });
+                        }
+                      : null,
+                  onChangeEnd: durationMs > 0 ? _seekTo : null,
                 ),
               ),
             ),
+            Text(
+              formatChroniqueVideoClock(duration),
+              key: const ValueKey('chronique-video-duration'),
+              style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
+            ),
           ],
         ),
-      ),
+      ],
     );
   }
 }
