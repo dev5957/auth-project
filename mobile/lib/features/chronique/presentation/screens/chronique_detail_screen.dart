@@ -14,6 +14,7 @@ import '../state/chronique_detail_controller.dart';
 import '../state/mon_fil_controller.dart';
 import '../state/upcoming_chroniques_controller.dart';
 import '../widgets/chronique_lifecycle_dialogs.dart';
+import '../widgets/chronique_ready_image_list.dart';
 
 enum _DetailAction { edit, archive, delete }
 
@@ -344,6 +345,10 @@ class _ChroniqueDetailScreenState extends ConsumerState<ChroniqueDetailScreen> {
                         color: colors.textPrimary,
                       ),
                     ),
+                    if (displayableChroniqueImages(resolved.media).isNotEmpty) ...[
+                      const SizedBox(height: AppSpacing.xxl),
+                      ChroniqueReadyImageList(medias: resolved.media),
+                    ],
                     if (_error != null) ...[
                       const SizedBox(height: AppSpacing.lg),
                       Text(
