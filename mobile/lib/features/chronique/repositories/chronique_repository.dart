@@ -1,7 +1,9 @@
 import '../../../core/network/api_exception.dart';
 import '../../auth/data/storage/auth_token_storage.dart';
 import '../models/chronique.dart';
+import '../models/chronique_media_upload.dart';
 import '../models/chronique_page.dart';
+import '../models/media_draft.dart';
 import '../services/chronique_api_service.dart';
 
 /// Orchestration Chronique : jeton existant + HTTP. Pas de refresh, pas de logout.
@@ -74,6 +76,59 @@ class ChroniqueRepository {
 
   Future<void> delete(int id) async {
     await _api.delete(accessToken: await _requireAccessToken(), id: id);
+  }
+
+  Future<ChroniqueMediaUploadSession> createMediaUpload({
+    required int chroniqueId,
+    required MediaDraft media,
+  }) async {
+    final contentType = media.contentType;
+    final byteSize = media.byteSize;
+    if (contentType == null || contentType.isEmpty || byteSize == null) {
+      throw const ApiException(message: 'content_type is invalid', statusCode: 400);
+    }
+    return _api.createMediaUpload(
+      accessToken: await _requireAccessToken(),
+      chroniqueId: chroniqueId,
+      kind: media.kind.name,
+      sourceType: media.sourceType.name,
+      contentType: contentType,
+      byteSize: byteSize,
+      originalFilename: media.fileName,
+    );
+  }
+
+  Future<Chronique> completeMediaUpload({
+    required int chroniqueId,
+    required int mediaId,
+  }) async {
+    return _api.completeMediaUpload(
+      accessToken: await _requireAccessToken(),
+      chroniqueId: chroniqueId,
+      mediaId: mediaId,
+    );
+  }
+
+  Future<Chronique> deleteMedia({
+    required int chroniqueId,
+    required int mediaId,
+  }) async {
+    return _api.deleteMedia(
+      accessToken: await _requireAccessToken(),
+      chroniqueId: chroniqueId,
+      mediaId: mediaId,
+    );
+  }
+
+  Future<Chronique> reorderMedia({
+    required int chroniqueId,
+    required List<int> mediaIds,
+  }) async {
+    return _api.reorderMedia(
+      accessToken: await _requireAccessToken(),
+      chroniqueId: chroniqueId,
+      mediaIds: mediaIds,
+    );
   }
 
   Future<String> _requireAccessToken() async {

@@ -21,6 +21,8 @@ final class MediaPickSelected extends MediaPickResult {
     required this.fileName,
     required this.byteSize,
     required this.localPath,
+    this.contentType,
+    this.platformMime,
   });
 
   final MediaDraftKind kind;
@@ -28,6 +30,8 @@ final class MediaPickSelected extends MediaPickResult {
   final String fileName;
   final int byteSize;
   final String localPath;
+  final String? contentType;
+  final String? platformMime;
 }
 
 /// Sélection locale téléphone. Pas d’upload, pas d’API.

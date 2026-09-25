@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,9 +12,11 @@ import 'package:mobile/features/auth/models/auth_account.dart';
 import 'package:mobile/features/auth/providers/auth_controller.dart';
 import 'package:mobile/features/auth/providers/auth_providers.dart';
 import 'package:mobile/features/auth/state/auth_state.dart';
+import 'package:mobile/features/chronique/media/chronique_local_file_access.dart';
 import 'package:mobile/features/chronique/media/chronique_local_media_picker.dart';
 import 'package:mobile/features/chronique/models/chronique.dart';
 import 'package:mobile/features/chronique/models/chronique_date.dart';
+import 'package:mobile/features/chronique/models/chronique_media_upload.dart';
 import 'package:mobile/features/chronique/models/chronique_page.dart';
 import 'package:mobile/features/chronique/models/chronique_schedule_draft.dart';
 import 'package:mobile/features/chronique/models/media_draft.dart';
@@ -24,6 +27,7 @@ import 'package:mobile/features/chronique/presentation/widgets/media_draft_list.
 import 'package:mobile/features/chronique/presentation/screens/mon_fil_screen.dart';
 import 'package:mobile/features/chronique/providers/chronique_providers.dart';
 import 'package:mobile/features/chronique/services/chronique_api_service.dart';
+import 'package:mobile/features/chronique/services/chronique_media_upload_client.dart';
 import 'package:mobile/features/home/presentation/screens/home_screen.dart';
 import 'package:mobile/main.dart';
 
@@ -85,6 +89,8 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
 
   int createCalls = 0;
   int listCalls = 0;
+  int createMediaUploadCalls = 0;
+  int completeMediaUploadCalls = 0;
   String? lastAccessToken;
   String? lastBody;
   String? lastTitle;
@@ -93,8 +99,12 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
   String? lastListStatus;
   bool? lastIsTimeLimited;
   String? lastExpiresAt;
+  Map<String, dynamic>? lastUploadPayload;
   ApiException? failWith;
+  ApiException? failCreateMediaUpload;
+  ApiException? failCompleteMediaUpload;
   List<Chronique> listItems = const [];
+  int _nextMediaId = 100;
 
   @override
   Future<Chronique> create({
@@ -154,6 +164,105 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
     }
     throw const ApiException(message: 'Chronique not found', statusCode: 404);
   }
+
+  @override
+  Future<ChroniqueMediaUploadSession> createMediaUpload({
+    required String accessToken,
+    required int chroniqueId,
+    required String kind,
+    required String sourceType,
+    required String contentType,
+    required int byteSize,
+    String? originalFilename,
+  }) async {
+    createMediaUploadCalls += 1;
+    lastAccessToken = accessToken;
+    lastUploadPayload = <String, dynamic>{
+      'kind': kind,
+      'source_type': sourceType,
+      'content_type': contentType,
+      'byte_size': byteSize,
+      'original_filename': originalFilename,
+    };
+    final error = failCreateMediaUpload;
+    if (error != null) {
+      throw error;
+    }
+    _nextMediaId += 1;
+    return ChroniqueMediaUploadSession(
+      media: ChroniqueMedia(
+        id: _nextMediaId,
+        kind: kind,
+        originalFilename: originalFilename,
+        byteSize: byteSize,
+        status: 'pending_upload',
+        contentType: contentType,
+      ),
+      method: 'PUT',
+      url: 'https://signed.example/r2/$_nextMediaId',
+      headers: const {'Content-Type': 'image/jpeg'},
+      expiresAt: '2026-09-24T12:00:00.000Z',
+    );
+  }
+
+  @override
+  Future<Chronique> completeMediaUpload({
+    required String accessToken,
+    required int chroniqueId,
+    required int mediaId,
+  }) async {
+    completeMediaUploadCalls += 1;
+    lastAccessToken = accessToken;
+    final error = failCompleteMediaUpload;
+    if (error != null) {
+      throw error;
+    }
+    return Chronique(
+      id: chroniqueId,
+      body: lastBody ?? '',
+      status: lastPublish == 'schedule' ? 'scheduled' : 'active',
+      media: [
+        ChroniqueMedia(
+          id: mediaId,
+          kind: 'image',
+          status: 'ready',
+        ),
+      ],
+    );
+  }
+}
+
+class _AlwaysReadableFileAccess implements ChroniqueLocalFileAccess {
+  const _AlwaysReadableFileAccess();
+
+  @override
+  Future<bool> isReadable(String path) async => path.trim().isNotEmpty;
+
+  @override
+  Future<int> lengthOf(String path) async => 2048;
+}
+
+class _FakeMediaUploadClient extends ChroniqueMediaUploadClient {
+  int putCalls = 0;
+  final List<String> urls = [];
+  bool sentAuthorization = false;
+
+  @override
+  Future<void> putFile({
+    required String url,
+    required String method,
+    required Map<String, String> headers,
+    required String localPath,
+    required int byteSize,
+    ProgressCallback? onSendProgress,
+  }) async {
+    putCalls += 1;
+    urls.add(url);
+    if (headers.keys.any((key) => key.toLowerCase() == 'authorization')) {
+      sentAuthorization = true;
+    }
+    onSendProgress?.call(byteSize, byteSize);
+  }
 }
 
 class _FakeLocalMediaPicker implements ChroniqueLocalMediaPicker {
@@ -195,6 +304,12 @@ Future<ProviderContainer> _pumpHome(
         chroniqueApiServiceProvider.overrideWithValue(api),
         chroniqueLocalMediaPickerProvider.overrideWithValue(
           picker ?? _FakeLocalMediaPicker(),
+        ),
+        chroniqueLocalFileAccessProvider.overrideWithValue(
+          const _AlwaysReadableFileAccess(),
+        ),
+        chroniqueMediaUploadClientProvider.overrideWithValue(
+          _FakeMediaUploadClient(),
         ),
       ],
       child: const LuminaApp(),
@@ -487,6 +602,7 @@ void main() {
     expect(image.sourceType, MediaDraftSourceType.gallery);
     expect(image.localPath, '/tmp/photo.jpg');
     expect(image.status, MediaDraftStatus.selected);
+    expect(image.contentType, 'image/jpeg');
     expect(api.createCalls, 0);
 
     await tester.tap(find.byTooltip('Supprimer'));
@@ -581,7 +697,7 @@ void main() {
     expect(api.createCalls, 0);
   });
 
-  testWidgets('publish still sends text only after a local media draft', (tester) async {
+  testWidgets('publish with a local document uploads then completes media', (tester) async {
     final api = _ChroniqueApiProbe();
     final picker = _FakeLocalMediaPicker()
       ..documentResult = const MediaPickSelected(
@@ -590,6 +706,7 @@ void main() {
         fileName: 'notes.pdf',
         byteSize: 2048,
         localPath: '/tmp/notes.pdf',
+        contentType: 'application/pdf',
       );
     await _pumpHome(tester, api: api, picker: picker);
     await _openCreate(tester);
@@ -609,6 +726,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(api.createCalls, 1);
+    expect(api.createMediaUploadCalls, 1);
+    expect(api.completeMediaUploadCalls, 1);
+    expect(api.lastUploadPayload?['kind'], 'document');
+    expect(api.lastUploadPayload?['content_type'], 'application/pdf');
+    expect(api.lastUploadPayload?['source_type'], 'upload');
+    expect(api.lastUploadPayload?.containsKey('storage_key'), isFalse);
     expect(api.lastBody, body);
     expect(api.lastTitle, isNull);
     expect(api.lastPublish, 'now');

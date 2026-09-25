@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../models/media_draft.dart';
 import 'chronique_local_media_picker.dart';
+import 'chronique_media_mime.dart';
 
 const _documentExtensions = {'pdf', 'doc', 'docx', 'txt'};
 
@@ -67,12 +68,24 @@ class DeviceChroniqueLocalMediaPicker implements ChroniqueLocalMediaPicker {
         return const MediaPickFailed(kMediaInaccessibleMessage);
       }
       final name = _nameOf(file.name, path);
+      final platformMime = file.mimeType;
+      final contentType = resolveChroniqueMediaContentType(
+        kind: kind,
+        fileName: name,
+        localPath: path,
+        platformMime: platformMime,
+      );
+      if (contentType == null) {
+        return const MediaPickFailed(kMediaUnsupportedMessage);
+      }
       return MediaPickSelected(
         kind: kind,
         sourceType: MediaDraftSourceType.gallery,
         fileName: name,
         byteSize: byteSize,
         localPath: path,
+        contentType: contentType,
+        platformMime: platformMime,
       );
     } on Exception {
       return const MediaPickFailed(kMediaInaccessibleMessage);
@@ -107,12 +120,22 @@ class DeviceChroniqueLocalMediaPicker implements ChroniqueLocalMediaPicker {
       if (byteSize < 1) {
         return const MediaPickFailed(kMediaInaccessibleMessage);
       }
+      final name = _nameOf(file.name, path);
+      final contentType = resolveChroniqueMediaContentType(
+        kind: kind,
+        fileName: name,
+        localPath: path,
+      );
+      if (contentType == null) {
+        return const MediaPickFailed(kMediaUnsupportedMessage);
+      }
       return MediaPickSelected(
         kind: kind,
         sourceType: MediaDraftSourceType.upload,
-        fileName: _nameOf(file.name, path),
+        fileName: name,
         byteSize: byteSize,
         localPath: path,
+        contentType: contentType,
       );
     } on Exception {
       return const MediaPickFailed(kMediaInaccessibleMessage);

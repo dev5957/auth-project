@@ -346,9 +346,11 @@ class CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
         else
           MediaDraftList(
             medias: medias,
-            onRemove: (id) {
-              ref.read(createChroniqueControllerProvider.notifier).removeMediaDraft(id);
-            },
+            onRemove: _submitting
+                ? null
+                : (id) {
+                    ref.read(createChroniqueControllerProvider.notifier).removeMediaDraft(id);
+                  },
           ),
         if (_formError != null) ...[
           const SizedBox(height: AppSpacing.md),
