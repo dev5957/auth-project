@@ -38,6 +38,8 @@ final class MediaPickSelected extends MediaPickResult {
 abstract class ChroniqueLocalMediaPicker {
   Future<MediaPickResult> pickImage();
 
+  Future<MediaPickResult> pickImageFromCamera();
+
   Future<MediaPickResult> pickVideo();
 
   Future<MediaPickResult> pickAudio();
@@ -47,3 +49,4 @@ abstract class ChroniqueLocalMediaPicker {
 
 const String kMediaInaccessibleMessage = 'Le fichier est inaccessible';
 const String kMediaUnsupportedMessage = 'Ce type de fichier n\'est pas pris en charge';
+const String kCameraAccessDeniedMessage = 'Impossible d\'accéder à l\'appareil photo.';

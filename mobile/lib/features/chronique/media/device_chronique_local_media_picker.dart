@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../models/media_draft.dart';
@@ -9,7 +10,7 @@ import 'chronique_media_mime.dart';
 
 const _documentExtensions = {'pdf', 'doc', 'docx', 'txt'};
 
-/// ImagePicker (galerie) + FilePicker (audio / documents). Galerie, pas caméra.
+/// ImagePicker (galerie / caméra photo) + FilePicker (audio / documents).
 class DeviceChroniqueLocalMediaPicker implements ChroniqueLocalMediaPicker {
   DeviceChroniqueLocalMediaPicker({
     ImagePicker? imagePicker,
@@ -19,16 +20,27 @@ class DeviceChroniqueLocalMediaPicker implements ChroniqueLocalMediaPicker {
 
   @override
   Future<MediaPickResult> pickImage() {
-    return _pickFromGallery(
+    return _pickWithImagePicker(
       kind: MediaDraftKind.image,
+      sourceType: MediaDraftSourceType.gallery,
       pick: () => _imagePicker.pickImage(source: ImageSource.gallery),
     );
   }
 
   @override
+  Future<MediaPickResult> pickImageFromCamera() {
+    return _pickWithImagePicker(
+      kind: MediaDraftKind.image,
+      sourceType: MediaDraftSourceType.camera,
+      pick: () => _imagePicker.pickImage(source: ImageSource.camera),
+    );
+  }
+
+  @override
   Future<MediaPickResult> pickVideo() {
-    return _pickFromGallery(
+    return _pickWithImagePicker(
       kind: MediaDraftKind.video,
+      sourceType: MediaDraftSourceType.gallery,
       pick: () => _imagePicker.pickVideo(source: ImageSource.gallery),
     );
   }
@@ -50,8 +62,9 @@ class DeviceChroniqueLocalMediaPicker implements ChroniqueLocalMediaPicker {
     );
   }
 
-  Future<MediaPickResult> _pickFromGallery({
+  Future<MediaPickResult> _pickWithImagePicker({
     required MediaDraftKind kind,
+    required MediaDraftSourceType sourceType,
     required Future<XFile?> Function() pick,
   }) async {
     try {
@@ -80,16 +93,29 @@ class DeviceChroniqueLocalMediaPicker implements ChroniqueLocalMediaPicker {
       }
       return MediaPickSelected(
         kind: kind,
-        sourceType: MediaDraftSourceType.gallery,
+        sourceType: sourceType,
         fileName: name,
         byteSize: byteSize,
         localPath: path,
         contentType: contentType,
         platformMime: platformMime,
       );
+    } on PlatformException catch (error) {
+      if (sourceType == MediaDraftSourceType.camera && _isCameraAccessDenied(error)) {
+        return const MediaPickFailed(kCameraAccessDeniedMessage);
+      }
+      return const MediaPickFailed(kMediaInaccessibleMessage);
     } on Exception {
       return const MediaPickFailed(kMediaInaccessibleMessage);
     }
+  }
+
+  bool _isCameraAccessDenied(PlatformException error) {
+    final code = error.code.toLowerCase();
+    final message = (error.message ?? '').toLowerCase();
+    return (code.contains('camera') && code.contains('denied')) ||
+        code.contains('permission') ||
+        (message.contains('camera') && message.contains('denied'));
   }
 
   Future<MediaPickResult> _pickWithFilePicker({

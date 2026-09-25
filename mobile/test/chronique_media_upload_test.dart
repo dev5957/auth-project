@@ -329,6 +329,28 @@ void main() {
     expect(media.uploadProgress, 100);
   });
 
+  test('camera image upload sends source_type camera without JWT on PUT', () async {
+    final api = _Api();
+    final put = _PutClient();
+    final container = _container(api: api, put: put);
+    addTearDown(container.dispose);
+    final controller = container.read(createChroniqueControllerProvider.notifier);
+    controller.addMediaDraft(
+      kind: MediaDraftKind.image,
+      sourceType: MediaDraftSourceType.camera,
+      fileName: 'camera.jpg',
+      byteSize: 1024,
+      localPath: '/tmp/camera.jpg',
+      contentType: 'image/jpeg',
+    );
+    await controller.publish(body: body);
+    expect(api.initCalls, 1);
+    expect(api.lastUploadPayload?['kind'], 'image');
+    expect(api.lastUploadPayload?['source_type'], 'camera');
+    expect(put.putCalls, 1);
+    expect(put.headers.single.containsKey('Authorization'), isFalse);
+  });
+
   test('several media are uploaded sequentially', () async {
     final api = _Api();
     final put = _PutClient();

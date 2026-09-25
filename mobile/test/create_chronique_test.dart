@@ -267,12 +267,16 @@ class _FakeMediaUploadClient extends ChroniqueMediaUploadClient {
 
 class _FakeLocalMediaPicker implements ChroniqueLocalMediaPicker {
   MediaPickResult imageResult = const MediaPickCancelled();
+  MediaPickResult cameraImageResult = const MediaPickCancelled();
   MediaPickResult videoResult = const MediaPickCancelled();
   MediaPickResult audioResult = const MediaPickCancelled();
   MediaPickResult documentResult = const MediaPickCancelled();
 
   @override
   Future<MediaPickResult> pickImage() async => imageResult;
+
+  @override
+  Future<MediaPickResult> pickImageFromCamera() async => cameraImageResult;
 
   @override
   Future<MediaPickResult> pickVideo() async => videoResult;
@@ -590,6 +594,10 @@ void main() {
 
     await tester.tap(find.text('Image'));
     await tester.pumpAndSettle();
+    expect(find.text('Galerie'), findsOneWidget);
+    expect(find.text('Appareil photo'), findsOneWidget);
+    await tester.tap(find.text('Galerie'));
+    await tester.pumpAndSettle();
 
     expect(find.text('Aucun média ajouté'), findsNothing);
     expect(find.byType(MediaDraftList), findsOneWidget);
@@ -624,10 +632,124 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Image'));
     await tester.pumpAndSettle();
+    expect(find.text('Galerie'), findsOneWidget);
+    expect(find.text('Appareil photo'), findsOneWidget);
+    await tester.tap(find.text('Galerie'));
+    await tester.pumpAndSettle();
 
     expect(find.text('Aucun média ajouté'), findsOneWidget);
     expect(container.read(createChroniqueControllerProvider).medias, isEmpty);
     expect(api.createCalls, 0);
+  });
+
+  testWidgets('camera photo creates an image MediaDraft with sourceType camera', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final picker = _FakeLocalMediaPicker()
+      ..cameraImageResult = const MediaPickSelected(
+        kind: MediaDraftKind.image,
+        sourceType: MediaDraftSourceType.camera,
+        fileName: 'camera.jpg',
+        byteSize: 1024,
+        localPath: '/tmp/camera.jpg',
+        contentType: 'image/jpeg',
+      );
+    final container = await _pumpHome(tester, api: api, picker: picker);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Image'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Appareil photo'));
+    await tester.pumpAndSettle();
+
+    final image = container.read(createChroniqueControllerProvider).medias.single;
+    expect(image.kind, MediaDraftKind.image);
+    expect(image.sourceType, MediaDraftSourceType.camera);
+    expect(image.fileName, 'camera.jpg');
+    expect(image.localPath, '/tmp/camera.jpg');
+    expect(image.contentType, 'image/jpeg');
+    expect(find.text('camera.jpg'), findsOneWidget);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('cancelling camera capture does not change the draft', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final container = await _pumpHome(tester, api: api);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Image'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Appareil photo'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Aucun média ajouté'), findsOneWidget);
+    expect(container.read(createChroniqueControllerProvider).medias, isEmpty);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('camera access denied shows a short message without crash', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final picker = _FakeLocalMediaPicker()
+      ..cameraImageResult = const MediaPickFailed(kCameraAccessDeniedMessage);
+    final container = await _pumpHome(tester, api: api, picker: picker);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Image'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Appareil photo'));
+    await tester.pumpAndSettle();
+
+    expect(find.text(kCameraAccessDeniedMessage), findsOneWidget);
+    expect(container.read(createChroniqueControllerProvider).medias, isEmpty);
+    expect(find.byType(CreateChroniqueScreen), findsOneWidget);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('publish with a camera image sends source_type camera', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final picker = _FakeLocalMediaPicker()
+      ..cameraImageResult = const MediaPickSelected(
+        kind: MediaDraftKind.image,
+        sourceType: MediaDraftSourceType.camera,
+        fileName: 'camera.jpg',
+        byteSize: 1024,
+        localPath: '/tmp/camera.jpg',
+        contentType: 'image/jpeg',
+      );
+    await _pumpHome(tester, api: api, picker: picker);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Image'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Appareil photo'));
+    await tester.pumpAndSettle();
+
+    const body = 'Le texte de la chronique, d au moins vingt caracteres.';
+    await tester.enterText(find.byType(TextField).at(1), body);
+    await tester.pump();
+    await _goToPreview(tester);
+    await tester.ensureVisible(find.text('Publier'));
+    await tester.tap(find.text('Publier'));
+    await tester.pumpAndSettle();
+
+    expect(api.createCalls, 1);
+    expect(api.createMediaUploadCalls, 1);
+    expect(api.lastUploadPayload?['kind'], 'image');
+    expect(api.lastUploadPayload?['source_type'], 'camera');
+    expect(api.lastUploadPayload?['content_type'], 'image/jpeg');
+    expect(api.lastUploadPayload?.containsKey('storage_key'), isFalse);
+    expect(find.byType(MonFilScreen), findsOneWidget);
   });
 
   testWidgets('inaccessible file shows a message without logout', (tester) async {
@@ -641,6 +763,10 @@ void main() {
     await tester.tap(find.text('+ Ajouter un média'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Image'));
+    await tester.pumpAndSettle();
+    expect(find.text('Galerie'), findsOneWidget);
+    expect(find.text('Appareil photo'), findsOneWidget);
+    await tester.tap(find.text('Galerie'));
     await tester.pumpAndSettle();
 
     expect(find.text(kMediaInaccessibleMessage), findsOneWidget);
