@@ -354,10 +354,11 @@ async function main() {
   process.env.DATABASE_URL = previous.DATABASE_URL || 'postgres://chronique-full-flow-test/local';
 
   mockStorage.reset();
-  const storageCalls = { createDirectUpload: 0, head: 0, delete: 0 };
+  const storageCalls = { createDirectUpload: 0, head: 0, delete: 0, createReadUrl: 0 };
   const origCreate = mockStorage.createDirectUpload.bind(mockStorage);
   const origHead = mockStorage.head.bind(mockStorage);
   const origDelete = mockStorage.delete.bind(mockStorage);
+  const origRead = mockStorage.createReadUrl.bind(mockStorage);
   mockStorage.createDirectUpload = (args) => {
     storageCalls.createDirectUpload += 1;
     assert(args && String(args.storageKey).includes('publications/'), 'storage_key opaque');
@@ -372,6 +373,10 @@ async function main() {
   mockStorage.delete = async (storageKey) => {
     storageCalls.delete += 1;
     return origDelete(storageKey);
+  };
+  mockStorage.createReadUrl = async (storageKey) => {
+    storageCalls.createReadUrl += 1;
+    return origRead(storageKey);
   };
 
   const memory = createMemoryDb();
@@ -429,6 +434,7 @@ async function main() {
     assert(emptyRead.status === 200, `GET empty ${emptyRead.status} ${emptyRead.raw}`);
     assert(Array.isArray(emptyRead.json.chronique.media), 'empty media array');
     assert(emptyRead.json.chronique.media.length === 0, 'media=[] sans fichiers');
+    assert(storageCalls.createReadUrl === 0, 'no read url without media');
     assertNoSecrets(emptyRead.json, emptyRead.raw);
     console.log('A2 OK GET /chroniques/:id sans media -> media=[]');
 
@@ -494,7 +500,10 @@ async function main() {
       assert(Number(item.byte_size) >= 1, 'byte_size');
       assert(Number.isInteger(item.sort_order) || item.sort_order === 0, 'sort_order');
       assert(!Object.prototype.hasOwnProperty.call(item, 'storage_key'), 'no storage_key field');
+      assert(typeof item.read_url === 'string' && item.read_url.startsWith('https://mock-storage.local/read/'), 'read_url');
+      assert(typeof item.read_expires_at === 'string' && !Number.isNaN(Date.parse(item.read_expires_at)), 'read_expires_at');
     }
+    assert(storageCalls.createReadUrl === 3, `read urls ${storageCalls.createReadUrl}`);
     assertNoSecrets(read.json, read.raw);
     console.log('C OK GET /chroniques/:id avec medias ready, sans secrets Storage');
 
@@ -515,6 +524,7 @@ async function main() {
     });
     assert(stranger.status === 404, `other GET ${stranger.status} ${stranger.raw}`);
     assert(stranger.json.error === 'Chronique not found', stranger.raw);
+    assert(storageCalls.createReadUrl === 3, 'stranger GET must not sign');
 
     const badDoc = await httpRequest({
       port: TEST_PORT,
@@ -607,6 +617,7 @@ async function main() {
     mockStorage.createDirectUpload = origCreate;
     mockStorage.head = origHead;
     mockStorage.delete = origDelete;
+    mockStorage.createReadUrl = origRead;
     mockStorage.reset();
     process.env.JWT_SECRET = previous.JWT_SECRET;
     process.env.JWT_ISSUER = previous.JWT_ISSUER;

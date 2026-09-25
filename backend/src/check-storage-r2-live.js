@@ -48,6 +48,40 @@ function assertSignedShape(result, method) {
   assert(typeof result.expires_at === 'string' && !Number.isNaN(Date.parse(result.expires_at)), 'expires_at');
 }
 
+function getBuffer(urlString) {
+  return new Promise((resolve, reject) => {
+    let url;
+    try {
+      url = new URL(urlString);
+    } catch (_) {
+      reject(new Error('signed read url is invalid'));
+      return;
+    }
+    const lib = url.protocol === 'https:' ? https : http;
+    const req = lib.request(
+      {
+        protocol: url.protocol,
+        hostname: url.hostname,
+        port: url.port || undefined,
+        path: `${url.pathname}${url.search}`,
+        method: 'GET',
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (chunk) => chunks.push(chunk));
+        res.on('end', () => {
+          resolve({
+            status: res.statusCode,
+            body: Buffer.concat(chunks).toString('utf8'),
+          });
+        });
+      }
+    );
+    req.on('error', () => reject(new Error('signed GET failed')));
+    req.end();
+  });
+}
+
 function putBuffer(urlString, headers, body) {
   return new Promise((resolve, reject) => {
     let url;
@@ -119,6 +153,11 @@ async function main() {
     const read = await storageService.createReadUrl(storageKey);
     assertSignedShape(read, 'GET');
     console.log('E OK signed read URL');
+
+    const getStatusAndBody = await getBuffer(read.url);
+    assert(getStatusAndBody.status >= 200 && getStatusAndBody.status < 300, `signed GET failed: HTTP ${getStatusAndBody.status}`);
+    assert(getStatusAndBody.body === SAMPLE_TEXT, 'signed GET body');
+    console.log('E2 OK signed GET retrieves object');
 
     await storageService.delete(storageKey);
     objectCreated = false;

@@ -1,5 +1,6 @@
 const pool = require('../db');
 const AppError = require('../errors/AppError');
+const { getStorage } = require('./storageService');
 const {
   parseCreateInput,
   parsePatchInput,
@@ -73,16 +74,37 @@ function toPublicChronique(row) {
   };
 }
 
-function toPublicMediaSummary(row) {
+function toPublicMedia(row) {
   return {
     id: formatId(row.id),
     kind: row.kind,
     source_type: row.source_type,
     content_type: row.content_type,
     byte_size: Number(row.byte_size),
+    original_filename: row.original_filename == null ? null : row.original_filename,
     sort_order: Number(row.sort_order) || 0,
     status: row.status,
+    created_at: toIso(row.created_at),
   };
+}
+
+async function toPublicMediaForGet(row, storage) {
+  const media = toPublicMedia(row);
+  if (row.status !== 'ready') {
+    return media;
+  }
+  const storageKey = row.storage_key;
+  if (typeof storageKey !== 'string' || storageKey.trim() === '') {
+    return media;
+  }
+  const signed = await storage.createReadUrl(storageKey);
+  if (signed && typeof signed.url === 'string' && signed.url.trim() !== '') {
+    media.read_url = signed.url;
+    if (signed.expires_at != null) {
+      media.read_expires_at = toIso(signed.expires_at);
+    }
+  }
+  return media;
 }
 
 function sortValue(row, status) {
@@ -215,14 +237,19 @@ async function getChroniqueById(userId, rawId, deps = {}) {
   }
 
   const mediaResult = await db.query(
-    `SELECT id, kind, source_type, content_type, byte_size, sort_order, status
+    `SELECT *
      FROM publication_media
      WHERE publication_id = $1
      ORDER BY sort_order ASC, id ASC`,
     [id]
   );
   const chronique = toPublicChronique(row);
-  chronique.media = mediaResult.rows.map(toPublicMediaSummary);
+  const readyRows = mediaResult.rows.filter((item) => item.status === 'ready');
+  const storage = readyRows.length > 0 ? getStorage(deps.storage) : null;
+  chronique.media = [];
+  for (const mediaRow of mediaResult.rows) {
+    chronique.media.push(await toPublicMediaForGet(mediaRow, storage));
+  }
   return chronique;
 }
 
@@ -515,5 +542,6 @@ module.exports = {
   restoreChronique,
   deleteChronique,
   toPublicChronique,
+  toPublicMedia,
   withOwnedPublication,
 };
