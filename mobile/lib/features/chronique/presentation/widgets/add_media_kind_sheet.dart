@@ -67,3 +67,37 @@ Future<MediaDraftSourceType?> showAddImageSourceSheet(BuildContext context) {
     },
   );
 }
+
+/// Après « Vidéo » : galerie ou caméra.
+Future<MediaDraftSourceType?> showAddVideoSourceSheet(BuildContext context) {
+  return showModalBottomSheet<MediaDraftSourceType>(
+    context: context,
+    builder: (context) {
+      final colors = context.luminaColors;
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.lg),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                title: Text(
+                  'Galerie',
+                  style: AppTextTheme.bodyLarge.copyWith(color: colors.textPrimary),
+                ),
+                onTap: () => Navigator.of(context).pop(MediaDraftSourceType.gallery),
+              ),
+              ListTile(
+                title: Text(
+                  'Caméra',
+                  style: AppTextTheme.bodyLarge.copyWith(color: colors.textPrimary),
+                ),
+                onTap: () => Navigator.of(context).pop(MediaDraftSourceType.camera),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}

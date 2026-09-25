@@ -266,6 +266,10 @@ void main() {
       resolveChroniqueMediaContentType(kind: MediaDraftKind.video, fileName: 'clip.mov'),
       'video/quicktime',
     );
+    expect(
+      resolveChroniqueMediaContentType(kind: MediaDraftKind.video, fileName: 'camera.mp4'),
+      'video/mp4',
+    );
     expect(isChroniqueContentTypeAllowed(MediaDraftKind.image, 'image/webp'), isTrue);
     expect(isChroniqueContentTypeAllowed(MediaDraftKind.image, 'image/gif'), isFalse);
   });
@@ -347,6 +351,29 @@ void main() {
     expect(api.initCalls, 1);
     expect(api.lastUploadPayload?['kind'], 'image');
     expect(api.lastUploadPayload?['source_type'], 'camera');
+    expect(put.putCalls, 1);
+    expect(put.headers.single.containsKey('Authorization'), isFalse);
+  });
+
+  test('camera video upload sends source_type camera without JWT on PUT', () async {
+    final api = _Api();
+    final put = _PutClient();
+    final container = _container(api: api, put: put);
+    addTearDown(container.dispose);
+    final controller = container.read(createChroniqueControllerProvider.notifier);
+    controller.addMediaDraft(
+      kind: MediaDraftKind.video,
+      sourceType: MediaDraftSourceType.camera,
+      fileName: 'camera.mp4',
+      byteSize: 8192,
+      localPath: '/tmp/camera.mp4',
+      contentType: 'video/mp4',
+    );
+    await controller.publish(body: body);
+    expect(api.initCalls, 1);
+    expect(api.lastUploadPayload?['kind'], 'video');
+    expect(api.lastUploadPayload?['source_type'], 'camera');
+    expect(api.lastUploadPayload?['content_type'], 'video/mp4');
     expect(put.putCalls, 1);
     expect(put.headers.single.containsKey('Authorization'), isFalse);
   });

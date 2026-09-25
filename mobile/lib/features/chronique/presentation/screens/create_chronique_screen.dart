@@ -120,13 +120,21 @@ class CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
       error = source == MediaDraftSourceType.camera
           ? await controller.pickImageFromCamera()
           : await controller.pickImage();
+    } else if (kind == MediaDraftKind.video) {
+      final source = await showAddVideoSourceSheet(context);
+      if (!mounted || source == null) {
+        return;
+      }
+      setState(() => _formError = null);
+      error = source == MediaDraftSourceType.camera
+          ? await controller.pickVideoFromCamera()
+          : await controller.pickVideo();
     } else {
       setState(() => _formError = null);
       error = await switch (kind) {
-        MediaDraftKind.video => controller.pickVideo(),
         MediaDraftKind.audio => controller.pickAudio(),
         MediaDraftKind.document => controller.pickDocument(),
-        MediaDraftKind.image => Future<String?>.value(null),
+        MediaDraftKind.image || MediaDraftKind.video => Future<String?>.value(null),
       };
     }
     if (!mounted || error == null) {

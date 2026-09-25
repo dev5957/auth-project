@@ -42,6 +42,8 @@ abstract class ChroniqueLocalMediaPicker {
 
   Future<MediaPickResult> pickVideo();
 
+  Future<MediaPickResult> pickVideoFromCamera();
+
   Future<MediaPickResult> pickAudio();
 
   Future<MediaPickResult> pickDocument();

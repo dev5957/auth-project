@@ -82,6 +82,8 @@ class CreateChroniqueController extends AutoDisposeNotifier<ChroniqueDraft> {
 
   Future<String?> pickVideo() => _pick(_picker.pickVideo);
 
+  Future<String?> pickVideoFromCamera() => _pick(_picker.pickVideoFromCamera);
+
   Future<String?> pickAudio() => _pick(_picker.pickAudio);
 
   Future<String?> pickDocument() => _pick(_picker.pickDocument);

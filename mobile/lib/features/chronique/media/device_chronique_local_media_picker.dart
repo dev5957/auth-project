@@ -10,7 +10,7 @@ import 'chronique_media_mime.dart';
 
 const _documentExtensions = {'pdf', 'doc', 'docx', 'txt'};
 
-/// ImagePicker (galerie / caméra photo) + FilePicker (audio / documents).
+/// ImagePicker (galerie / caméra photo et vidéo) + FilePicker (audio / documents).
 class DeviceChroniqueLocalMediaPicker implements ChroniqueLocalMediaPicker {
   DeviceChroniqueLocalMediaPicker({
     ImagePicker? imagePicker,
@@ -42,6 +42,15 @@ class DeviceChroniqueLocalMediaPicker implements ChroniqueLocalMediaPicker {
       kind: MediaDraftKind.video,
       sourceType: MediaDraftSourceType.gallery,
       pick: () => _imagePicker.pickVideo(source: ImageSource.gallery),
+    );
+  }
+
+  @override
+  Future<MediaPickResult> pickVideoFromCamera() {
+    return _pickWithImagePicker(
+      kind: MediaDraftKind.video,
+      sourceType: MediaDraftSourceType.camera,
+      pick: () => _imagePicker.pickVideo(source: ImageSource.camera),
     );
   }
 

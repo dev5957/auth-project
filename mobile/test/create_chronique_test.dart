@@ -269,6 +269,7 @@ class _FakeLocalMediaPicker implements ChroniqueLocalMediaPicker {
   MediaPickResult imageResult = const MediaPickCancelled();
   MediaPickResult cameraImageResult = const MediaPickCancelled();
   MediaPickResult videoResult = const MediaPickCancelled();
+  MediaPickResult cameraVideoResult = const MediaPickCancelled();
   MediaPickResult audioResult = const MediaPickCancelled();
   MediaPickResult documentResult = const MediaPickCancelled();
 
@@ -280,6 +281,9 @@ class _FakeLocalMediaPicker implements ChroniqueLocalMediaPicker {
 
   @override
   Future<MediaPickResult> pickVideo() async => videoResult;
+
+  @override
+  Future<MediaPickResult> pickVideoFromCamera() async => cameraVideoResult;
 
   @override
   Future<MediaPickResult> pickAudio() async => audioResult;
@@ -748,6 +752,149 @@ void main() {
     expect(api.lastUploadPayload?['kind'], 'image');
     expect(api.lastUploadPayload?['source_type'], 'camera');
     expect(api.lastUploadPayload?['content_type'], 'image/jpeg');
+    expect(api.lastUploadPayload?.containsKey('storage_key'), isFalse);
+    expect(find.byType(MonFilScreen), findsOneWidget);
+  });
+
+  testWidgets('gallery video creates a video MediaDraft with sourceType gallery', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final picker = _FakeLocalMediaPicker()
+      ..videoResult = const MediaPickSelected(
+        kind: MediaDraftKind.video,
+        sourceType: MediaDraftSourceType.gallery,
+        fileName: 'clip.mp4',
+        byteSize: 4096,
+        localPath: '/tmp/clip.mp4',
+        contentType: 'video/mp4',
+      );
+    final container = await _pumpHome(tester, api: api, picker: picker);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Vidéo'));
+    await tester.pumpAndSettle();
+    expect(find.text('Galerie'), findsOneWidget);
+    expect(find.text('Caméra'), findsOneWidget);
+    await tester.tap(find.text('Galerie'));
+    await tester.pumpAndSettle();
+
+    final video = container.read(createChroniqueControllerProvider).medias.single;
+    expect(video.kind, MediaDraftKind.video);
+    expect(video.sourceType, MediaDraftSourceType.gallery);
+    expect(video.fileName, 'clip.mp4');
+    expect(video.contentType, 'video/mp4');
+    expect(find.text('clip.mp4'), findsOneWidget);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('camera video creates a video MediaDraft with sourceType camera', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final picker = _FakeLocalMediaPicker()
+      ..cameraVideoResult = const MediaPickSelected(
+        kind: MediaDraftKind.video,
+        sourceType: MediaDraftSourceType.camera,
+        fileName: 'camera.mp4',
+        byteSize: 8192,
+        localPath: '/tmp/camera.mp4',
+        contentType: 'video/mp4',
+      );
+    final container = await _pumpHome(tester, api: api, picker: picker);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Vidéo'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Caméra'));
+    await tester.pumpAndSettle();
+
+    final video = container.read(createChroniqueControllerProvider).medias.single;
+    expect(video.kind, MediaDraftKind.video);
+    expect(video.sourceType, MediaDraftSourceType.camera);
+    expect(video.fileName, 'camera.mp4');
+    expect(video.localPath, '/tmp/camera.mp4');
+    expect(video.contentType, 'video/mp4');
+    expect(find.text('camera.mp4'), findsOneWidget);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('cancelling camera video does not change the draft', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final container = await _pumpHome(tester, api: api);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Vidéo'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Caméra'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Aucun média ajouté'), findsOneWidget);
+    expect(container.read(createChroniqueControllerProvider).medias, isEmpty);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('camera video access denied shows a short message without crash', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final picker = _FakeLocalMediaPicker()
+      ..cameraVideoResult = const MediaPickFailed(kCameraAccessDeniedMessage);
+    final container = await _pumpHome(tester, api: api, picker: picker);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Vidéo'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Caméra'));
+    await tester.pumpAndSettle();
+
+    expect(find.text(kCameraAccessDeniedMessage), findsOneWidget);
+    expect(container.read(createChroniqueControllerProvider).medias, isEmpty);
+    expect(find.byType(CreateChroniqueScreen), findsOneWidget);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('publish with a camera video sends source_type camera', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final picker = _FakeLocalMediaPicker()
+      ..cameraVideoResult = const MediaPickSelected(
+        kind: MediaDraftKind.video,
+        sourceType: MediaDraftSourceType.camera,
+        fileName: 'camera.mp4',
+        byteSize: 8192,
+        localPath: '/tmp/camera.mp4',
+        contentType: 'video/mp4',
+      );
+    await _pumpHome(tester, api: api, picker: picker);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Vidéo'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Caméra'));
+    await tester.pumpAndSettle();
+
+    const body = 'Le texte de la chronique, d au moins vingt caracteres.';
+    await tester.enterText(find.byType(TextField).at(1), body);
+    await tester.pump();
+    await _goToPreview(tester);
+    await tester.ensureVisible(find.text('Publier'));
+    await tester.tap(find.text('Publier'));
+    await tester.pumpAndSettle();
+
+    expect(api.createCalls, 1);
+    expect(api.createMediaUploadCalls, 1);
+    expect(api.lastUploadPayload?['kind'], 'video');
+    expect(api.lastUploadPayload?['source_type'], 'camera');
+    expect(api.lastUploadPayload?['content_type'], 'video/mp4');
     expect(api.lastUploadPayload?.containsKey('storage_key'), isFalse);
     expect(find.byType(MonFilScreen), findsOneWidget);
   });
