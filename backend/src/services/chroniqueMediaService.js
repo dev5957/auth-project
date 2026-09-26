@@ -2,10 +2,10 @@ const crypto = require('crypto');
 const AppError = require('../errors/AppError');
 const { parseChroniqueId } = require('../validators/chroniqueFields');
 const { parseMediaId, parseUploadInput, parseMediaOrder } = require('../validators/mediaFields');
-const { toPublicChronique, withOwnedPublication } = require('./chroniqueService');
+const { toPublicChronique, toPublicMedia, withOwnedPublication } = require('./chroniqueService');
 const { getStorage } = require('./storageService');
 
-const MAX_MEDIA = 20;
+const MAX_MEDIA = 5;
 const MAX_BYTES = 209715200;
 const MEDIA_WRITABLE_STATUSES = ['draft', 'scheduled', 'active'];
 
@@ -13,46 +13,6 @@ function requireDatabase() {
   if (!process.env.DATABASE_URL) {
     throw new AppError(503, 'Database is not configured');
   }
-}
-
-function formatId(value) {
-  if (typeof value === 'bigint') {
-    const asNumber = Number(value);
-    return Number.isSafeInteger(asNumber) ? asNumber : value.toString();
-  }
-  if (typeof value === 'string' && /^\d+$/.test(value)) {
-    const asNumber = Number(value);
-    return Number.isSafeInteger(asNumber) ? asNumber : value;
-  }
-  return value;
-}
-
-function toIso(value) {
-  if (value == null) {
-    return null;
-  }
-  if (value instanceof Date) {
-    return value.toISOString();
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return date.toISOString();
-}
-
-function toPublicMedia(row) {
-  return {
-    id: formatId(row.id),
-    kind: row.kind,
-    source_type: row.source_type,
-    content_type: row.content_type,
-    byte_size: Number(row.byte_size),
-    original_filename: row.original_filename == null ? null : row.original_filename,
-    sort_order: Number(row.sort_order) || 0,
-    status: row.status,
-    created_at: toIso(row.created_at),
-  };
 }
 
 function assertAcceptsMedia(row) {
@@ -210,7 +170,11 @@ async function completeMedia(userId, rawId, rawMediaId, deps = {}) {
     }
 
     const usage = await quotaUsage(client, row.id);
-    if (usage.count > MAX_MEDIA || usage.bytes > MAX_BYTES) {
+    // Le plafond de 5 médias s’applique aux nouveaux uploads (createMediaUpload).
+    // complete ne refuse pas un dépassement de compteur : les chroniques déjà
+    // au-delà de 5 médias, et les pending_upload amorcés avant le lot, restent
+    // consultables et finalisables sans suppression.
+    if (usage.bytes > MAX_BYTES) {
       await client.query(
         `UPDATE publication_media
          SET status = 'failed'
@@ -220,7 +184,7 @@ async function completeMedia(userId, rawId, rawMediaId, deps = {}) {
       );
       const next = await quotaUsage(client, row.id);
       await setMediaTotalBytes(client, row.id, row.user_id, next.bytes);
-      throw new AppError(400, usage.count > MAX_MEDIA ? 'Too many media' : 'Media quota exceeded');
+      throw new AppError(400, 'Media quota exceeded');
     }
 
     const maxOrder = await client.query(

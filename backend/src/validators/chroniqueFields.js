@@ -1,7 +1,7 @@
 const AppError = require('../errors/AppError');
 
-const BODY_MIN = 20;
-const BODY_MAX = 5000;
+const BODY_MIN_NON_WHITESPACE = 10;
+const BODY_MAX = 1000;
 const TITLE_MAX = 200;
 const CHRONIQUE_STATUS = Object.freeze({
   DRAFT: 'draft',
@@ -49,6 +49,10 @@ const PATCH_FIELDS = [
 
 function codePointLength(value) {
   return Array.from(value).length;
+}
+
+function nonWhitespaceLength(value) {
+  return codePointLength(String(value).replace(/\s/gu, ''));
 }
 
 function assertObject(body) {
@@ -104,11 +108,10 @@ function parseBody(value) {
   if (body === '') {
     throw new AppError(400, 'body is required');
   }
-  const length = codePointLength(body);
-  if (length < BODY_MIN) {
+  if (nonWhitespaceLength(body) < BODY_MIN_NON_WHITESPACE) {
     throw new AppError(400, 'body is too short');
   }
-  if (length > BODY_MAX) {
+  if (codePointLength(body) > BODY_MAX) {
     throw new AppError(400, 'body is too long');
   }
   return body;
@@ -331,7 +334,7 @@ function parseChroniqueId(value) {
 }
 
 module.exports = {
-  BODY_MIN,
+  BODY_MIN_NON_WHITESPACE,
   BODY_MAX,
   TITLE_MAX,
   CHRONIQUE_STATUS,

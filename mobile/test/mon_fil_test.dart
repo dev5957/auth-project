@@ -15,6 +15,7 @@ import 'package:mobile/features/chronique/models/chronique_date.dart';
 import 'package:mobile/features/chronique/models/chronique_page.dart';
 import 'package:mobile/features/chronique/presentation/screens/chronique_detail_screen.dart';
 import 'package:mobile/features/chronique/presentation/screens/mon_fil_screen.dart';
+import 'package:mobile/features/chronique/presentation/state/mon_fil_controller.dart';
 import 'package:mobile/features/chronique/presentation/widgets/chronique_card.dart';
 import 'package:mobile/features/chronique/providers/chronique_providers.dart';
 import 'package:mobile/features/chronique/services/chronique_api_service.dart';
@@ -244,6 +245,73 @@ void main() {
     expect(withoutNext.items, isEmpty);
     expect(withoutNext.next, isNull);
   });
+
+  test('ChroniquePage keeps list media, order, and empty collections', () {
+    final page = ChroniquePage.fromJson({
+      'items': [
+        {
+          'id': 1,
+          'body': 'Le texte de la chronique, d au moins vingt caracteres.',
+          'status': 'active',
+          'media': <Object>[],
+        },
+        {
+          'id': 2,
+          'title': 'Avec medias',
+          'body': 'Le texte de la chronique, d au moins vingt caracteres.',
+          'status': 'active',
+          'media': [
+            {
+              'id': 10,
+              'kind': 'image',
+              'content_type': 'image/jpeg',
+              'original_filename': 'a.jpg',
+              'byte_size': 100,
+              'sort_order': 0,
+              'status': 'ready',
+              'read_url': 'https://example.test/a.jpg',
+              'read_expires_at': '2026-09-25T10:16:00.000Z',
+            },
+            {
+              'id': 20,
+              'kind': 'video',
+              'content_type': 'video/mp4',
+              'original_filename': null,
+              'byte_size': 200,
+              'sort_order': 1,
+              'status': 'ready',
+              'read_url': 'https://example.test/b.mp4',
+              'read_expires_at': '2026-09-25T10:16:00.000Z',
+            },
+          ],
+        },
+        {
+          'id': 3,
+          'body': 'Le texte de la chronique, d au moins vingt caracteres.',
+          'status': 'active',
+        },
+      ],
+      'next': null,
+    });
+
+    expect(page.items, hasLength(3));
+    expect(page.items[0].media, isEmpty);
+    expect(page.items[2].media, isEmpty);
+
+    final medias = page.items[1].media;
+    expect(medias, hasLength(2));
+    expect(medias.map((item) => item.id), [10, 20]);
+    expect(medias.map((item) => item.kind), ['image', 'video']);
+    expect(medias[0].originalFilename, 'a.jpg');
+    expect(medias[1].originalFilename, isNull);
+    expect(medias[0].byteSize, 100);
+    expect(medias[0].sortOrder, 0);
+    expect(medias[0].status, 'ready');
+    expect(medias[0].readUrl, 'https://example.test/a.jpg');
+    expect(medias[0].readExpiresAt, DateTime.parse('2026-09-25T10:16:00.000Z'));
+    expect(medias[1].readUrl, 'https://example.test/b.mp4');
+  });
+
   testWidgets('authenticated user opens Mon Fil and calls GET /chroniques', (
     tester,
   ) async {
@@ -255,6 +323,59 @@ void main() {
     expect(api.listCalls, 1);
     expect(api.lastAccessToken, 'access-test');
     expect(container.read(authControllerProvider), isA<AuthAuthenticated>());
+  });
+
+  testWidgets('Mon Fil keeps list media without fetching each chronique', (tester) async {
+    const image = ChroniqueMedia(
+      id: 10,
+      kind: 'image',
+      originalFilename: 'a.jpg',
+      byteSize: 100,
+      status: 'ready',
+      contentType: 'image/jpeg',
+      sortOrder: 0,
+      readUrl: 'https://example.test/a.jpg',
+    );
+    const video = ChroniqueMedia(
+      id: 20,
+      kind: 'video',
+      status: 'ready',
+      contentType: 'video/mp4',
+      sortOrder: 1,
+      readUrl: 'https://example.test/b.mp4',
+    );
+    final api = _ChroniqueApiProbe()
+      ..items = const [
+        Chronique(
+          id: 1,
+          body: 'Le texte de la chronique, d au moins vingt caracteres.',
+          status: 'active',
+          publishedAt: '2026-09-22T10:00:00.000Z',
+        ),
+        Chronique(
+          id: 2,
+          title: 'Avec medias',
+          body: 'Le texte de la chronique, d au moins vingt caracteres.',
+          status: 'active',
+          publishedAt: '2026-09-22T11:00:00.000Z',
+          media: [image, video],
+        ),
+      ];
+    final container = await _pumpHome(tester, api: api);
+    await _openMonFil(tester);
+
+    expect(api.listCalls, 1);
+    expect(api.getCalls, 0);
+    final state = container.read(monFilControllerProvider);
+    expect(state, isA<MonFilReady>());
+    final items = (state as MonFilReady).items;
+    expect(items, hasLength(2));
+    expect(items[0].media, isEmpty);
+    expect(items[1].media.map((item) => item.id), [10, 20]);
+    expect(items[1].media.map((item) => item.readUrl), [
+      'https://example.test/a.jpg',
+      'https://example.test/b.mp4',
+    ]);
   });
 
   testWidgets('Mon Fil displays a chronique card', (tester) async {

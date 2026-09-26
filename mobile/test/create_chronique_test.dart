@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,9 +12,14 @@ import 'package:mobile/features/auth/models/auth_account.dart';
 import 'package:mobile/features/auth/providers/auth_controller.dart';
 import 'package:mobile/features/auth/providers/auth_providers.dart';
 import 'package:mobile/features/auth/state/auth_state.dart';
+import 'package:mobile/features/chronique/media/chronique_local_file_access.dart';
 import 'package:mobile/features/chronique/media/chronique_local_media_picker.dart';
+import 'package:mobile/features/chronique/media/chronique_media_limits.dart';
+import 'package:mobile/features/chronique/media/chronique_microphone_recorder.dart';
 import 'package:mobile/features/chronique/models/chronique.dart';
+import 'package:mobile/features/chronique/models/chronique_assistant_copy.dart';
 import 'package:mobile/features/chronique/models/chronique_date.dart';
+import 'package:mobile/features/chronique/models/chronique_media_upload.dart';
 import 'package:mobile/features/chronique/models/chronique_page.dart';
 import 'package:mobile/features/chronique/models/chronique_schedule_draft.dart';
 import 'package:mobile/features/chronique/models/media_draft.dart';
@@ -24,6 +30,7 @@ import 'package:mobile/features/chronique/presentation/widgets/media_draft_list.
 import 'package:mobile/features/chronique/presentation/screens/mon_fil_screen.dart';
 import 'package:mobile/features/chronique/providers/chronique_providers.dart';
 import 'package:mobile/features/chronique/services/chronique_api_service.dart';
+import 'package:mobile/features/chronique/services/chronique_media_upload_client.dart';
 import 'package:mobile/features/home/presentation/screens/home_screen.dart';
 import 'package:mobile/main.dart';
 
@@ -85,6 +92,8 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
 
   int createCalls = 0;
   int listCalls = 0;
+  int createMediaUploadCalls = 0;
+  int completeMediaUploadCalls = 0;
   String? lastAccessToken;
   String? lastBody;
   String? lastTitle;
@@ -93,8 +102,13 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
   String? lastListStatus;
   bool? lastIsTimeLimited;
   String? lastExpiresAt;
+  Map<String, dynamic>? lastCreateData;
+  Map<String, dynamic>? lastUploadPayload;
   ApiException? failWith;
+  ApiException? failCreateMediaUpload;
+  ApiException? failCompleteMediaUpload;
   List<Chronique> listItems = const [];
+  int _nextMediaId = 100;
 
   @override
   Future<Chronique> create({
@@ -114,6 +128,14 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
     lastScheduledAt = scheduledAt;
     lastIsTimeLimited = isTimeLimited;
     lastExpiresAt = expiresAt;
+    lastCreateData = <String, dynamic>{
+      'body': body,
+      'publish': publish,
+      if (title != null && title.isNotEmpty) 'title': title,
+      if (publish == 'schedule' && scheduledAt != null) 'scheduled_at': scheduledAt,
+      if (isTimeLimited) 'is_time_limited': true,
+      if (isTimeLimited && expiresAt != null) 'expires_at': expiresAt,
+    };
     final error = failWith;
     if (error != null) {
       throw error;
@@ -154,25 +176,195 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
     }
     throw const ApiException(message: 'Chronique not found', statusCode: 404);
   }
+
+  @override
+  Future<ChroniqueMediaUploadSession> createMediaUpload({
+    required String accessToken,
+    required int chroniqueId,
+    required String kind,
+    required String sourceType,
+    required String contentType,
+    required int byteSize,
+    String? originalFilename,
+  }) async {
+    createMediaUploadCalls += 1;
+    lastAccessToken = accessToken;
+    lastUploadPayload = <String, dynamic>{
+      'kind': kind,
+      'source_type': sourceType,
+      'content_type': contentType,
+      'byte_size': byteSize,
+      'original_filename': originalFilename,
+    };
+    final error = failCreateMediaUpload;
+    if (error != null) {
+      throw error;
+    }
+    _nextMediaId += 1;
+    return ChroniqueMediaUploadSession(
+      media: ChroniqueMedia(
+        id: _nextMediaId,
+        kind: kind,
+        originalFilename: originalFilename,
+        byteSize: byteSize,
+        status: 'pending_upload',
+        contentType: contentType,
+      ),
+      method: 'PUT',
+      url: 'https://signed.example/r2/$_nextMediaId',
+      headers: const {'Content-Type': 'image/jpeg'},
+      expiresAt: '2026-09-24T12:00:00.000Z',
+    );
+  }
+
+  @override
+  Future<Chronique> completeMediaUpload({
+    required String accessToken,
+    required int chroniqueId,
+    required int mediaId,
+  }) async {
+    completeMediaUploadCalls += 1;
+    lastAccessToken = accessToken;
+    final error = failCompleteMediaUpload;
+    if (error != null) {
+      throw error;
+    }
+    return Chronique(
+      id: chroniqueId,
+      body: lastBody ?? '',
+      status: lastPublish == 'schedule' ? 'scheduled' : 'active',
+      media: [
+        ChroniqueMedia(
+          id: mediaId,
+          kind: 'image',
+          status: 'ready',
+        ),
+      ],
+    );
+  }
+}
+
+class _AlwaysReadableFileAccess implements ChroniqueLocalFileAccess {
+  const _AlwaysReadableFileAccess();
+
+  @override
+  Future<bool> isReadable(String path) async => path.trim().isNotEmpty;
+
+  @override
+  Future<int> lengthOf(String path) async => 2048;
+}
+
+class _FakeMediaUploadClient extends ChroniqueMediaUploadClient {
+  int putCalls = 0;
+  final List<String> urls = [];
+  bool sentAuthorization = false;
+
+  @override
+  Future<void> putFile({
+    required String url,
+    required String method,
+    required Map<String, String> headers,
+    required String localPath,
+    required int byteSize,
+    ProgressCallback? onSendProgress,
+  }) async {
+    putCalls += 1;
+    urls.add(url);
+    if (headers.keys.any((key) => key.toLowerCase() == 'authorization')) {
+      sentAuthorization = true;
+    }
+    onSendProgress?.call(byteSize, byteSize);
+  }
+}
+
+class _FakeMicrophoneRecorder implements ChroniqueMicrophoneRecorder {
+  bool permissionGranted = true;
+  MediaPickResult stopResult = const MediaPickSelected(
+    kind: MediaDraftKind.audio,
+    sourceType: MediaDraftSourceType.microphone,
+    fileName: 'mic.m4a',
+    byteSize: 2048,
+    localPath: '/tmp/mic.m4a',
+    contentType: 'audio/mp4',
+  );
+  int startCalls = 0;
+  int discardCalls = 0;
+
+  @override
+  Future<bool> hasPermission() async => permissionGranted;
+
+  @override
+  Future<void> start() async {
+    startCalls += 1;
+  }
+
+  @override
+  Future<MediaPickResult> stop() async => stopResult;
+
+  @override
+  Future<void> discard() async {
+    discardCalls += 1;
+  }
+
+  @override
+  void keep() {}
+
+  @override
+  Future<void> dispose() async {}
 }
 
 class _FakeLocalMediaPicker implements ChroniqueLocalMediaPicker {
   MediaPickResult imageResult = const MediaPickCancelled();
+  List<MediaPickSelected>? imageResults;
+  MediaPickResult cameraImageResult = const MediaPickCancelled();
   MediaPickResult videoResult = const MediaPickCancelled();
+  List<MediaPickSelected>? videoResults;
+  MediaPickResult cameraVideoResult = const MediaPickCancelled();
   MediaPickResult audioResult = const MediaPickCancelled();
   MediaPickResult documentResult = const MediaPickCancelled();
+  List<MediaPickSelected>? documentResults;
 
   @override
-  Future<MediaPickResult> pickImage() async => imageResult;
+  Future<MediaPickResult> pickImage({int? limit}) async {
+    if (imageResults != null) {
+      if (imageResults!.isEmpty) {
+        return const MediaPickCancelled();
+      }
+      return MediaPickMany(imageResults!);
+    }
+    return imageResult;
+  }
 
   @override
-  Future<MediaPickResult> pickVideo() async => videoResult;
+  Future<MediaPickResult> pickImageFromCamera() async => cameraImageResult;
+
+  @override
+  Future<MediaPickResult> pickVideo({int? limit}) async {
+    if (videoResults != null) {
+      if (videoResults!.isEmpty) {
+        return const MediaPickCancelled();
+      }
+      return MediaPickMany(videoResults!);
+    }
+    return videoResult;
+  }
+
+  @override
+  Future<MediaPickResult> pickVideoFromCamera() async => cameraVideoResult;
 
   @override
   Future<MediaPickResult> pickAudio() async => audioResult;
 
   @override
-  Future<MediaPickResult> pickDocument() async => documentResult;
+  Future<MediaPickResult> pickDocument({int? limit}) async {
+    if (documentResults != null) {
+      if (documentResults!.isEmpty) {
+        return const MediaPickCancelled();
+      }
+      return MediaPickMany(documentResults!);
+    }
+    return documentResult;
+  }
 }
 
 Future<ProviderContainer> _pumpHome(
@@ -180,6 +372,7 @@ Future<ProviderContainer> _pumpHome(
   required _ChroniqueApiProbe api,
   AuthTokenStorage? storage,
   _FakeLocalMediaPicker? picker,
+  _FakeMicrophoneRecorder? recorder,
 }) async {
   await tester.pumpWidget(
     ProviderScope(
@@ -195,6 +388,15 @@ Future<ProviderContainer> _pumpHome(
         chroniqueApiServiceProvider.overrideWithValue(api),
         chroniqueLocalMediaPickerProvider.overrideWithValue(
           picker ?? _FakeLocalMediaPicker(),
+        ),
+        chroniqueMicrophoneRecorderProvider.overrideWithValue(
+          recorder ?? _FakeMicrophoneRecorder(),
+        ),
+        chroniqueLocalFileAccessProvider.overrideWithValue(
+          const _AlwaysReadableFileAccess(),
+        ),
+        chroniqueMediaUploadClientProvider.overrideWithValue(
+          _FakeMediaUploadClient(),
         ),
       ],
       child: const LuminaApp(),
@@ -250,6 +452,14 @@ InkWell _publishInkWell(WidgetTester tester) {
   return tester.widget<InkWell>(_actionInk('Publier'));
 }
 
+void _expectNoUnsupportedCreateFields(_ChroniqueApiProbe api) {
+  final data = api.lastCreateData ?? const <String, dynamic>{};
+  expect(data.containsKey('theme_id'), isFalse);
+  expect(data.containsKey('comments_enabled'), isFalse);
+  expect(data.containsKey('is_public'), isFalse);
+  expect(data.containsKey('audience'), isFalse);
+}
+
 void main() {
   test('chronique JSON maps public fields without user_id', () {
     final chronique = Chronique.fromJson({
@@ -284,6 +494,26 @@ void main() {
     expect(scheduled.expiresAt, DateTime.parse('2026-09-25T15:30:00.000Z'));
   });
 
+  test('media total is summed from the current draft list only', () {
+    const a = MediaDraft(
+      id: 1,
+      kind: MediaDraftKind.document,
+      sourceType: MediaDraftSourceType.upload,
+      byteSize: 120 * 1024 * 1024,
+    );
+    const b = MediaDraft(
+      id: 2,
+      kind: MediaDraftKind.document,
+      sourceType: MediaDraftSourceType.upload,
+      byteSize: 90 * 1024 * 1024,
+    );
+    expect(chroniqueDraftMediaBytes([a, b]), 210 * 1024 * 1024);
+    expect(chroniqueDraftMediaError([a, b]), kMediaQuotaExceededMessage);
+    expect(chroniqueDraftMediaBytes([a]), 120 * 1024 * 1024);
+    expect(chroniqueDraftMediaError([a]), isNull);
+    expect(chroniqueDraftMediaError(const <MediaDraft>[]), isNull);
+  });
+
   testWidgets('authenticated user opens CREATE as a full-screen create assistant', (
     tester,
   ) async {
@@ -297,10 +527,11 @@ void main() {
     expect(find.text('Texte *'), findsOneWidget);
     expect(find.text('Suivant'), findsOneWidget);
     expect(find.text('Publier'), findsNothing);
-    expect(find.text('0 / 5000'), findsOneWidget);
+    expect(find.text('0 / 1000'), findsOneWidget);
     expect(find.text('+ Ajouter un média'), findsOneWidget);
+    expect(find.text('Médias : 0 / 5'), findsOneWidget);
     expect(find.text('Aucun média ajouté'), findsOneWidget);
-    expect(find.text('Programmer'), findsNothing);
+    expect(find.text(kChroniquePublishScheduleLabel), findsNothing);
     expect(_nextInkWell(tester).onTap, isNull);
     expect(find.byType(CloseButton), findsOneWidget);
     expect(find.text('Chapitre'), findsNothing);
@@ -324,7 +555,7 @@ void main() {
     expect(find.byType(CreateChroniqueScreen), findsOneWidget);
   });
 
-  testWidgets('body shorter than 20 characters does not call the API', (tester) async {
+  testWidgets('body with fewer than 10 non-whitespace characters does not call the API', (tester) async {
     final api = _ChroniqueApiProbe();
     await _pumpHome(tester, api: api);
     await _openCreate(tester);
@@ -332,25 +563,25 @@ void main() {
     await tester.enterText(find.byType(TextField).at(1), 'trop court');
     await tester.pump();
 
-    expect(find.text('Le texte doit contenir au moins 20 caractères'), findsOneWidget);
-    expect(find.text('10 / 5000'), findsOneWidget);
+    expect(find.text('Le texte doit contenir au moins 10 caractères'), findsOneWidget);
+    expect(find.text('10 / 1000'), findsOneWidget);
     expect(_nextInkWell(tester).onTap, isNull);
     await tester.tap(find.text('Suivant'));
     await tester.pump();
     expect(api.createCalls, 0);
   });
 
-  testWidgets('body longer than 5000 characters does not call the API', (tester) async {
+  testWidgets('body longer than 1000 characters does not call the API', (tester) async {
     final api = _ChroniqueApiProbe();
     await _pumpHome(tester, api: api);
     await _openCreate(tester);
 
-    final tooLong = 'a' * 5001;
+    final tooLong = 'a' * 1001;
     await tester.enterText(find.byType(TextField).at(1), tooLong);
     await tester.pump();
 
     expect(find.text('Le texte est trop long'), findsOneWidget);
-    expect(find.text('5001 / 5000'), findsOneWidget);
+    expect(find.text('1001 / 1000'), findsOneWidget);
     expect(_nextInkWell(tester).onTap, isNull);
     expect(api.createCalls, 0);
   });
@@ -360,14 +591,14 @@ void main() {
     await _pumpHome(tester, api: api);
     await _openCreate(tester);
 
-    expect(find.text('0 / 5000'), findsOneWidget);
+    expect(find.text('0 / 1000'), findsOneWidget);
     expect(_nextInkWell(tester).onTap, isNull);
 
     const body = 'Le texte de la chronique, d au moins vingt caracteres.';
     await tester.enterText(find.byType(TextField).at(1), body);
     await tester.pump();
 
-    expect(find.text('${body.trim().runes.length} / 5000'), findsOneWidget);
+    expect(find.text('${body.trim().runes.length} / 1000'), findsOneWidget);
     expect(_nextInkWell(tester).onTap, isNotNull);
     expect(api.createCalls, 0);
   });
@@ -396,6 +627,7 @@ void main() {
     expect(api.lastScheduledAt, isNull);
     expect(api.lastIsTimeLimited, isFalse);
     expect(api.lastExpiresAt, isNull);
+    _expectNoUnsupportedCreateFields(api);
     expect(find.byType(MonFilScreen), findsOneWidget);
     expect(find.text('Mon Fil'), findsOneWidget);
     expect(find.byType(CreateChroniqueScreen), findsNothing);
@@ -475,10 +707,15 @@ void main() {
 
     await tester.tap(find.text('Image'));
     await tester.pumpAndSettle();
+    expect(find.text('Galerie (plusieurs)'), findsOneWidget);
+    expect(find.text('Appareil photo'), findsOneWidget);
+    await tester.tap(find.text('Galerie (plusieurs)'));
+    await tester.pumpAndSettle();
 
     expect(find.text('Aucun média ajouté'), findsNothing);
     expect(find.byType(MediaDraftList), findsOneWidget);
     expect(find.text('photo.jpg'), findsOneWidget);
+    expect(find.text('Médias : 1 / 5'), findsOneWidget);
     expect(find.text('2.4 Mo'), findsOneWidget);
     expect(find.byIcon(Icons.image_outlined), findsOneWidget);
     expect(container.read(createChroniqueControllerProvider).medias, hasLength(1));
@@ -487,14 +724,45 @@ void main() {
     expect(image.sourceType, MediaDraftSourceType.gallery);
     expect(image.localPath, '/tmp/photo.jpg');
     expect(image.status, MediaDraftStatus.selected);
+    expect(image.contentType, 'image/jpeg');
     expect(api.createCalls, 0);
 
     await tester.tap(find.byTooltip('Supprimer'));
     await tester.pump();
 
     expect(find.text('Aucun média ajouté'), findsOneWidget);
-    expect(find.byType(MediaDraftList), findsNothing);
+    expect(find.text('Médias : 0 / 5'), findsOneWidget);
     expect(container.read(createChroniqueControllerProvider).medias, isEmpty);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('sixth media is blocked in the assistant without opening the kind sheet', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final container = await _pumpHome(tester, api: api);
+    await _openCreate(tester);
+    final controller = container.read(createChroniqueControllerProvider.notifier);
+    for (var i = 0; i < kChroniqueMaxMediaCount; i++) {
+      controller.addMediaDraft(
+        kind: MediaDraftKind.image,
+        sourceType: MediaDraftSourceType.gallery,
+        fileName: 'p$i.jpg',
+        byteSize: 1024,
+        localPath: '/tmp/p$i.jpg',
+        contentType: 'image/jpeg',
+      );
+    }
+    await tester.pump();
+
+    expect(container.read(createChroniqueControllerProvider).medias, hasLength(5));
+    expect(find.text('Médias : 5 / 5'), findsOneWidget);
+    expect(find.text(kMediaLimitReachedMessage), findsOneWidget);
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+
+    expect(find.text(kTooManyMediaMessage), findsOneWidget);
+    expect(find.text('Image'), findsNothing);
+    expect(container.read(createChroniqueControllerProvider).medias, hasLength(5));
     expect(api.createCalls, 0);
   });
 
@@ -508,10 +776,442 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Image'));
     await tester.pumpAndSettle();
+    expect(find.text('Galerie (plusieurs)'), findsOneWidget);
+    expect(find.text('Appareil photo'), findsOneWidget);
+    await tester.tap(find.text('Galerie (plusieurs)'));
+    await tester.pumpAndSettle();
 
     expect(find.text('Aucun média ajouté'), findsOneWidget);
     expect(container.read(createChroniqueControllerProvider).medias, isEmpty);
     expect(api.createCalls, 0);
+  });
+
+  testWidgets('camera photo creates an image MediaDraft with sourceType camera', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final picker = _FakeLocalMediaPicker()
+      ..cameraImageResult = const MediaPickSelected(
+        kind: MediaDraftKind.image,
+        sourceType: MediaDraftSourceType.camera,
+        fileName: 'camera.jpg',
+        byteSize: 1024,
+        localPath: '/tmp/camera.jpg',
+        contentType: 'image/jpeg',
+      );
+    final container = await _pumpHome(tester, api: api, picker: picker);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Image'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Appareil photo'));
+    await tester.pumpAndSettle();
+
+    final image = container.read(createChroniqueControllerProvider).medias.single;
+    expect(image.kind, MediaDraftKind.image);
+    expect(image.sourceType, MediaDraftSourceType.camera);
+    expect(image.fileName, 'camera.jpg');
+    expect(image.localPath, '/tmp/camera.jpg');
+    expect(image.contentType, 'image/jpeg');
+    expect(find.text('camera.jpg'), findsOneWidget);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('cancelling camera capture does not change the draft', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final container = await _pumpHome(tester, api: api);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Image'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Appareil photo'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Aucun média ajouté'), findsOneWidget);
+    expect(container.read(createChroniqueControllerProvider).medias, isEmpty);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('camera access denied shows a short message without crash', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final picker = _FakeLocalMediaPicker()
+      ..cameraImageResult = const MediaPickFailed(kCameraAccessDeniedMessage);
+    final container = await _pumpHome(tester, api: api, picker: picker);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Image'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Appareil photo'));
+    await tester.pumpAndSettle();
+
+    expect(find.text(kCameraAccessDeniedMessage), findsOneWidget);
+    expect(container.read(createChroniqueControllerProvider).medias, isEmpty);
+    expect(find.byType(CreateChroniqueScreen), findsOneWidget);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('publish with a camera image sends source_type camera', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final picker = _FakeLocalMediaPicker()
+      ..cameraImageResult = const MediaPickSelected(
+        kind: MediaDraftKind.image,
+        sourceType: MediaDraftSourceType.camera,
+        fileName: 'camera.jpg',
+        byteSize: 1024,
+        localPath: '/tmp/camera.jpg',
+        contentType: 'image/jpeg',
+      );
+    await _pumpHome(tester, api: api, picker: picker);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Image'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Appareil photo'));
+    await tester.pumpAndSettle();
+
+    const body = 'Le texte de la chronique, d au moins vingt caracteres.';
+    await tester.enterText(find.byType(TextField).at(1), body);
+    await tester.pump();
+    await _goToPreview(tester);
+    await tester.ensureVisible(find.text('Publier'));
+    await tester.tap(find.text('Publier'));
+    await tester.pumpAndSettle();
+
+    expect(api.createCalls, 1);
+    expect(api.createMediaUploadCalls, 1);
+    expect(api.lastUploadPayload?['kind'], 'image');
+    expect(api.lastUploadPayload?['source_type'], 'camera');
+    expect(api.lastUploadPayload?['content_type'], 'image/jpeg');
+    expect(api.lastUploadPayload?.containsKey('storage_key'), isFalse);
+    expect(find.byType(MonFilScreen), findsOneWidget);
+  });
+
+  testWidgets('gallery video creates a video MediaDraft with sourceType gallery', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final picker = _FakeLocalMediaPicker()
+      ..videoResult = const MediaPickSelected(
+        kind: MediaDraftKind.video,
+        sourceType: MediaDraftSourceType.gallery,
+        fileName: 'clip.mp4',
+        byteSize: 4096,
+        localPath: '/tmp/clip.mp4',
+        contentType: 'video/mp4',
+      );
+    final container = await _pumpHome(tester, api: api, picker: picker);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Vidéo'));
+    await tester.pumpAndSettle();
+    expect(find.text('Galerie (plusieurs)'), findsOneWidget);
+    expect(find.text('Caméra'), findsOneWidget);
+    await tester.tap(find.text('Galerie (plusieurs)'));
+    await tester.pumpAndSettle();
+
+    final video = container.read(createChroniqueControllerProvider).medias.single;
+    expect(video.kind, MediaDraftKind.video);
+    expect(video.sourceType, MediaDraftSourceType.gallery);
+    expect(video.fileName, 'clip.mp4');
+    expect(video.contentType, 'video/mp4');
+    expect(find.text('clip.mp4'), findsOneWidget);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('camera video creates a video MediaDraft with sourceType camera', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final picker = _FakeLocalMediaPicker()
+      ..cameraVideoResult = const MediaPickSelected(
+        kind: MediaDraftKind.video,
+        sourceType: MediaDraftSourceType.camera,
+        fileName: 'camera.mp4',
+        byteSize: 8192,
+        localPath: '/tmp/camera.mp4',
+        contentType: 'video/mp4',
+      );
+    final container = await _pumpHome(tester, api: api, picker: picker);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Vidéo'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Caméra'));
+    await tester.pumpAndSettle();
+
+    final video = container.read(createChroniqueControllerProvider).medias.single;
+    expect(video.kind, MediaDraftKind.video);
+    expect(video.sourceType, MediaDraftSourceType.camera);
+    expect(video.fileName, 'camera.mp4');
+    expect(video.localPath, '/tmp/camera.mp4');
+    expect(video.contentType, 'video/mp4');
+    expect(find.text('camera.mp4'), findsOneWidget);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('cancelling camera video does not change the draft', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final container = await _pumpHome(tester, api: api);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Vidéo'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Caméra'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Aucun média ajouté'), findsOneWidget);
+    expect(container.read(createChroniqueControllerProvider).medias, isEmpty);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('camera video access denied shows a short message without crash', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final picker = _FakeLocalMediaPicker()
+      ..cameraVideoResult = const MediaPickFailed(kCameraAccessDeniedMessage);
+    final container = await _pumpHome(tester, api: api, picker: picker);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Vidéo'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Caméra'));
+    await tester.pumpAndSettle();
+
+    expect(find.text(kCameraAccessDeniedMessage), findsOneWidget);
+    expect(container.read(createChroniqueControllerProvider).medias, isEmpty);
+    expect(find.byType(CreateChroniqueScreen), findsOneWidget);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('publish with a camera video sends source_type camera', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final picker = _FakeLocalMediaPicker()
+      ..cameraVideoResult = const MediaPickSelected(
+        kind: MediaDraftKind.video,
+        sourceType: MediaDraftSourceType.camera,
+        fileName: 'camera.mp4',
+        byteSize: 8192,
+        localPath: '/tmp/camera.mp4',
+        contentType: 'video/mp4',
+      );
+    await _pumpHome(tester, api: api, picker: picker);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Vidéo'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Caméra'));
+    await tester.pumpAndSettle();
+
+    const body = 'Le texte de la chronique, d au moins vingt caracteres.';
+    await tester.enterText(find.byType(TextField).at(1), body);
+    await tester.pump();
+    await _goToPreview(tester);
+    await tester.ensureVisible(find.text('Publier'));
+    await tester.tap(find.text('Publier'));
+    await tester.pumpAndSettle();
+
+    expect(api.createCalls, 1);
+    expect(api.createMediaUploadCalls, 1);
+    expect(api.lastUploadPayload?['kind'], 'video');
+    expect(api.lastUploadPayload?['source_type'], 'camera');
+    expect(api.lastUploadPayload?['content_type'], 'video/mp4');
+    expect(api.lastUploadPayload?.containsKey('storage_key'), isFalse);
+    expect(find.byType(MonFilScreen), findsOneWidget);
+  });
+
+  testWidgets('file audio creates an audio MediaDraft with sourceType upload', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final picker = _FakeLocalMediaPicker()
+      ..audioResult = const MediaPickSelected(
+        kind: MediaDraftKind.audio,
+        sourceType: MediaDraftSourceType.upload,
+        fileName: 'voix.m4a',
+        byteSize: 4096,
+        localPath: '/tmp/voix.m4a',
+        contentType: 'audio/mp4',
+      );
+    final container = await _pumpHome(tester, api: api, picker: picker);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Audio'));
+    await tester.pumpAndSettle();
+    expect(find.text('Fichier'), findsOneWidget);
+    expect(find.text('Microphone'), findsOneWidget);
+    await tester.tap(find.text('Fichier'));
+    await tester.pumpAndSettle();
+
+    final audio = container.read(createChroniqueControllerProvider).medias.single;
+    expect(audio.kind, MediaDraftKind.audio);
+    expect(audio.sourceType, MediaDraftSourceType.upload);
+    expect(audio.fileName, 'voix.m4a');
+    expect(audio.contentType, 'audio/mp4');
+    expect(find.text('voix.m4a'), findsOneWidget);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('microphone recording creates an audio MediaDraft with sourceType microphone', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final recorder = _FakeMicrophoneRecorder();
+    final container = await _pumpHome(tester, api: api, recorder: recorder);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Audio'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Microphone'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('🎙️ Prêt à enregistrer'), findsOneWidget);
+    await tester.tap(find.text('Enregistrer'));
+    await tester.pump();
+    expect(find.text('🔴 Enregistrement'), findsOneWidget);
+    expect(recorder.startCalls, 1);
+    await tester.tap(find.text('Arrêter'));
+    await tester.pump();
+    await tester.tap(find.text('Ajouter'));
+    await tester.pumpAndSettle();
+
+    final audio = container.read(createChroniqueControllerProvider).medias.single;
+    expect(audio.kind, MediaDraftKind.audio);
+    expect(audio.sourceType, MediaDraftSourceType.microphone);
+    expect(audio.fileName, 'mic.m4a');
+    expect(audio.localPath, '/tmp/mic.m4a');
+    expect(audio.contentType, 'audio/mp4');
+    expect(find.text('mic.m4a'), findsOneWidget);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('cancelling microphone recording does not change the draft', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final recorder = _FakeMicrophoneRecorder();
+    final container = await _pumpHome(tester, api: api, recorder: recorder);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Audio'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Microphone'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Enregistrer'));
+    await tester.pump();
+    await tester.tap(find.text('Annuler'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Aucun média ajouté'), findsOneWidget);
+    expect(container.read(createChroniqueControllerProvider).medias, isEmpty);
+    expect(recorder.discardCalls, 1);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('microphone access denied shows a short message without crash', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final recorder = _FakeMicrophoneRecorder()..permissionGranted = false;
+    final container = await _pumpHome(tester, api: api, recorder: recorder);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Audio'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Microphone'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Enregistrer'));
+    await tester.pumpAndSettle();
+
+    expect(find.text(kMicrophoneAccessDeniedMessage), findsOneWidget);
+    expect(container.read(createChroniqueControllerProvider).medias, isEmpty);
+    expect(find.byType(CreateChroniqueScreen), findsOneWidget);
+    expect(recorder.startCalls, 0);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('invalid microphone file shows a message without MediaDraft', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final recorder = _FakeMicrophoneRecorder()
+      ..stopResult = const MediaPickFailed(kMediaInaccessibleMessage);
+    final container = await _pumpHome(tester, api: api, recorder: recorder);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Audio'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Microphone'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Enregistrer'));
+    await tester.pump();
+    await tester.tap(find.text('Arrêter'));
+    await tester.pumpAndSettle();
+
+    expect(find.text(kMediaInaccessibleMessage), findsOneWidget);
+    expect(container.read(createChroniqueControllerProvider).medias, isEmpty);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('publish with a microphone audio sends source_type microphone', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final recorder = _FakeMicrophoneRecorder();
+    await _pumpHome(tester, api: api, recorder: recorder);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Audio'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Microphone'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Enregistrer'));
+    await tester.pump();
+    await tester.tap(find.text('Arrêter'));
+    await tester.pump();
+    await tester.tap(find.text('Ajouter'));
+    await tester.pumpAndSettle();
+
+    const body = 'Le texte de la chronique, d au moins vingt caracteres.';
+    await tester.enterText(find.byType(TextField).at(1), body);
+    await tester.pump();
+    await _goToPreview(tester);
+    await tester.ensureVisible(find.text('Publier'));
+    await tester.tap(find.text('Publier'));
+    await tester.pumpAndSettle();
+
+    expect(api.createCalls, 1);
+    expect(api.createMediaUploadCalls, 1);
+    expect(api.lastUploadPayload?['kind'], 'audio');
+    expect(api.lastUploadPayload?['source_type'], 'microphone');
+    expect(api.lastUploadPayload?['content_type'], 'audio/mp4');
+    expect(api.lastUploadPayload?.containsKey('storage_key'), isFalse);
+    expect(find.byType(MonFilScreen), findsOneWidget);
   });
 
   testWidgets('inaccessible file shows a message without logout', (tester) async {
@@ -525,6 +1225,10 @@ void main() {
     await tester.tap(find.text('+ Ajouter un média'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Image'));
+    await tester.pumpAndSettle();
+    expect(find.text('Galerie (plusieurs)'), findsOneWidget);
+    expect(find.text('Appareil photo'), findsOneWidget);
+    await tester.tap(find.text('Galerie (plusieurs)'));
     await tester.pumpAndSettle();
 
     expect(find.text(kMediaInaccessibleMessage), findsOneWidget);
@@ -581,7 +1285,7 @@ void main() {
     expect(api.createCalls, 0);
   });
 
-  testWidgets('publish still sends text only after a local media draft', (tester) async {
+  testWidgets('publish with a local document uploads then completes media', (tester) async {
     final api = _ChroniqueApiProbe();
     final picker = _FakeLocalMediaPicker()
       ..documentResult = const MediaPickSelected(
@@ -590,6 +1294,7 @@ void main() {
         fileName: 'notes.pdf',
         byteSize: 2048,
         localPath: '/tmp/notes.pdf',
+        contentType: 'application/pdf',
       );
     await _pumpHome(tester, api: api, picker: picker);
     await _openCreate(tester);
@@ -609,6 +1314,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(api.createCalls, 1);
+    expect(api.createMediaUploadCalls, 1);
+    expect(api.completeMediaUploadCalls, 1);
+    expect(api.lastUploadPayload?['kind'], 'document');
+    expect(api.lastUploadPayload?['content_type'], 'application/pdf');
+    expect(api.lastUploadPayload?['source_type'], 'upload');
+    expect(api.lastUploadPayload?.containsKey('storage_key'), isFalse);
     expect(api.lastBody, body);
     expect(api.lastTitle, isNull);
     expect(api.lastPublish, 'now');
@@ -622,8 +1333,8 @@ void main() {
     await _enterValidBody(tester);
     await _goToPublication(tester);
 
-    await tester.ensureVisible(find.text('Programmer'));
-    await tester.tap(find.text('Programmer'));
+    await tester.ensureVisible(find.text(kChroniquePublishScheduleLabel));
+    await tester.tap(find.text(kChroniquePublishScheduleLabel));
     await tester.pumpAndSettle();
 
     expect(find.text('Date de publication'), findsOneWidget);
@@ -648,8 +1359,8 @@ void main() {
 
     await _enterValidBody(tester);
     await _goToPublication(tester);
-    await tester.ensureVisible(find.text('Programmer'));
-    await tester.tap(find.text('Programmer'));
+    await tester.ensureVisible(find.text(kChroniquePublishScheduleLabel));
+    await tester.tap(find.text(kChroniquePublishScheduleLabel));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Suivant'));
     await tester.pumpAndSettle();
@@ -708,8 +1419,8 @@ void main() {
 
     await _enterValidBody(tester);
     await _goToPublication(tester);
-    await tester.ensureVisible(find.text('Programmer'));
-    await tester.tap(find.text('Programmer'));
+    await tester.ensureVisible(find.text(kChroniquePublishScheduleLabel));
+    await tester.tap(find.text(kChroniquePublishScheduleLabel));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('expiration-yes')));
     await tester.pumpAndSettle();
@@ -741,8 +1452,8 @@ void main() {
 
     await _enterValidBody(tester);
     await _goToPublication(tester);
-    await tester.ensureVisible(find.text('Programmer'));
-    await tester.tap(find.text('Programmer'));
+    await tester.ensureVisible(find.text(kChroniquePublishScheduleLabel));
+    await tester.tap(find.text(kChroniquePublishScheduleLabel));
     await tester.pumpAndSettle();
     final state = tester.state<CreateChroniqueScreenState>(find.byType(CreateChroniqueScreen));
     final scheduled = state.scheduleDraft.scheduledAt!;
@@ -772,8 +1483,8 @@ void main() {
     await _goToPreview(tester);
     expect(find.text('Premier soir'), findsWidgets);
     expect(find.text(_validBody), findsWidgets);
-    expect(find.text('Maintenant'), findsWidgets);
-    expect(find.text('Pas d\'expiration'), findsOneWidget);
+    expect(find.text(kChroniquePublishNowLabel), findsWidgets);
+    expect(find.text(kChroniqueNoExpirationLabel), findsOneWidget);
 
     await tester.tap(find.text('Retour'));
     await tester.pumpAndSettle();
@@ -828,6 +1539,450 @@ void main() {
     await tester.tap(find.text('Suivant'));
     await tester.pump();
     expect(find.text(kExpiresBeforeActivationMessage), findsOneWidget);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('publication defaults to immediate and ephemeral off, with paused options', (
+    tester,
+  ) async {
+    final api = _ChroniqueApiProbe();
+    await _pumpHome(tester, api: api);
+    await _openCreate(tester);
+    await _enterValidBody(tester);
+    await _goToPublication(tester);
+
+    expect(find.text(kChroniquePublishNowLabel), findsOneWidget);
+    expect(find.byKey(const ValueKey('publish-now')), findsOneWidget);
+    expect(tester.widget<Icon>(find.descendant(
+      of: find.byKey(const ValueKey('publish-now')),
+      matching: find.byType(Icon),
+    )).icon, Icons.radio_button_checked);
+    expect(find.byKey(const ValueKey('assistant-theme')), findsOneWidget);
+    expect(find.text(kChroniqueThemePausedMessage), findsOneWidget);
+    expect(find.byKey(const ValueKey('assistant-comments')), findsOneWidget);
+    expect(find.text(kChroniqueCommentsUnavailableMessage), findsOneWidget);
+    expect(find.byKey(const ValueKey('comments-yes')), findsOneWidget);
+    expect(find.byKey(const ValueKey('assistant-visibility')), findsOneWidget);
+    expect(find.byKey(const ValueKey('visibility-private')), findsOneWidget);
+    expect(find.byKey(const ValueKey('visibility-public')), findsOneWidget);
+    expect(find.text('Famille'), findsOneWidget);
+    expect(find.text('Amis'), findsOneWidget);
+    expect(find.text('Collègues'), findsOneWidget);
+    expect(find.text('Autres'), findsOneWidget);
+    expect(find.text(kChroniqueVisibilityUnavailableMessage), findsOneWidget);
+    expect(find.text('30 jours'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('expiration-yes')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const ValueKey('expiration-dropdown')));
+    await tester.tap(find.byKey(const ValueKey('expiration-dropdown')));
+    await tester.pumpAndSettle();
+    expect(find.text('30 jours').hitTestable(), findsWidgets);
+    await tester.tap(find.text('30 jours').last);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Suivant'));
+    await tester.pumpAndSettle();
+    expect(find.text('Aperçu'), findsWidgets);
+    expect(find.text(kChroniquePublishNowLabel), findsWidgets);
+    expect(find.textContaining('30 jours'), findsOneWidget);
+    expect(find.text(kChroniquePausedOptionsPreviewTitle), findsOneWidget);
+    expect(find.textContaining(kChroniqueThemePausedMessage), findsWidgets);
+    expect(find.textContaining(kChroniqueCommentsUnavailableMessage), findsWidgets);
+    expect(find.text('Commentaires activés'), findsNothing);
+
+    await tester.tap(find.text('Retour'));
+    await tester.pumpAndSettle();
+    expect(find.text('Publication'), findsWidgets);
+    expect(find.text('30 jours'), findsOneWidget);
+
+    await tester.tap(find.text('Suivant'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Publier'));
+    await tester.tap(find.text('Publier'));
+    await tester.pumpAndSettle();
+
+    expect(api.createCalls, 1);
+    expect(api.lastPublish, 'now');
+    expect(api.lastIsTimeLimited, isTrue);
+    _expectNoUnsupportedCreateFields(api);
+    final expires = DateTime.parse(api.lastExpiresAt!);
+    final delta = expires.difference(DateTime.now().toUtc());
+    expect(delta.inHours, greaterThan(29 * 24 - 1));
+    expect(delta.inHours, lessThan(30 * 24 + 1));
+  });
+
+  testWidgets('preview shows scheduled local datetime and keeps values on back', (tester) async {
+    final api = _ChroniqueApiProbe();
+    await _pumpHome(tester, api: api);
+    await _openCreate(tester);
+    await tester.enterText(find.byType(TextField).at(0), 'Soir programmé');
+    await _enterValidBody(tester);
+    await _goToPublication(tester);
+    await tester.ensureVisible(find.text(kChroniquePublishScheduleLabel));
+    await tester.tap(find.text(kChroniquePublishScheduleLabel));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Suivant'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Soir programmé'), findsWidgets);
+    expect(find.text(_validBody), findsWidgets);
+    expect(find.text(kChroniquePublishScheduleLabel), findsWidgets);
+    expect(find.byKey(const ValueKey('preview-scheduled-at')), findsOneWidget);
+    expect(find.text(kChroniqueNoExpirationLabel), findsOneWidget);
+
+    await tester.tap(find.text('Retour'));
+    await tester.pumpAndSettle();
+    expect(find.text(kChroniquePublishScheduleLabel), findsOneWidget);
+    await tester.tap(find.text('Retour'));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<TextField>(find.byType(TextField).at(0)).controller?.text,
+      'Soir programmé',
+    );
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('gallery multi-select adds several images up to remaining slots', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final picker = _FakeLocalMediaPicker()
+      ..imageResults = [
+        const MediaPickSelected(
+          kind: MediaDraftKind.image,
+          sourceType: MediaDraftSourceType.gallery,
+          fileName: 'a.jpg',
+          byteSize: 1024,
+          localPath: '/tmp/a.jpg',
+          contentType: 'image/jpeg',
+        ),
+        const MediaPickSelected(
+          kind: MediaDraftKind.image,
+          sourceType: MediaDraftSourceType.gallery,
+          fileName: 'b.jpg',
+          byteSize: 1024,
+          localPath: '/tmp/b.jpg',
+          contentType: 'image/jpeg',
+        ),
+        const MediaPickSelected(
+          kind: MediaDraftKind.image,
+          sourceType: MediaDraftSourceType.gallery,
+          fileName: 'c.jpg',
+          byteSize: 1024,
+          localPath: '/tmp/c.jpg',
+          contentType: 'image/jpeg',
+        ),
+      ];
+    final container = await _pumpHome(tester, api: api, picker: picker);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Image'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Galerie (plusieurs)'));
+    await tester.pumpAndSettle();
+
+    expect(container.read(createChroniqueControllerProvider).medias, hasLength(3));
+    expect(find.text('Médias : 3 / 5'), findsOneWidget);
+    expect(find.text('a.jpg'), findsOneWidget);
+    expect(find.text('b.jpg'), findsOneWidget);
+    expect(find.text('c.jpg'), findsOneWidget);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('multi-select never exceeds 5 and keeps existing media', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final picker = _FakeLocalMediaPicker()
+      ..imageResults = [
+        for (var i = 0; i < 5; i++)
+          MediaPickSelected(
+            kind: MediaDraftKind.image,
+            sourceType: MediaDraftSourceType.gallery,
+            fileName: 'n$i.jpg',
+            byteSize: 1024,
+            localPath: '/tmp/n$i.jpg',
+            contentType: 'image/jpeg',
+          ),
+      ];
+    final container = await _pumpHome(tester, api: api, picker: picker);
+    await _openCreate(tester);
+    final controller = container.read(createChroniqueControllerProvider.notifier);
+    controller.addMediaDraft(
+      kind: MediaDraftKind.image,
+      sourceType: MediaDraftSourceType.gallery,
+      fileName: 'kept.jpg',
+      byteSize: 1024,
+      localPath: '/tmp/kept.jpg',
+      contentType: 'image/jpeg',
+    );
+    await tester.pump();
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Image'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Galerie (plusieurs)'));
+    await tester.pumpAndSettle();
+
+    final medias = container.read(createChroniqueControllerProvider).medias;
+    expect(medias, hasLength(5));
+    expect(medias.first.fileName, 'kept.jpg');
+    expect(find.text('kept.jpg'), findsOneWidget);
+    expect(find.text('Médias : 5 / 5'), findsOneWidget);
+    expect(find.text(kSomeMediaSkippedLimitMessage), findsWidgets);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('document multi-select and oversized file are handled on step 1', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final picker = _FakeLocalMediaPicker()
+      ..documentResults = [
+        const MediaPickSelected(
+          kind: MediaDraftKind.document,
+          sourceType: MediaDraftSourceType.upload,
+          fileName: 'a.pdf',
+          byteSize: 2048,
+          localPath: '/tmp/a.pdf',
+          contentType: 'application/pdf',
+        ),
+        const MediaPickSelected(
+          kind: MediaDraftKind.document,
+          sourceType: MediaDraftSourceType.upload,
+          fileName: 'b.pdf',
+          byteSize: 2048,
+          localPath: '/tmp/b.pdf',
+          contentType: 'application/pdf',
+        ),
+      ];
+    final container = await _pumpHome(tester, api: api, picker: picker);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Document'));
+    await tester.pumpAndSettle();
+
+    expect(container.read(createChroniqueControllerProvider).medias, hasLength(2));
+    expect(find.text('Médias : 2 / 5'), findsOneWidget);
+    expect(find.text('a.pdf'), findsOneWidget);
+    expect(find.text('b.pdf'), findsOneWidget);
+
+    picker.documentResults = null;
+    picker.documentResult = const MediaPickSelected(
+      kind: MediaDraftKind.document,
+      sourceType: MediaDraftSourceType.upload,
+      fileName: 'huge.pdf',
+      byteSize: kChroniqueMaxMediaBytes + 1,
+      localPath: '/tmp/huge.pdf',
+      contentType: 'application/pdf',
+    );
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Document'));
+    await tester.pumpAndSettle();
+
+    expect(container.read(createChroniqueControllerProvider).medias, hasLength(2));
+    expect(find.text(kMediaQuotaExceededMessage), findsOneWidget);
+
+    await _enterValidBody(tester);
+    await _goToPublication(tester);
+    expect(find.text('a.pdf'), findsNothing);
+    await tester.tap(find.text('Retour'));
+    await tester.pumpAndSettle();
+    expect(find.text('a.pdf'), findsOneWidget);
+    expect(find.text('b.pdf'), findsOneWidget);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('Next button does not cover the last media in the content step', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final picker = _FakeLocalMediaPicker()
+      ..imageResult = const MediaPickSelected(
+        kind: MediaDraftKind.image,
+        sourceType: MediaDraftSourceType.gallery,
+        fileName: 'last.jpg',
+        byteSize: 1024,
+        localPath: '/tmp/last.jpg',
+        contentType: 'image/jpeg',
+      );
+    await _pumpHome(tester, api: api, picker: picker);
+    await _openCreate(tester);
+    await tester.enterText(find.byType(TextField).at(1), 'a' * 400);
+    await tester.pump();
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Image'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Galerie (plusieurs)'));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('last.jpg'));
+    final mediaBottom = tester.getRect(find.text('last.jpg')).bottom;
+    final nextTop = tester.getRect(find.text('Suivant')).top;
+    expect(mediaBottom, lessThanOrEqualTo(nextTop));
+  });
+
+  testWidgets('quota error and Next follow the remaining media list', (tester) async {
+    const firstBytes = 120 * 1024 * 1024;
+    const secondBytes = 90 * 1024 * 1024;
+    final api = _ChroniqueApiProbe();
+    final container = await _pumpHome(tester, api: api);
+    await _openCreate(tester);
+    await _enterValidBody(tester);
+    expect(_nextInkWell(tester).onTap, isNotNull);
+
+    final controller = container.read(createChroniqueControllerProvider.notifier);
+    controller.addMediaDraft(
+      kind: MediaDraftKind.document,
+      sourceType: MediaDraftSourceType.upload,
+      fileName: 'big-a.pdf',
+      byteSize: firstBytes,
+      localPath: '/tmp/big-a.pdf',
+      contentType: 'application/pdf',
+    );
+    controller.addMediaDraft(
+      kind: MediaDraftKind.document,
+      sourceType: MediaDraftSourceType.upload,
+      fileName: 'big-b.pdf',
+      byteSize: secondBytes,
+      localPath: '/tmp/big-b.pdf',
+      contentType: 'application/pdf',
+    );
+    await tester.pump();
+
+    var medias = container.read(createChroniqueControllerProvider).medias;
+    expect(medias, hasLength(2));
+    expect(chroniqueDraftMediaBytes(medias), firstBytes + secondBytes);
+    expect(find.text(kMediaQuotaExceededMessage), findsOneWidget);
+    expect(_nextInkWell(tester).onTap, isNull);
+
+    await tester.ensureVisible(find.byTooltip('Supprimer').last);
+    await tester.tap(find.byTooltip('Supprimer').last);
+    await tester.pump();
+
+    medias = container.read(createChroniqueControllerProvider).medias;
+    expect(medias, hasLength(1));
+    expect(medias.single.fileName, 'big-a.pdf');
+    expect(chroniqueDraftMediaBytes(medias), firstBytes);
+    expect(find.text(kMediaQuotaExceededMessage), findsNothing);
+    expect(_nextInkWell(tester).onTap, isNotNull);
+
+    await tester.tap(find.byTooltip('Supprimer'));
+    await tester.pump();
+
+    medias = container.read(createChroniqueControllerProvider).medias;
+    expect(medias, isEmpty);
+    expect(chroniqueDraftMediaBytes(medias), 0);
+    expect(find.text(kMediaQuotaExceededMessage), findsNothing);
+    expect(_nextInkWell(tester).onTap, isNotNull);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('editing text after a media error does not restore a stale quota message', (
+    tester,
+  ) async {
+    final api = _ChroniqueApiProbe();
+    final picker = _FakeLocalMediaPicker()
+      ..documentResult = const MediaPickSelected(
+        kind: MediaDraftKind.document,
+        sourceType: MediaDraftSourceType.upload,
+        fileName: 'ok.pdf',
+        byteSize: 124 * 1024 * 1024,
+        localPath: '/tmp/ok.pdf',
+        contentType: 'application/pdf',
+      );
+    final container = await _pumpHome(tester, api: api, picker: picker);
+    await _openCreate(tester);
+    await _enterValidBody(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Document'));
+    await tester.pumpAndSettle();
+
+    picker.documentResult = const MediaPickSelected(
+      kind: MediaDraftKind.document,
+      sourceType: MediaDraftSourceType.upload,
+      fileName: 'huge.pdf',
+      byteSize: kChroniqueMaxMediaBytes + 1,
+      localPath: '/tmp/huge.pdf',
+      contentType: 'application/pdf',
+    );
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Document'));
+    await tester.pumpAndSettle();
+
+    expect(container.read(createChroniqueControllerProvider).medias, hasLength(1));
+    expect(find.text('ok.pdf'), findsOneWidget);
+    expect(find.text(kMediaQuotaExceededMessage), findsOneWidget);
+    expect(_nextInkWell(tester).onTap, isNotNull);
+
+    await tester.enterText(find.byType(TextField).at(1), '$_validBody suite');
+    await tester.pump();
+
+    expect(find.text(kMediaQuotaExceededMessage), findsNothing);
+    expect(container.read(createChroniqueControllerProvider).medias, hasLength(1));
+    expect(_nextInkWell(tester).onTap, isNotNull);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('last media and delete stay above Next with several attachments', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final container = await _pumpHome(tester, api: api);
+    await _openCreate(tester);
+    await tester.enterText(find.byType(TextField).at(1), 'a' * 400);
+    await tester.pump();
+
+    final controller = container.read(createChroniqueControllerProvider.notifier);
+    for (var i = 0; i < 4; i++) {
+      controller.addMediaDraft(
+        kind: MediaDraftKind.image,
+        sourceType: MediaDraftSourceType.gallery,
+        fileName: 'shot$i.jpg',
+        byteSize: 2048,
+        localPath: '/tmp/shot$i.jpg',
+        contentType: 'image/jpeg',
+      );
+    }
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('shot3.jpg'));
+    final mediaBottom = tester.getRect(find.text('shot3.jpg')).bottom;
+    final removeBottom = tester.getRect(find.byTooltip('Supprimer').last).bottom;
+    final nextTop = tester.getRect(find.text('Suivant')).top;
+    expect(mediaBottom, lessThan(nextTop));
+    expect(removeBottom, lessThan(nextTop));
+
+    tester.view.viewInsets = const FakeViewPadding(bottom: 280);
+    addTearDown(tester.view.resetViewInsets);
+    await tester.pump();
+    await tester.ensureVisible(find.text('shot3.jpg'));
+    expect(
+      tester.getRect(find.text('shot3.jpg')).bottom,
+      lessThan(tester.getRect(find.text('Suivant')).top),
+    );
+    await tester.ensureVisible(find.byTooltip('Supprimer').last);
+    expect(
+      tester.getRect(find.byTooltip('Supprimer').last).bottom,
+      lessThan(tester.getRect(find.text('Suivant')).top),
+    );
+
+    tester.view.viewInsets = FakeViewPadding.zero;
+    await tester.pump();
+    await tester.ensureVisible(find.text('shot3.jpg'));
+    expect(
+      tester.getRect(find.text('shot3.jpg')).bottom,
+      lessThan(tester.getRect(find.text('Suivant')).top),
+    );
     expect(api.createCalls, 0);
   });
 }

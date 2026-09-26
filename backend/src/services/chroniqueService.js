@@ -1,5 +1,6 @@
 const pool = require('../db');
 const AppError = require('../errors/AppError');
+const { getStorage } = require('./storageService');
 const {
   parseCreateInput,
   parsePatchInput,
@@ -16,6 +17,9 @@ const SORT_COLUMN = {
   [CHRONIQUE_STATUS.SCHEDULED]: 'scheduled_at',
   [CHRONIQUE_STATUS.DRAFT]: 'updated_at',
 };
+
+const DISPLAYABLE_MEDIA_KINDS = Object.freeze(['image', 'video', 'audio', 'document']);
+const DISPLAYABLE_MEDIA_KIND_SET = new Set(DISPLAYABLE_MEDIA_KINDS);
 
 function requireDatabase() {
   if (!process.env.DATABASE_URL) {
@@ -73,16 +77,130 @@ function toPublicChronique(row) {
   };
 }
 
-function toPublicMediaSummary(row) {
+function toPublicMedia(row) {
   return {
     id: formatId(row.id),
     kind: row.kind,
     source_type: row.source_type,
     content_type: row.content_type,
     byte_size: Number(row.byte_size),
+    original_filename: row.original_filename == null ? null : row.original_filename,
     sort_order: Number(row.sort_order) || 0,
     status: row.status,
+    created_at: toIso(row.created_at),
   };
+}
+
+function compareMediaOrder(a, b) {
+  const order = (Number(a.sort_order) || 0) - (Number(b.sort_order) || 0);
+  if (order !== 0) {
+    return order;
+  }
+  return (Number(a.id) || 0) - (Number(b.id) || 0);
+}
+
+function publicationMediaKey(id) {
+  return String(formatId(id));
+}
+
+function logMediaReadUrlFailure(row, err) {
+  const statusCode = err && typeof err.statusCode === 'number' ? err.statusCode : null;
+  const message = err && typeof err.message === 'string' ? err.message : 'read url failed';
+  console.error(
+    '[chronique-media-read-url] signature failed',
+    `publication_id=${row && row.publication_id} media_id=${row && row.id}` +
+      (statusCode != null ? ` status=${statusCode}` : '') +
+      ` message=${message}`
+  );
+}
+
+async function toPublicMediaForGet(row, storage) {
+  const media = toPublicMedia(row);
+  if (row.status !== 'ready') {
+    return media;
+  }
+  const storageKey = row.storage_key;
+  if (typeof storageKey !== 'string' || storageKey.trim() === '') {
+    return media;
+  }
+  const signed = await storage.createReadUrl(storageKey);
+  if (signed && typeof signed.url === 'string' && signed.url.trim() !== '') {
+    media.read_url = signed.url;
+    if (signed.expires_at != null) {
+      media.read_expires_at = toIso(signed.expires_at);
+    }
+  }
+  return media;
+}
+
+function isFeedDisplayableMedia(media) {
+  if (media == null || media.status !== 'ready') {
+    return false;
+  }
+  if (!DISPLAYABLE_MEDIA_KIND_SET.has(media.kind)) {
+    return false;
+  }
+  return typeof media.read_url === 'string' && media.read_url.trim() !== '';
+}
+
+async function toPublicFeedMedia(row, storage) {
+  if (row.status !== 'ready' || !DISPLAYABLE_MEDIA_KIND_SET.has(row.kind)) {
+    return null;
+  }
+  try {
+    const media = await toPublicMediaForGet(row, storage);
+    return isFeedDisplayableMedia(media) ? media : null;
+  } catch (err) {
+    logMediaReadUrlFailure(row, err);
+    if (err instanceof AppError && err.statusCode === 503) {
+      throw err;
+    }
+    return null;
+  }
+}
+
+async function attachFeedMedia(items, db, deps = {}) {
+  if (!items.length) {
+    return;
+  }
+
+  const ids = items.map((item) => item.id);
+  const mediaResult = await db.query(
+    `SELECT *
+     FROM publication_media
+     WHERE publication_id = ANY($1::bigint[])
+       AND status = 'ready'
+       AND kind IN ('image', 'video', 'audio', 'document')
+     ORDER BY publication_id ASC, sort_order ASC, id ASC`,
+    [ids]
+  );
+
+  const rows = mediaResult.rows || [];
+  if (rows.length === 0) {
+    return;
+  }
+
+  const storage = getStorage(deps.storage);
+  const byPublication = new Map();
+  for (const mediaRow of rows) {
+    const media = await toPublicFeedMedia(mediaRow, storage);
+    if (!media) {
+      continue;
+    }
+    const key = publicationMediaKey(mediaRow.publication_id);
+    const bucket = byPublication.get(key);
+    if (bucket) {
+      bucket.push(media);
+    } else {
+      byPublication.set(key, [media]);
+    }
+  }
+
+  for (const item of items) {
+    const grouped = byPublication.get(publicationMediaKey(item.id)) || [];
+    grouped.sort(compareMediaOrder);
+    item.media = grouped;
+  }
 }
 
 function sortValue(row, status) {
@@ -188,8 +306,11 @@ async function listChroniques(userId, query, deps = {}) {
     };
   }
 
+  const items = page.map(toPublicChronique);
+  await attachFeedMedia(items, db, deps);
+
   return {
-    items: page.map(toPublicChronique),
+    items,
     next,
   };
 }
@@ -215,14 +336,19 @@ async function getChroniqueById(userId, rawId, deps = {}) {
   }
 
   const mediaResult = await db.query(
-    `SELECT id, kind, source_type, content_type, byte_size, sort_order, status
+    `SELECT *
      FROM publication_media
      WHERE publication_id = $1
      ORDER BY sort_order ASC, id ASC`,
     [id]
   );
   const chronique = toPublicChronique(row);
-  chronique.media = mediaResult.rows.map(toPublicMediaSummary);
+  const readyRows = mediaResult.rows.filter((item) => item.status === 'ready');
+  const storage = readyRows.length > 0 ? getStorage(deps.storage) : null;
+  chronique.media = [];
+  for (const mediaRow of mediaResult.rows) {
+    chronique.media.push(await toPublicMediaForGet(mediaRow, storage));
+  }
   return chronique;
 }
 
@@ -515,5 +641,6 @@ module.exports = {
   restoreChronique,
   deleteChronique,
   toPublicChronique,
+  toPublicMedia,
   withOwnedPublication,
 };

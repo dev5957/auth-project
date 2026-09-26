@@ -30,6 +30,7 @@ enum ChroniqueExpirationPreset {
   twentyFourHours,
   seventyTwoHours,
   sevenDays,
+  thirtyDays,
   custom,
 }
 
@@ -108,6 +109,8 @@ abstract final class ChroniqueDateHelper {
       ChroniqueExpirationPreset.seventyTwoHours =>
         activationLocal.add(const Duration(hours: 72)),
       ChroniqueExpirationPreset.sevenDays => activationLocal.add(const Duration(days: 7)),
+      ChroniqueExpirationPreset.thirtyDays =>
+        activationLocal.add(const Duration(days: 30)),
       ChroniqueExpirationPreset.custom => customLocal,
     };
   }
@@ -120,6 +123,7 @@ abstract final class ChroniqueDateHelper {
       ChroniqueExpirationPreset.twentyFourHours => '24 heures',
       ChroniqueExpirationPreset.seventyTwoHours => '72 heures',
       ChroniqueExpirationPreset.sevenDays => '7 jours',
+      ChroniqueExpirationPreset.thirtyDays => '30 jours',
       ChroniqueExpirationPreset.custom => 'Date personnalisée',
     };
   }

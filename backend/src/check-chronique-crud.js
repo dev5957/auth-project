@@ -2,7 +2,7 @@ const http = require('http');
 const path = require('path');
 const { spawn } = require('child_process');
 const { generateAccessToken } = require('./services/tokenService');
-const { parseCreateInput, parseListQuery, parseChroniqueId } = require('./validators/chroniqueFields');
+const { parseCreateInput, parsePatchInput, parseListQuery, parseChroniqueId } = require('./validators/chroniqueFields');
 const {
   createChronique,
   listChroniques,
@@ -149,11 +149,26 @@ async function main() {
   process.env.JWT_AUDIENCE = TEST_AUDIENCE;
 
   expectAppError(() => parseCreateInput({ body: 'short', publish: 'draft' }), 400, 'body is too short');
+  expectAppError(() => parseCreateInput({ body: 'abcdefghi', publish: 'now' }), 400, 'body is too short');
   expectAppError(
     () => parseCreateInput({ body: '   ', publish: 'draft' }),
     400,
     'body is required'
   );
+  const tenChars = parseCreateInput({ body: 'abcdefghij', publish: 'now' });
+  assert(tenChars.body === 'abcdefghij', '10 non-whitespace accepted');
+  const spaced = parseCreateInput({ body: '  a a a a a a a a a a  ', publish: 'now' });
+  assert(spaced.body === 'a a a a a a a a a a', 'internal spaces preserved after trim');
+  const unicode = parseCreateInput({ body: 'éééééééééé', publish: 'now' });
+  assert(unicode.body === 'éééééééééé', 'unicode accents accepted');
+  parseCreateInput({ body: 'a'.repeat(1000), publish: 'now' });
+  expectAppError(
+    () => parseCreateInput({ body: 'a'.repeat(1001), publish: 'now' }),
+    400,
+    'body is too long'
+  );
+  parsePatchInput({ body: 'abcdefghij' });
+  expectAppError(() => parsePatchInput({ body: 'abcdefghi' }), 400, 'body is too short');
   expectAppError(
     () => parseCreateInput({ body: validBody().body, user_id: 1, publish: 'draft' }),
     400,

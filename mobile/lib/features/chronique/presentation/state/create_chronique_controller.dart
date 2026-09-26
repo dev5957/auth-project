@@ -1,17 +1,29 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/network/api_exception.dart';
+import '../../media/chronique_local_file_access.dart';
 import '../../media/chronique_local_media_picker.dart';
+import '../../media/chronique_media_limits.dart';
+import '../../media/chronique_media_mime.dart';
 import '../../models/chronique.dart';
 import '../../models/chronique_draft.dart';
+import '../../models/chronique_media_upload.dart';
 import '../../models/media_draft.dart';
 import '../../providers/chronique_providers.dart';
+import '../../services/chronique_media_upload_client.dart';
 
-/// Brouillon local (texte + médias). La publication HTTP reste texte seul.
+/// Brouillon local (texte + médias) + pipeline create → URL signée → PUT R2 → complete.
 class CreateChroniqueController extends AutoDisposeNotifier<ChroniqueDraft> {
   int _nextMediaId = 0;
 
   ChroniqueLocalMediaPicker get _picker =>
       ref.read(chroniqueLocalMediaPickerProvider);
+
+  ChroniqueLocalFileAccess get _files =>
+      ref.read(chroniqueLocalFileAccessProvider);
+
+  ChroniqueMediaUploadClient get _uploadClient =>
+      ref.read(chroniqueMediaUploadClientProvider);
 
   @override
   ChroniqueDraft build() => const ChroniqueDraft();
@@ -29,6 +41,7 @@ class CreateChroniqueController extends AutoDisposeNotifier<ChroniqueDraft> {
     String? fileName,
     int? byteSize,
     String? localPath,
+    String? contentType,
     MediaDraftStatus status = MediaDraftStatus.selected,
   }) {
     _nextMediaId += 1;
@@ -42,6 +55,7 @@ class CreateChroniqueController extends AutoDisposeNotifier<ChroniqueDraft> {
           fileName: fileName,
           byteSize: byteSize,
           localPath: localPath,
+          contentType: contentType,
           status: status,
         ),
       ],
@@ -62,40 +76,183 @@ class CreateChroniqueController extends AutoDisposeNotifier<ChroniqueDraft> {
     state = const ChroniqueDraft();
   }
 
-  Future<String?> pickImage() => _pick(_picker.pickImage);
+  Future<String?> pickImage() {
+    return _pick(() => _picker.pickImage(limit: _remainingSlots));
+  }
 
-  Future<String?> pickVideo() => _pick(_picker.pickVideo);
+  Future<String?> pickImageFromCamera() => _pick(_picker.pickImageFromCamera);
+
+  Future<String?> pickVideo() {
+    return _pick(() => _picker.pickVideo(limit: _remainingSlots));
+  }
+
+  Future<String?> pickVideoFromCamera() => _pick(_picker.pickVideoFromCamera);
 
   Future<String?> pickAudio() => _pick(_picker.pickAudio);
 
-  Future<String?> pickDocument() => _pick(_picker.pickDocument);
+  Future<String?> pickDocument() {
+    return _pick(() => _picker.pickDocument(limit: _remainingSlots));
+  }
+
+  int get _remainingSlots =>
+      kChroniqueMaxMediaCount - state.medias.length;
+
+  Future<String?> applyMediaPick(MediaPickResult result) {
+    return _applyPick(result);
+  }
 
   Future<String?> _pick(Future<MediaPickResult> Function() pick) async {
-    final result = await pick();
+    if (_remainingSlots <= 0) {
+      return kTooManyMediaMessage;
+    }
+    return _applyPick(await pick());
+  }
+
+  Future<String?> _applyPick(MediaPickResult result) async {
     switch (result) {
       case MediaPickCancelled():
         return null;
       case MediaPickFailed(:final message):
         return message;
-      case MediaPickSelected(
-          :final kind,
-          :final sourceType,
-          :final fileName,
-          :final byteSize,
-          :final localPath,
-        ):
-        addMediaDraft(
-          kind: kind,
-          sourceType: sourceType,
-          fileName: fileName,
-          byteSize: byteSize,
-          localPath: localPath,
-        );
-        return null;
+      case MediaPickSelected():
+        return _applySelections([result]);
+      case MediaPickMany(:final items):
+        return _applySelections(items);
     }
   }
 
-  /// `POST /chroniques`. Les médias locaux ne partent pas dans ce lot.
+  Future<String?> _applySelections(List<MediaPickSelected> items) async {
+    if (items.isEmpty) {
+      return null;
+    }
+
+    final existingPaths = <String>{
+      for (final media in state.medias)
+        if (media.localPath != null && media.localPath!.trim().isNotEmpty)
+          media.localPath!.trim(),
+    };
+    var usedBytes = chroniqueDraftMediaBytes(state.medias);
+
+    var remaining = _remainingSlots;
+    var skippedLimit = false;
+    var skippedFormat = false;
+    var skippedSize = false;
+    var skippedInaccessible = false;
+    final accepted = <MediaDraft>[];
+
+    for (final item in items) {
+      final path = item.localPath.trim();
+      if (path.isEmpty || item.byteSize < 1) {
+        skippedInaccessible = true;
+        continue;
+      }
+      if (existingPaths.contains(path)) {
+        continue;
+      }
+      final mime = item.contentType ??
+          resolveChroniqueMediaContentType(
+            kind: item.kind,
+            fileName: item.fileName,
+            localPath: path,
+            platformMime: item.platformMime,
+          );
+      if (mime == null || !isChroniqueContentTypeAllowed(item.kind, mime)) {
+        skippedFormat = true;
+        continue;
+      }
+      if (item.byteSize > kChroniqueMaxMediaBytes ||
+          usedBytes + item.byteSize > kChroniqueMaxMediaBytes) {
+        skippedSize = true;
+        continue;
+      }
+      if (remaining <= 0) {
+        skippedLimit = true;
+        continue;
+      }
+      _nextMediaId += 1;
+      accepted.add(
+        MediaDraft(
+          id: _nextMediaId,
+          kind: item.kind,
+          sourceType: item.sourceType,
+          fileName: item.fileName,
+          byteSize: item.byteSize,
+          localPath: path,
+          contentType: mime,
+        ),
+      );
+      existingPaths.add(path);
+      usedBytes += item.byteSize;
+      remaining -= 1;
+    }
+
+    if (accepted.isNotEmpty) {
+      state = state.copyWith(medias: [...state.medias, ...accepted]);
+    }
+
+    if (skippedLimit) {
+      return kSomeMediaSkippedLimitMessage;
+    }
+    if (accepted.isNotEmpty) {
+      if (skippedFormat) {
+        return kMediaUnsupportedMessage;
+      }
+      if (skippedSize) {
+        return kMediaQuotaExceededMessage;
+      }
+      if (skippedInaccessible) {
+        return kMediaInaccessibleMessage;
+      }
+      return null;
+    }
+    if (skippedFormat) {
+      return kMediaUnsupportedMessage;
+    }
+    if (skippedSize) {
+      return kMediaQuotaExceededMessage;
+    }
+    if (skippedInaccessible) {
+      return kMediaInaccessibleMessage;
+    }
+    return null;
+  }
+
+  /// Contrôles UX locaux. Ne commence pas `POST /chroniques` si invalide.
+  Future<String?> validateMediaForPublish() async {
+    final medias = state.medias;
+    if (medias.length > kChroniqueMaxMediaCount) {
+      return kTooManyMediaMessage;
+    }
+    var totalBytes = 0;
+    for (final media in medias) {
+      if (media.isUploaded) {
+        totalBytes += media.byteSize ?? 0;
+        continue;
+      }
+      final path = media.localPath?.trim();
+      if (path == null || path.isEmpty) {
+        return kMediaInaccessibleMessage;
+      }
+      final readable = await _files.isReadable(path);
+      if (!readable) {
+        return kMediaInaccessibleMessage;
+      }
+      final size = media.byteSize ?? await _files.lengthOf(path);
+      if (size < 1) {
+        return kMediaInaccessibleMessage;
+      }
+      totalBytes += size;
+      if (!isChroniqueContentTypeAllowed(media.kind, media.contentType)) {
+        return kMediaUnsupportedMessage;
+      }
+    }
+    if (totalBytes > kChroniqueMaxMediaBytes) {
+      return kMediaQuotaExceededMessage;
+    }
+    return null;
+  }
+
+  /// `POST /chroniques` puis, s’il y a des médias, init / PUT R2 / complete.
   Future<Chronique> publish({
     required String body,
     String? title,
@@ -103,15 +260,155 @@ class CreateChroniqueController extends AutoDisposeNotifier<ChroniqueDraft> {
     String? scheduledAt,
     bool isTimeLimited = false,
     String? expiresAt,
-  }) {
-    return ref.read(chroniqueRepositoryProvider).create(
-          body: body,
-          title: title,
-          publish: publish,
-          scheduledAt: scheduledAt,
-          isTimeLimited: isTimeLimited,
-          expiresAt: expiresAt,
+  }) async {
+    final mediaError = await validateMediaForPublish();
+    if (mediaError != null) {
+      throw ApiException(message: mediaError, statusCode: 400);
+    }
+
+    final repository = ref.read(chroniqueRepositoryProvider);
+    late Chronique chronique;
+    final existingId = state.createdChroniqueId;
+    if (existingId != null) {
+      chronique = Chronique(
+        id: existingId,
+        body: body,
+        title: title,
+        status: publish == 'schedule' ? 'scheduled' : 'active',
+      );
+    } else {
+      chronique = await repository.create(
+        body: body,
+        title: title,
+        publish: publish,
+        scheduledAt: scheduledAt,
+        isTimeLimited: isTimeLimited,
+        expiresAt: expiresAt,
+      );
+      state = state.copyWith(createdChroniqueId: chronique.id);
+    }
+
+    if (state.medias.isEmpty) {
+      return chronique;
+    }
+
+    for (final media in List<MediaDraft>.from(state.medias)) {
+      if (media.isUploaded) {
+        continue;
+      }
+      await _uploadOne(chronique.id, media);
+    }
+
+    if (state.medias.any((item) => item.status == MediaDraftStatus.failed)) {
+      throw const ApiException(message: kPartialMediaUploadMessage, statusCode: 400);
+    }
+    return chronique;
+  }
+
+  Future<void> _uploadOne(int chroniqueId, MediaDraft media) async {
+    _replaceMedia(
+      media.id,
+      media.copyWith(
+        status: MediaDraftStatus.uploading,
+        uploadProgress: media.remoteUpload?.putCompleted == true
+            ? 100
+            : 0,
+        clearError: true,
+      ),
+    );
+
+    try {
+      var current = _mediaById(media.id);
+      var session = current.remoteUpload;
+
+      if (session == null) {
+        final created = await ref.read(chroniqueRepositoryProvider).createMediaUpload(
+              chroniqueId: chroniqueId,
+              media: current,
+            );
+        session = MediaDraftRemoteUpload(
+          mediaId: created.media.id!,
+          method: created.method,
+          url: created.url,
+          headers: created.headers,
+          expiresAt: created.expiresAt,
         );
+        current = current.copyWith(remoteUpload: session);
+        _replaceMedia(current.id, current);
+      }
+
+      if (!session.putCompleted) {
+        final path = current.localPath;
+        final byteSize = current.byteSize;
+        if (path == null || byteSize == null) {
+          throw const ApiException(message: kMediaInaccessibleMessage, statusCode: 400);
+        }
+        await _uploadClient.putFile(
+          url: session.url,
+          method: session.method,
+          headers: session.headers,
+          localPath: path,
+          byteSize: byteSize,
+          onSendProgress: (sent, total) {
+            final max = total > 0 ? total : byteSize;
+            final percent = max <= 0 ? 0 : ((sent / max) * 100).floor().clamp(0, 100);
+            final latest = _mediaById(media.id);
+            _replaceMedia(
+              media.id,
+              latest.copyWith(
+                status: MediaDraftStatus.uploading,
+                uploadProgress: percent,
+              ),
+            );
+          },
+        );
+        session = session.copyWith(putCompleted: true);
+        current = current.copyWith(
+          remoteUpload: session,
+          uploadProgress: 100,
+        );
+        _replaceMedia(current.id, current);
+      }
+
+      await ref.read(chroniqueRepositoryProvider).completeMediaUpload(
+            chroniqueId: chroniqueId,
+            mediaId: session.mediaId,
+          );
+
+      _replaceMedia(
+        media.id,
+        _mediaById(media.id).copyWith(
+          status: MediaDraftStatus.uploaded,
+          uploadProgress: 100,
+          clearError: true,
+          clearRemoteUpload: true,
+        ),
+      );
+    } catch (error) {
+      final message = error is ApiException
+          ? (error.message.trim().isEmpty ? kMediaUploadFailedMessage : error.message)
+          : kMediaUploadFailedMessage;
+      _replaceMedia(
+        media.id,
+        _mediaById(media.id).copyWith(
+          status: MediaDraftStatus.failed,
+          errorMessage: message,
+        ),
+      );
+    }
+  }
+
+  MediaDraft _mediaById(int id) {
+    return state.medias.firstWhere((item) => item.id == id);
+  }
+
+  void _replaceMedia(int id, MediaDraft next) {
+    state = state.copyWith(
+      medias: [
+        for (final item in state.medias)
+          if (item.id == id) next else item,
+      ],
+    );
   }
 }
 
@@ -119,3 +416,4 @@ final createChroniqueControllerProvider =
     AutoDisposeNotifierProvider<CreateChroniqueController, ChroniqueDraft>(
   CreateChroniqueController.new,
 );
+

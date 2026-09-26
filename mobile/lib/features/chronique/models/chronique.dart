@@ -100,6 +100,10 @@ class ChroniqueMedia {
     this.originalFilename,
     this.byteSize,
     this.status,
+    this.contentType,
+    this.sortOrder,
+    this.readUrl,
+    this.readExpiresAt,
   });
 
   final int? id;
@@ -107,6 +111,12 @@ class ChroniqueMedia {
   final String? originalFilename;
   final int? byteSize;
   final String? status;
+  final String? contentType;
+  final int? sortOrder;
+
+  /// URL GET signée R2, temporaire. Jamais persistée.
+  final String? readUrl;
+  final DateTime? readExpiresAt;
 
   factory ChroniqueMedia.fromJson(Map<String, dynamic> json) {
     final kind = json['kind'];
@@ -117,10 +127,38 @@ class ChroniqueMedia {
       id: json['id'] == null ? null : parseChroniqueId(json['id']),
       kind: kind,
       originalFilename: json['original_filename'] as String?,
-      byteSize: json['byte_size'] is int ? json['byte_size'] as int : null,
+      byteSize: _parseByteSize(json['byte_size']),
       status: json['status'] as String?,
+      contentType: json['content_type'] as String?,
+      sortOrder: _parseByteSize(json['sort_order']),
+      readUrl: _parseOptionalUrl(json['read_url']),
+      readExpiresAt: parseChroniqueDateTime(json['read_expires_at']),
     );
   }
+}
+
+String? _parseOptionalUrl(Object? value) {
+  if (value is! String) {
+    return null;
+  }
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) {
+    return null;
+  }
+  return trimmed;
+}
+
+int? _parseByteSize(Object? value) {
+  if (value is int) {
+    return value;
+  }
+  if (value is num) {
+    return value.toInt();
+  }
+  if (value is String) {
+    return int.tryParse(value);
+  }
+  return null;
 }
 
 List<ChroniqueMedia> parseChroniqueMediaList(Object? raw) {

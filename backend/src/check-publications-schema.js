@@ -5,6 +5,7 @@ const path = require('path');
 const pool = require('./db');
 
 const SQL_PATH = path.join(__dirname, '..', 'sql', '008_create_publications.sql');
+const SQL_011_PATH = path.join(__dirname, '..', 'sql', '011_update_publications_body_limits.sql');
 
 const EXPECTED_COLUMNS = [
   'id',
@@ -101,6 +102,23 @@ function inspectSqlFile() {
   }
 
   console.log('SQL file OK (sql/008_create_publications.sql inspected, not applied).');
+}
+
+function inspectBodyLimitsMigration() {
+  const sql = fs.readFileSync(SQL_011_PATH, 'utf8');
+  const code = sql.replace(/--.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+
+  assert(/MANUELLEMENT/i.test(sql), '011 must be documented as manual');
+  assert(/NOT VALID/i.test(sql), '011 body CHECK must be NOT VALID');
+  assert(/DROP CONSTRAINT IF EXISTS publications_body_length_check/i.test(code), '011 must drop old body CHECK');
+  assert(/ADD CONSTRAINT publications_body_length_check/i.test(code), '011 must add body CHECK');
+  assert(/regexp_replace/i.test(sql), '011 must count non-whitespace via regexp_replace');
+  assert(/>=\s*10/.test(sql), '011 body min 10 non-whitespace missing');
+  assert(/char_length\(body\)\s*<=\s*1000/i.test(sql), '011 body max 1000 missing');
+  assert(!/209\s*715\s*200|Too many media|MAX_MEDIA/i.test(sql), '011 must not CHECK media quota');
+  assert(!/\bDROP\s+TABLE\b/i.test(code), '011 must not DROP TABLE');
+  assert(!/\bUPDATE\s+publications\b/i.test(code), '011 must not rewrite publication rows');
+  console.log('SQL file OK (sql/011_update_publications_body_limits.sql inspected, not applied).');
 }
 
 async function tableExists() {
@@ -213,9 +231,9 @@ async function runLiveChecks() {
 
   const bodyDef = checkByName.publications_body_length_check;
   assert(bodyDef, 'CHECK publications_body_length_check missing');
-  assert(/btrim/i.test(bodyDef) && /20/.test(bodyDef), `body CHECK must btrim >= 20: ${bodyDef}`);
-  assert(/5000/.test(bodyDef), `body CHECK must max 5000: ${bodyDef}`);
-  console.log('  CHECK body: btrim >= 20 and length <= 5000');
+  assert(/regexp_replace/i.test(bodyDef) && /10/.test(bodyDef), `body CHECK must min 10 non-whitespace: ${bodyDef}`);
+  assert(/1000/.test(bodyDef), `body CHECK must max 1000: ${bodyDef}`);
+  console.log('  CHECK body: non-whitespace >= 10 and length <= 1000 (011)');
 
   const titleDef = checkByName.publications_title_length_check;
   assert(titleDef, 'CHECK publications_title_length_check missing');
@@ -259,18 +277,19 @@ async function runLiveChecks() {
 
 async function main() {
   inspectSqlFile();
+  inspectBodyLimitsMigration();
 
   if (!process.env.DATABASE_URL) {
     console.log('');
     console.log('DATABASE_URL is not set; live PostgreSQL SELECT checks skipped.');
-    console.log('Aucune donnée n’a été modifiée. La migration 008 n’a pas été appliquée.');
+    console.log('Aucune donnée n’a été modifiée. Les migrations 008 / 011 n’ont pas été appliquées.');
     return;
   }
 
   await runLiveChecks();
   console.log('');
   console.log('Aucune donnée n’a été modifiée (SELECT uniquement).');
-  console.log('La migration 008 n’a pas été appliquée par ce script.');
+  console.log('Les migrations 008 / 011 n’ont pas été appliquées par ce script.');
 }
 
 main()

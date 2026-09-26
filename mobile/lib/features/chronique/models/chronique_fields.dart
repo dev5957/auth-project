@@ -1,10 +1,16 @@
-/// Limites alignées sur `chroniqueFields.js` (code points, après trim).
+/// Limites alignées sur `chroniqueFields.js` (points de code, après trim).
 abstract final class ChroniqueFields {
-  static const int bodyMin = 20;
-  static const int bodyMax = 5000;
+  static const int bodyMinNonWhitespace = 10;
+  static const int bodyMax = 1000;
   static const int titleMax = 200;
 
+  static final RegExp _whitespace = RegExp(r'\s', unicode: true);
+
   static int runeLength(String value) => value.runes.length;
+
+  static int nonWhitespaceLength(String value) {
+    return runeLength(value.replaceAll(_whitespace, ''));
+  }
 
   static String trimmedBody(String raw) => raw.trim();
 
@@ -18,11 +24,10 @@ abstract final class ChroniqueFields {
     if (body.isEmpty) {
       return 'Le texte est obligatoire';
     }
-    final length = runeLength(body);
-    if (length < bodyMin) {
-      return 'Le texte doit contenir au moins 20 caractères';
+    if (nonWhitespaceLength(body) < bodyMinNonWhitespace) {
+      return 'Le texte doit contenir au moins 10 caractères';
     }
-    if (length > bodyMax) {
+    if (runeLength(body) > bodyMax) {
       return 'Le texte est trop long';
     }
     return null;
