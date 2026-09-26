@@ -17,6 +17,7 @@ import 'package:mobile/features/chronique/media/chronique_local_media_picker.dar
 import 'package:mobile/features/chronique/media/chronique_media_limits.dart';
 import 'package:mobile/features/chronique/media/chronique_microphone_recorder.dart';
 import 'package:mobile/features/chronique/models/chronique.dart';
+import 'package:mobile/features/chronique/models/chronique_assistant_copy.dart';
 import 'package:mobile/features/chronique/models/chronique_date.dart';
 import 'package:mobile/features/chronique/models/chronique_media_upload.dart';
 import 'package:mobile/features/chronique/models/chronique_page.dart';
@@ -101,6 +102,7 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
   String? lastListStatus;
   bool? lastIsTimeLimited;
   String? lastExpiresAt;
+  Map<String, dynamic>? lastCreateData;
   Map<String, dynamic>? lastUploadPayload;
   ApiException? failWith;
   ApiException? failCreateMediaUpload;
@@ -126,6 +128,14 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
     lastScheduledAt = scheduledAt;
     lastIsTimeLimited = isTimeLimited;
     lastExpiresAt = expiresAt;
+    lastCreateData = <String, dynamic>{
+      'body': body,
+      'publish': publish,
+      if (title != null && title.isNotEmpty) 'title': title,
+      if (publish == 'schedule' && scheduledAt != null) 'scheduled_at': scheduledAt,
+      if (isTimeLimited) 'is_time_limited': true,
+      if (isTimeLimited && expiresAt != null) 'expires_at': expiresAt,
+    };
     final error = failWith;
     if (error != null) {
       throw error;
@@ -415,6 +425,14 @@ InkWell _publishInkWell(WidgetTester tester) {
   return tester.widget<InkWell>(_actionInk('Publier'));
 }
 
+void _expectNoUnsupportedCreateFields(_ChroniqueApiProbe api) {
+  final data = api.lastCreateData ?? const <String, dynamic>{};
+  expect(data.containsKey('theme_id'), isFalse);
+  expect(data.containsKey('comments_enabled'), isFalse);
+  expect(data.containsKey('is_public'), isFalse);
+  expect(data.containsKey('audience'), isFalse);
+}
+
 void main() {
   test('chronique JSON maps public fields without user_id', () {
     final chronique = Chronique.fromJson({
@@ -465,7 +483,7 @@ void main() {
     expect(find.text('0 / 1000'), findsOneWidget);
     expect(find.text('+ Ajouter un média'), findsOneWidget);
     expect(find.text('Aucun média ajouté'), findsOneWidget);
-    expect(find.text('Programmer'), findsNothing);
+    expect(find.text(kChroniquePublishScheduleLabel), findsNothing);
     expect(_nextInkWell(tester).onTap, isNull);
     expect(find.byType(CloseButton), findsOneWidget);
     expect(find.text('Chapitre'), findsNothing);
@@ -561,6 +579,7 @@ void main() {
     expect(api.lastScheduledAt, isNull);
     expect(api.lastIsTimeLimited, isFalse);
     expect(api.lastExpiresAt, isNull);
+    _expectNoUnsupportedCreateFields(api);
     expect(find.byType(MonFilScreen), findsOneWidget);
     expect(find.text('Mon Fil'), findsOneWidget);
     expect(find.byType(CreateChroniqueScreen), findsNothing);
@@ -1263,8 +1282,8 @@ void main() {
     await _enterValidBody(tester);
     await _goToPublication(tester);
 
-    await tester.ensureVisible(find.text('Programmer'));
-    await tester.tap(find.text('Programmer'));
+    await tester.ensureVisible(find.text(kChroniquePublishScheduleLabel));
+    await tester.tap(find.text(kChroniquePublishScheduleLabel));
     await tester.pumpAndSettle();
 
     expect(find.text('Date de publication'), findsOneWidget);
@@ -1289,8 +1308,8 @@ void main() {
 
     await _enterValidBody(tester);
     await _goToPublication(tester);
-    await tester.ensureVisible(find.text('Programmer'));
-    await tester.tap(find.text('Programmer'));
+    await tester.ensureVisible(find.text(kChroniquePublishScheduleLabel));
+    await tester.tap(find.text(kChroniquePublishScheduleLabel));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Suivant'));
     await tester.pumpAndSettle();
@@ -1349,8 +1368,8 @@ void main() {
 
     await _enterValidBody(tester);
     await _goToPublication(tester);
-    await tester.ensureVisible(find.text('Programmer'));
-    await tester.tap(find.text('Programmer'));
+    await tester.ensureVisible(find.text(kChroniquePublishScheduleLabel));
+    await tester.tap(find.text(kChroniquePublishScheduleLabel));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('expiration-yes')));
     await tester.pumpAndSettle();
@@ -1382,8 +1401,8 @@ void main() {
 
     await _enterValidBody(tester);
     await _goToPublication(tester);
-    await tester.ensureVisible(find.text('Programmer'));
-    await tester.tap(find.text('Programmer'));
+    await tester.ensureVisible(find.text(kChroniquePublishScheduleLabel));
+    await tester.tap(find.text(kChroniquePublishScheduleLabel));
     await tester.pumpAndSettle();
     final state = tester.state<CreateChroniqueScreenState>(find.byType(CreateChroniqueScreen));
     final scheduled = state.scheduleDraft.scheduledAt!;
@@ -1413,8 +1432,8 @@ void main() {
     await _goToPreview(tester);
     expect(find.text('Premier soir'), findsWidgets);
     expect(find.text(_validBody), findsWidgets);
-    expect(find.text('Maintenant'), findsWidgets);
-    expect(find.text('Pas d\'expiration'), findsOneWidget);
+    expect(find.text(kChroniquePublishNowLabel), findsWidgets);
+    expect(find.text(kChroniqueNoExpirationLabel), findsOneWidget);
 
     await tester.tap(find.text('Retour'));
     await tester.pumpAndSettle();
@@ -1469,6 +1488,107 @@ void main() {
     await tester.tap(find.text('Suivant'));
     await tester.pump();
     expect(find.text(kExpiresBeforeActivationMessage), findsOneWidget);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('publication defaults to immediate and ephemeral off, with paused options', (
+    tester,
+  ) async {
+    final api = _ChroniqueApiProbe();
+    await _pumpHome(tester, api: api);
+    await _openCreate(tester);
+    await _enterValidBody(tester);
+    await _goToPublication(tester);
+
+    expect(find.text(kChroniquePublishNowLabel), findsOneWidget);
+    expect(find.byKey(const ValueKey('publish-now')), findsOneWidget);
+    expect(tester.widget<Icon>(find.descendant(
+      of: find.byKey(const ValueKey('publish-now')),
+      matching: find.byType(Icon),
+    )).icon, Icons.radio_button_checked);
+    expect(find.byKey(const ValueKey('assistant-theme')), findsOneWidget);
+    expect(find.text(kChroniqueThemePausedMessage), findsOneWidget);
+    expect(find.byKey(const ValueKey('assistant-comments')), findsOneWidget);
+    expect(find.text(kChroniqueCommentsUnavailableMessage), findsOneWidget);
+    expect(find.byKey(const ValueKey('comments-yes')), findsOneWidget);
+    expect(find.byKey(const ValueKey('assistant-visibility')), findsOneWidget);
+    expect(find.byKey(const ValueKey('visibility-private')), findsOneWidget);
+    expect(find.byKey(const ValueKey('visibility-public')), findsOneWidget);
+    expect(find.text('Famille'), findsOneWidget);
+    expect(find.text('Amis'), findsOneWidget);
+    expect(find.text('Collègues'), findsOneWidget);
+    expect(find.text('Autres'), findsOneWidget);
+    expect(find.text(kChroniqueVisibilityUnavailableMessage), findsOneWidget);
+    expect(find.text('30 jours'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('expiration-yes')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const ValueKey('expiration-dropdown')));
+    await tester.tap(find.byKey(const ValueKey('expiration-dropdown')));
+    await tester.pumpAndSettle();
+    expect(find.text('30 jours').hitTestable(), findsWidgets);
+    await tester.tap(find.text('30 jours').last);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Suivant'));
+    await tester.pumpAndSettle();
+    expect(find.text('Aperçu'), findsWidgets);
+    expect(find.text(kChroniquePublishNowLabel), findsWidgets);
+    expect(find.textContaining('30 jours'), findsOneWidget);
+    expect(find.text(kChroniquePausedOptionsPreviewTitle), findsOneWidget);
+    expect(find.textContaining(kChroniqueThemePausedMessage), findsWidgets);
+    expect(find.textContaining(kChroniqueCommentsUnavailableMessage), findsWidgets);
+    expect(find.text('Commentaires activés'), findsNothing);
+
+    await tester.tap(find.text('Retour'));
+    await tester.pumpAndSettle();
+    expect(find.text('Publication'), findsWidgets);
+    expect(find.text('30 jours'), findsOneWidget);
+
+    await tester.tap(find.text('Suivant'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Publier'));
+    await tester.tap(find.text('Publier'));
+    await tester.pumpAndSettle();
+
+    expect(api.createCalls, 1);
+    expect(api.lastPublish, 'now');
+    expect(api.lastIsTimeLimited, isTrue);
+    _expectNoUnsupportedCreateFields(api);
+    final expires = DateTime.parse(api.lastExpiresAt!);
+    final delta = expires.difference(DateTime.now().toUtc());
+    expect(delta.inHours, greaterThan(29 * 24 - 1));
+    expect(delta.inHours, lessThan(30 * 24 + 1));
+  });
+
+  testWidgets('preview shows scheduled local datetime and keeps values on back', (tester) async {
+    final api = _ChroniqueApiProbe();
+    await _pumpHome(tester, api: api);
+    await _openCreate(tester);
+    await tester.enterText(find.byType(TextField).at(0), 'Soir programmé');
+    await _enterValidBody(tester);
+    await _goToPublication(tester);
+    await tester.ensureVisible(find.text(kChroniquePublishScheduleLabel));
+    await tester.tap(find.text(kChroniquePublishScheduleLabel));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Suivant'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Soir programmé'), findsWidgets);
+    expect(find.text(_validBody), findsWidgets);
+    expect(find.text(kChroniquePublishScheduleLabel), findsWidgets);
+    expect(find.byKey(const ValueKey('preview-scheduled-at')), findsOneWidget);
+    expect(find.text(kChroniqueNoExpirationLabel), findsOneWidget);
+
+    await tester.tap(find.text('Retour'));
+    await tester.pumpAndSettle();
+    expect(find.text(kChroniquePublishScheduleLabel), findsOneWidget);
+    await tester.tap(find.text('Retour'));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<TextField>(find.byType(TextField).at(0)).controller?.text,
+      'Soir programmé',
+    );
     expect(api.createCalls, 0);
   });
 }

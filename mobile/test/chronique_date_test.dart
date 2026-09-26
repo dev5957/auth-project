@@ -131,4 +131,24 @@ void main() {
     expect(draft.resolvedExpiresLocal(), DateTime(2026, 9, 25, 15));
     expect(draft.validationError(now: DateTime(2026, 9, 25, 10)), isNull);
   });
+
+  test('30-day expiration is 30 days after activation', () {
+    final activation = DateTime(2026, 9, 24, 18, 30);
+    expect(
+      ChroniqueDateHelper.resolveExpirationLocal(
+        preset: ChroniqueExpirationPreset.thirtyDays,
+        activationLocal: activation,
+      ),
+      DateTime(2026, 10, 24, 18, 30),
+    );
+    expect(ChroniqueDateHelper.expirationLabel(ChroniqueExpirationPreset.thirtyDays), '30 jours');
+    final draft = ChroniqueScheduleDraft(
+      publishMode: ChroniquePublishMode.schedule,
+      scheduledAt: activation,
+      expirationEnabled: true,
+      expirationPreset: ChroniqueExpirationPreset.thirtyDays,
+    );
+    expect(draft.resolvedExpiresLocal(), DateTime(2026, 10, 24, 18, 30));
+    expect(draft.validationError(now: DateTime(2026, 9, 20)), isNull);
+  });
 }

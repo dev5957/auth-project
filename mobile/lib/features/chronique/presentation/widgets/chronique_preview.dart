@@ -4,12 +4,13 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_text_theme.dart';
 import '../../../../core/widgets/app_card.dart';
+import '../../models/chronique_assistant_copy.dart';
 import '../../models/chronique_date.dart';
 import '../../models/chronique_schedule_draft.dart';
 import '../../models/media_draft.dart';
 import 'media_draft_list.dart';
 
-/// Prévisualisation locale, proche d’une future ChroniqueCard.
+/// Prévisualisation locale. Les options en pause ne sont pas présentées comme enregistrées.
 class ChroniquePreview extends StatelessWidget {
   const ChroniquePreview({
     super.key,
@@ -28,13 +29,12 @@ class ChroniquePreview extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.luminaColors;
     final trimmedTitle = title.trim();
-    final publishLabel = schedule.publishMode == ChroniquePublishMode.schedule &&
-            schedule.scheduledAt != null
-        ? ChroniqueDateHelper.formatLocal(schedule.scheduledAt!)
-        : 'Maintenant';
+    final scheduled = schedule.publishMode == ChroniquePublishMode.schedule &&
+        schedule.scheduledAt != null;
     final expires = schedule.resolvedExpiresLocal();
-    final expirationLabel =
-        expires == null ? 'Pas d\'expiration' : ChroniqueDateHelper.formatLocal(expires);
+    final expirationLabel = expires == null
+        ? kChroniqueNoExpirationLabel
+        : '${ChroniqueDateHelper.expirationLabel(schedule.effectivePreset)} · ${ChroniqueDateHelper.formatLocal(expires)}';
 
     return AppCard(
       child: Column(
@@ -46,13 +46,21 @@ class ChroniquePreview extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.xs),
           Text(
-            publishLabel,
+            scheduled ? kChroniquePublishScheduleLabel : kChroniquePublishNowLabel,
             key: const ValueKey('preview-publication'),
             style: AppTextTheme.bodyMedium.copyWith(color: colors.textPrimary),
           ),
+          if (scheduled) ...[
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              ChroniqueDateHelper.formatLocal(schedule.scheduledAt!),
+              key: const ValueKey('preview-scheduled-at'),
+              style: AppTextTheme.bodyMedium.copyWith(color: colors.textPrimary),
+            ),
+          ],
           const SizedBox(height: AppSpacing.md),
           Text(
-            'Expiration',
+            kChroniqueEphemeralSectionLabel,
             style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
           ),
           const SizedBox(height: AppSpacing.xs),
@@ -77,6 +85,27 @@ class ChroniquePreview extends StatelessWidget {
             const SizedBox(height: AppSpacing.lg),
             MediaDraftList(medias: medias),
           ],
+          const SizedBox(height: AppSpacing.lg),
+          Text(
+            kChroniquePausedOptionsPreviewTitle,
+            key: const ValueKey('preview-paused-options'),
+            style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            'Thème : $kChroniqueThemePausedMessage',
+            style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            'Commentaires : $kChroniqueCommentsUnavailableMessage',
+            style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            'Visibilité : $kChroniqueVisibilityUnavailableMessage',
+            style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
+          ),
         ],
       ),
     );

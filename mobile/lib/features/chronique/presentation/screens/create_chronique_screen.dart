@@ -18,6 +18,7 @@ import '../../providers/chronique_providers.dart';
 import '../state/create_chronique_controller.dart';
 import '../widgets/add_media_kind_sheet.dart';
 import '../widgets/audio_recording_sheet.dart';
+import '../widgets/chronique_assistant_paused_options.dart';
 import '../widgets/chronique_preview.dart';
 import '../widgets/chronique_publication_fields.dart';
 import '../widgets/media_draft_list.dart';
@@ -426,6 +427,8 @@ class CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
             _formError = null;
           }),
         ),
+        const SizedBox(height: AppSpacing.xxl),
+        const ChroniqueAssistantPausedOptions(),
         if (_formError != null) ...[
           const SizedBox(height: AppSpacing.md),
           Text(
