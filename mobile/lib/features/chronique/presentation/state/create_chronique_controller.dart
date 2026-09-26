@@ -76,23 +76,35 @@ class CreateChroniqueController extends AutoDisposeNotifier<ChroniqueDraft> {
     state = const ChroniqueDraft();
   }
 
-  Future<String?> pickImage() => _pick(_picker.pickImage);
+  Future<String?> pickImage() {
+    return _pick(() => _picker.pickImage(limit: _remainingSlots));
+  }
 
   Future<String?> pickImageFromCamera() => _pick(_picker.pickImageFromCamera);
 
-  Future<String?> pickVideo() => _pick(_picker.pickVideo);
+  Future<String?> pickVideo() {
+    return _pick(() => _picker.pickVideo(limit: _remainingSlots));
+  }
 
   Future<String?> pickVideoFromCamera() => _pick(_picker.pickVideoFromCamera);
 
   Future<String?> pickAudio() => _pick(_picker.pickAudio);
 
-  Future<String?> pickDocument() => _pick(_picker.pickDocument);
+  Future<String?> pickDocument() {
+    return _pick(() => _picker.pickDocument(limit: _remainingSlots));
+  }
+
+  int get _remainingSlots =>
+      kChroniqueMaxMediaCount - state.medias.length;
 
   Future<String?> applyMediaPick(MediaPickResult result) {
     return _applyPick(result);
   }
 
   Future<String?> _pick(Future<MediaPickResult> Function() pick) async {
+    if (_remainingSlots <= 0) {
+      return kTooManyMediaMessage;
+    }
     return _applyPick(await pick());
   }
 
@@ -102,35 +114,110 @@ class CreateChroniqueController extends AutoDisposeNotifier<ChroniqueDraft> {
         return null;
       case MediaPickFailed(:final message):
         return message;
-      case MediaPickSelected(
-          :final kind,
-          :final sourceType,
-          :final fileName,
-          :final byteSize,
-          :final localPath,
-          :final contentType,
-          :final platformMime,
-        ):
-        final mime = contentType ??
-            resolveChroniqueMediaContentType(
-              kind: kind,
-              fileName: fileName,
-              localPath: localPath,
-              platformMime: platformMime,
-            );
-        if (mime == null) {
-          return kMediaUnsupportedMessage;
-        }
-        addMediaDraft(
-          kind: kind,
-          sourceType: sourceType,
-          fileName: fileName,
-          byteSize: byteSize,
-          localPath: localPath,
-          contentType: mime,
-        );
-        return null;
+      case MediaPickSelected():
+        return _applySelections([result]);
+      case MediaPickMany(:final items):
+        return _applySelections(items);
     }
+  }
+
+  Future<String?> _applySelections(List<MediaPickSelected> items) async {
+    if (items.isEmpty) {
+      return null;
+    }
+
+    final existingPaths = <String>{
+      for (final media in state.medias)
+        if (media.localPath != null && media.localPath!.trim().isNotEmpty)
+          media.localPath!.trim(),
+    };
+    var usedBytes = 0;
+    for (final media in state.medias) {
+      usedBytes += media.byteSize ?? 0;
+    }
+
+    var remaining = _remainingSlots;
+    var skippedLimit = false;
+    var skippedFormat = false;
+    var skippedSize = false;
+    var skippedInaccessible = false;
+    final accepted = <MediaDraft>[];
+
+    for (final item in items) {
+      final path = item.localPath.trim();
+      if (path.isEmpty || item.byteSize < 1) {
+        skippedInaccessible = true;
+        continue;
+      }
+      if (existingPaths.contains(path)) {
+        continue;
+      }
+      final mime = item.contentType ??
+          resolveChroniqueMediaContentType(
+            kind: item.kind,
+            fileName: item.fileName,
+            localPath: path,
+            platformMime: item.platformMime,
+          );
+      if (mime == null || !isChroniqueContentTypeAllowed(item.kind, mime)) {
+        skippedFormat = true;
+        continue;
+      }
+      if (item.byteSize > kChroniqueMaxMediaBytes ||
+          usedBytes + item.byteSize > kChroniqueMaxMediaBytes) {
+        skippedSize = true;
+        continue;
+      }
+      if (remaining <= 0) {
+        skippedLimit = true;
+        continue;
+      }
+      _nextMediaId += 1;
+      accepted.add(
+        MediaDraft(
+          id: _nextMediaId,
+          kind: item.kind,
+          sourceType: item.sourceType,
+          fileName: item.fileName,
+          byteSize: item.byteSize,
+          localPath: path,
+          contentType: mime,
+        ),
+      );
+      existingPaths.add(path);
+      usedBytes += item.byteSize;
+      remaining -= 1;
+    }
+
+    if (accepted.isNotEmpty) {
+      state = state.copyWith(medias: [...state.medias, ...accepted]);
+    }
+
+    if (skippedLimit) {
+      return kSomeMediaSkippedLimitMessage;
+    }
+    if (accepted.isNotEmpty) {
+      if (skippedFormat) {
+        return kMediaUnsupportedMessage;
+      }
+      if (skippedSize) {
+        return kMediaQuotaExceededMessage;
+      }
+      if (skippedInaccessible) {
+        return kMediaInaccessibleMessage;
+      }
+      return null;
+    }
+    if (skippedFormat) {
+      return kMediaUnsupportedMessage;
+    }
+    if (skippedSize) {
+      return kMediaQuotaExceededMessage;
+    }
+    if (skippedInaccessible) {
+      return kMediaInaccessibleMessage;
+    }
+    return null;
   }
 
   /// Contrôles UX locaux. Ne commence pas `POST /chroniques` si invalide.

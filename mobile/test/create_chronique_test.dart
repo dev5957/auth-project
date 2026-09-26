@@ -315,20 +315,39 @@ class _FakeMicrophoneRecorder implements ChroniqueMicrophoneRecorder {
 
 class _FakeLocalMediaPicker implements ChroniqueLocalMediaPicker {
   MediaPickResult imageResult = const MediaPickCancelled();
+  List<MediaPickSelected>? imageResults;
   MediaPickResult cameraImageResult = const MediaPickCancelled();
   MediaPickResult videoResult = const MediaPickCancelled();
+  List<MediaPickSelected>? videoResults;
   MediaPickResult cameraVideoResult = const MediaPickCancelled();
   MediaPickResult audioResult = const MediaPickCancelled();
   MediaPickResult documentResult = const MediaPickCancelled();
+  List<MediaPickSelected>? documentResults;
 
   @override
-  Future<MediaPickResult> pickImage() async => imageResult;
+  Future<MediaPickResult> pickImage({int? limit}) async {
+    if (imageResults != null) {
+      if (imageResults!.isEmpty) {
+        return const MediaPickCancelled();
+      }
+      return MediaPickMany(imageResults!);
+    }
+    return imageResult;
+  }
 
   @override
   Future<MediaPickResult> pickImageFromCamera() async => cameraImageResult;
 
   @override
-  Future<MediaPickResult> pickVideo() async => videoResult;
+  Future<MediaPickResult> pickVideo({int? limit}) async {
+    if (videoResults != null) {
+      if (videoResults!.isEmpty) {
+        return const MediaPickCancelled();
+      }
+      return MediaPickMany(videoResults!);
+    }
+    return videoResult;
+  }
 
   @override
   Future<MediaPickResult> pickVideoFromCamera() async => cameraVideoResult;
@@ -337,7 +356,15 @@ class _FakeLocalMediaPicker implements ChroniqueLocalMediaPicker {
   Future<MediaPickResult> pickAudio() async => audioResult;
 
   @override
-  Future<MediaPickResult> pickDocument() async => documentResult;
+  Future<MediaPickResult> pickDocument({int? limit}) async {
+    if (documentResults != null) {
+      if (documentResults!.isEmpty) {
+        return const MediaPickCancelled();
+      }
+      return MediaPickMany(documentResults!);
+    }
+    return documentResult;
+  }
 }
 
 Future<ProviderContainer> _pumpHome(
@@ -482,6 +509,7 @@ void main() {
     expect(find.text('Publier'), findsNothing);
     expect(find.text('0 / 1000'), findsOneWidget);
     expect(find.text('+ Ajouter un média'), findsOneWidget);
+    expect(find.text('Médias : 0 / 5'), findsOneWidget);
     expect(find.text('Aucun média ajouté'), findsOneWidget);
     expect(find.text(kChroniquePublishScheduleLabel), findsNothing);
     expect(_nextInkWell(tester).onTap, isNull);
@@ -659,14 +687,15 @@ void main() {
 
     await tester.tap(find.text('Image'));
     await tester.pumpAndSettle();
-    expect(find.text('Galerie'), findsOneWidget);
+    expect(find.text('Galerie (plusieurs)'), findsOneWidget);
     expect(find.text('Appareil photo'), findsOneWidget);
-    await tester.tap(find.text('Galerie'));
+    await tester.tap(find.text('Galerie (plusieurs)'));
     await tester.pumpAndSettle();
 
     expect(find.text('Aucun média ajouté'), findsNothing);
     expect(find.byType(MediaDraftList), findsOneWidget);
     expect(find.text('photo.jpg'), findsOneWidget);
+    expect(find.text('Médias : 1 / 5'), findsOneWidget);
     expect(find.text('2.4 Mo'), findsOneWidget);
     expect(find.byIcon(Icons.image_outlined), findsOneWidget);
     expect(container.read(createChroniqueControllerProvider).medias, hasLength(1));
@@ -682,7 +711,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('Aucun média ajouté'), findsOneWidget);
-    expect(find.byType(MediaDraftList), findsNothing);
+    expect(find.text('Médias : 0 / 5'), findsOneWidget);
     expect(container.read(createChroniqueControllerProvider).medias, isEmpty);
     expect(api.createCalls, 0);
   });
@@ -705,6 +734,8 @@ void main() {
     await tester.pump();
 
     expect(container.read(createChroniqueControllerProvider).medias, hasLength(5));
+    expect(find.text('Médias : 5 / 5'), findsOneWidget);
+    expect(find.text(kMediaLimitReachedMessage), findsOneWidget);
     await tester.ensureVisible(find.text('+ Ajouter un média'));
     await tester.tap(find.text('+ Ajouter un média'));
     await tester.pumpAndSettle();
@@ -725,9 +756,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Image'));
     await tester.pumpAndSettle();
-    expect(find.text('Galerie'), findsOneWidget);
+    expect(find.text('Galerie (plusieurs)'), findsOneWidget);
     expect(find.text('Appareil photo'), findsOneWidget);
-    await tester.tap(find.text('Galerie'));
+    await tester.tap(find.text('Galerie (plusieurs)'));
     await tester.pumpAndSettle();
 
     expect(find.text('Aucun média ajouté'), findsOneWidget);
@@ -864,9 +895,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Vidéo'));
     await tester.pumpAndSettle();
-    expect(find.text('Galerie'), findsOneWidget);
+    expect(find.text('Galerie (plusieurs)'), findsOneWidget);
     expect(find.text('Caméra'), findsOneWidget);
-    await tester.tap(find.text('Galerie'));
+    await tester.tap(find.text('Galerie (plusieurs)'));
     await tester.pumpAndSettle();
 
     final video = container.read(createChroniqueControllerProvider).medias.single;
@@ -1175,9 +1206,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Image'));
     await tester.pumpAndSettle();
-    expect(find.text('Galerie'), findsOneWidget);
+    expect(find.text('Galerie (plusieurs)'), findsOneWidget);
     expect(find.text('Appareil photo'), findsOneWidget);
-    await tester.tap(find.text('Galerie'));
+    await tester.tap(find.text('Galerie (plusieurs)'));
     await tester.pumpAndSettle();
 
     expect(find.text(kMediaInaccessibleMessage), findsOneWidget);
@@ -1590,5 +1621,190 @@ void main() {
       'Soir programmé',
     );
     expect(api.createCalls, 0);
+  });
+
+  testWidgets('gallery multi-select adds several images up to remaining slots', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final picker = _FakeLocalMediaPicker()
+      ..imageResults = [
+        const MediaPickSelected(
+          kind: MediaDraftKind.image,
+          sourceType: MediaDraftSourceType.gallery,
+          fileName: 'a.jpg',
+          byteSize: 1024,
+          localPath: '/tmp/a.jpg',
+          contentType: 'image/jpeg',
+        ),
+        const MediaPickSelected(
+          kind: MediaDraftKind.image,
+          sourceType: MediaDraftSourceType.gallery,
+          fileName: 'b.jpg',
+          byteSize: 1024,
+          localPath: '/tmp/b.jpg',
+          contentType: 'image/jpeg',
+        ),
+        const MediaPickSelected(
+          kind: MediaDraftKind.image,
+          sourceType: MediaDraftSourceType.gallery,
+          fileName: 'c.jpg',
+          byteSize: 1024,
+          localPath: '/tmp/c.jpg',
+          contentType: 'image/jpeg',
+        ),
+      ];
+    final container = await _pumpHome(tester, api: api, picker: picker);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Image'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Galerie (plusieurs)'));
+    await tester.pumpAndSettle();
+
+    expect(container.read(createChroniqueControllerProvider).medias, hasLength(3));
+    expect(find.text('Médias : 3 / 5'), findsOneWidget);
+    expect(find.text('a.jpg'), findsOneWidget);
+    expect(find.text('b.jpg'), findsOneWidget);
+    expect(find.text('c.jpg'), findsOneWidget);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('multi-select never exceeds 5 and keeps existing media', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final picker = _FakeLocalMediaPicker()
+      ..imageResults = [
+        for (var i = 0; i < 5; i++)
+          MediaPickSelected(
+            kind: MediaDraftKind.image,
+            sourceType: MediaDraftSourceType.gallery,
+            fileName: 'n$i.jpg',
+            byteSize: 1024,
+            localPath: '/tmp/n$i.jpg',
+            contentType: 'image/jpeg',
+          ),
+      ];
+    final container = await _pumpHome(tester, api: api, picker: picker);
+    await _openCreate(tester);
+    final controller = container.read(createChroniqueControllerProvider.notifier);
+    controller.addMediaDraft(
+      kind: MediaDraftKind.image,
+      sourceType: MediaDraftSourceType.gallery,
+      fileName: 'kept.jpg',
+      byteSize: 1024,
+      localPath: '/tmp/kept.jpg',
+      contentType: 'image/jpeg',
+    );
+    await tester.pump();
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Image'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Galerie (plusieurs)'));
+    await tester.pumpAndSettle();
+
+    final medias = container.read(createChroniqueControllerProvider).medias;
+    expect(medias, hasLength(5));
+    expect(medias.first.fileName, 'kept.jpg');
+    expect(find.text('kept.jpg'), findsOneWidget);
+    expect(find.text('Médias : 5 / 5'), findsOneWidget);
+    expect(find.text(kSomeMediaSkippedLimitMessage), findsWidgets);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('document multi-select and oversized file are handled on step 1', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final picker = _FakeLocalMediaPicker()
+      ..documentResults = [
+        const MediaPickSelected(
+          kind: MediaDraftKind.document,
+          sourceType: MediaDraftSourceType.upload,
+          fileName: 'a.pdf',
+          byteSize: 2048,
+          localPath: '/tmp/a.pdf',
+          contentType: 'application/pdf',
+        ),
+        const MediaPickSelected(
+          kind: MediaDraftKind.document,
+          sourceType: MediaDraftSourceType.upload,
+          fileName: 'b.pdf',
+          byteSize: 2048,
+          localPath: '/tmp/b.pdf',
+          contentType: 'application/pdf',
+        ),
+      ];
+    final container = await _pumpHome(tester, api: api, picker: picker);
+    await _openCreate(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Document'));
+    await tester.pumpAndSettle();
+
+    expect(container.read(createChroniqueControllerProvider).medias, hasLength(2));
+    expect(find.text('Médias : 2 / 5'), findsOneWidget);
+    expect(find.text('a.pdf'), findsOneWidget);
+    expect(find.text('b.pdf'), findsOneWidget);
+
+    picker.documentResults = null;
+    picker.documentResult = MediaPickSelected(
+      kind: MediaDraftKind.document,
+      sourceType: MediaDraftSourceType.upload,
+      fileName: 'huge.pdf',
+      byteSize: kChroniqueMaxMediaBytes + 1,
+      localPath: '/tmp/huge.pdf',
+      contentType: 'application/pdf',
+    );
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Document'));
+    await tester.pumpAndSettle();
+
+    expect(container.read(createChroniqueControllerProvider).medias, hasLength(2));
+    expect(find.text(kMediaQuotaExceededMessage), findsOneWidget);
+
+    await _enterValidBody(tester);
+    await _goToPublication(tester);
+    expect(find.text('a.pdf'), findsNothing);
+    await tester.tap(find.text('Retour'));
+    await tester.pumpAndSettle();
+    expect(find.text('a.pdf'), findsOneWidget);
+    expect(find.text('b.pdf'), findsOneWidget);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('Next button does not cover the last media in the content step', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final picker = _FakeLocalMediaPicker()
+      ..imageResult = const MediaPickSelected(
+        kind: MediaDraftKind.image,
+        sourceType: MediaDraftSourceType.gallery,
+        fileName: 'last.jpg',
+        byteSize: 1024,
+        localPath: '/tmp/last.jpg',
+        contentType: 'image/jpeg',
+      );
+    await _pumpHome(tester, api: api, picker: picker);
+    await _openCreate(tester);
+    await tester.enterText(find.byType(TextField).at(1), 'a' * 400);
+    await tester.pump();
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Image'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Galerie (plusieurs)'));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('last.jpg'));
+    final mediaBottom = tester.getRect(find.text('last.jpg')).bottom;
+    final nextTop = tester.getRect(find.text('Suivant')).top;
+    expect(mediaBottom, lessThanOrEqualTo(nextTop));
   });
 }

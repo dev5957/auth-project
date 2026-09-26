@@ -298,6 +298,7 @@ class CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
     final medias = ref.watch(createChroniqueControllerProvider.select((d) => d.medias));
     return Scaffold(
       backgroundColor: colors.bgBase,
+      resizeToAvoidBottomInset: true,
       appBar: AppBar(
         backgroundColor: colors.bgBase,
         foregroundColor: colors.textPrimary,
@@ -312,7 +313,15 @@ class CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
           children: [
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xxl),
+                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: EdgeInsets.fromLTRB(
+                  AppSpacing.xxl,
+                  0,
+                  AppSpacing.xxl,
+                  _step == CreateChroniqueStep.content
+                      ? AppSpacing.xxxl + AppSpacing.xxl
+                      : AppSpacing.xxl,
+                ),
                 child: switch (_step) {
                   CreateChroniqueStep.content => _contentStep(colors, medias),
                   CreateChroniqueStep.publication => _publicationStep(),
@@ -325,14 +334,17 @@ class CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
                 },
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.xxl,
-                AppSpacing.md,
-                AppSpacing.xxl,
-                AppSpacing.lg,
+            ColoredBox(
+              color: colors.bgBase,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.xxl,
+                  AppSpacing.md,
+                  AppSpacing.xxl,
+                  AppSpacing.lg,
+                ),
+                child: _footer(),
               ),
-              child: _footer(),
             ),
           ],
         ),
@@ -384,6 +396,22 @@ class CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
           variant: AppButtonVariant.secondary,
           onPressed: _submitting ? null : _addMedia,
         ),
+        const SizedBox(height: AppSpacing.md),
+        Text(
+          'Médias : ${medias.length} / $kChroniqueMaxMediaCount',
+          key: const ValueKey('media-count-label'),
+          textAlign: TextAlign.center,
+          style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
+        ),
+        if (medias.length >= kChroniqueMaxMediaCount) ...[
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            kMediaLimitReachedMessage,
+            key: const ValueKey('media-limit-reached'),
+            textAlign: TextAlign.center,
+            style: AppTextTheme.labelSmall.copyWith(color: colors.danger),
+          ),
+        ],
         const SizedBox(height: AppSpacing.lg),
         if (medias.isEmpty)
           Text(
@@ -408,7 +436,7 @@ class CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
             style: AppTextTheme.labelSmall.copyWith(color: colors.danger),
           ),
         ],
-        const SizedBox(height: AppSpacing.xxl),
+        const SizedBox(height: AppSpacing.xxxl),
       ],
     );
   }

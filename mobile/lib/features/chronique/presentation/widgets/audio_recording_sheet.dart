@@ -122,6 +122,15 @@ class _AudioRecordingSheetState extends State<_AudioRecordingSheet> {
             _ui = _AudioRecordUiState.stopped;
             _capture = result;
           });
+        case MediaPickMany(:final items):
+          if (items.length == 1) {
+            setState(() {
+              _ui = _AudioRecordUiState.stopped;
+              _capture = items.single;
+            });
+          } else {
+            _pop(const MediaPickFailed(kMediaInaccessibleMessage));
+          }
       }
     } on Exception {
       _pop(const MediaPickFailed(kMediaInaccessibleMessage));

@@ -10,7 +10,7 @@ import 'chronique_media_mime.dart';
 
 const _documentExtensions = {'pdf', 'doc', 'docx', 'txt'};
 
-/// ImagePicker (galerie / caméra photo et vidéo) + FilePicker (audio / documents).
+/// ImagePicker (galerie multi-images / caméra) + FilePicker (vidéos, audio, documents).
 class DeviceChroniqueLocalMediaPicker implements ChroniqueLocalMediaPicker {
   DeviceChroniqueLocalMediaPicker({
     ImagePicker? imagePicker,
@@ -19,17 +19,17 @@ class DeviceChroniqueLocalMediaPicker implements ChroniqueLocalMediaPicker {
   final ImagePicker _imagePicker;
 
   @override
-  Future<MediaPickResult> pickImage() {
-    return _pickWithImagePicker(
+  Future<MediaPickResult> pickImage({int? limit}) {
+    return _pickManyWithImagePicker(
       kind: MediaDraftKind.image,
       sourceType: MediaDraftSourceType.gallery,
-      pick: () => _imagePicker.pickImage(source: ImageSource.gallery),
+      pick: () => _imagePicker.pickMultiImage(limit: limit),
     );
   }
 
   @override
   Future<MediaPickResult> pickImageFromCamera() {
-    return _pickWithImagePicker(
+    return _pickSingleWithImagePicker(
       kind: MediaDraftKind.image,
       sourceType: MediaDraftSourceType.camera,
       pick: () => _imagePicker.pickImage(source: ImageSource.camera),
@@ -37,17 +37,18 @@ class DeviceChroniqueLocalMediaPicker implements ChroniqueLocalMediaPicker {
   }
 
   @override
-  Future<MediaPickResult> pickVideo() {
-    return _pickWithImagePicker(
+  Future<MediaPickResult> pickVideo({int? limit}) {
+    return _pickWithFilePicker(
       kind: MediaDraftKind.video,
       sourceType: MediaDraftSourceType.gallery,
-      pick: () => _imagePicker.pickVideo(source: ImageSource.gallery),
+      type: FileType.video,
+      allowMultiple: true,
     );
   }
 
   @override
   Future<MediaPickResult> pickVideoFromCamera() {
-    return _pickWithImagePicker(
+    return _pickSingleWithImagePicker(
       kind: MediaDraftKind.video,
       sourceType: MediaDraftSourceType.camera,
       pick: () => _imagePicker.pickVideo(source: ImageSource.camera),
@@ -58,20 +59,59 @@ class DeviceChroniqueLocalMediaPicker implements ChroniqueLocalMediaPicker {
   Future<MediaPickResult> pickAudio() {
     return _pickWithFilePicker(
       kind: MediaDraftKind.audio,
+      sourceType: MediaDraftSourceType.upload,
       type: FileType.audio,
+      allowMultiple: false,
     );
   }
 
   @override
-  Future<MediaPickResult> pickDocument() {
+  Future<MediaPickResult> pickDocument({int? limit}) {
     return _pickWithFilePicker(
       kind: MediaDraftKind.document,
+      sourceType: MediaDraftSourceType.upload,
       type: FileType.custom,
       allowedExtensions: _documentExtensions.toList(),
+      allowMultiple: true,
     );
   }
 
-  Future<MediaPickResult> _pickWithImagePicker({
+  Future<MediaPickResult> _pickManyWithImagePicker({
+    required MediaDraftKind kind,
+    required MediaDraftSourceType sourceType,
+    required Future<List<XFile>> Function() pick,
+  }) async {
+    try {
+      final files = await pick();
+      if (files.isEmpty) {
+        return const MediaPickCancelled();
+      }
+      final items = <MediaPickSelected>[];
+      for (final file in files) {
+        final selected = await _selectedFromXFile(
+          file,
+          kind: kind,
+          sourceType: sourceType,
+        );
+        if (selected != null) {
+          items.add(selected);
+        }
+      }
+      if (items.isEmpty) {
+        return const MediaPickFailed(kMediaUnsupportedMessage);
+      }
+      return MediaPickMany(items);
+    } on PlatformException catch (error) {
+      if (sourceType == MediaDraftSourceType.camera && _isCameraAccessDenied(error)) {
+        return const MediaPickFailed(kCameraAccessDeniedMessage);
+      }
+      return const MediaPickFailed(kMediaInaccessibleMessage);
+    } on Exception {
+      return const MediaPickFailed(kMediaInaccessibleMessage);
+    }
+  }
+
+  Future<MediaPickResult> _pickSingleWithImagePicker({
     required MediaDraftKind kind,
     required MediaDraftSourceType sourceType,
     required Future<XFile?> Function() pick,
@@ -81,34 +121,15 @@ class DeviceChroniqueLocalMediaPicker implements ChroniqueLocalMediaPicker {
       if (file == null) {
         return const MediaPickCancelled();
       }
-      final path = file.path.trim();
-      if (path.isEmpty) {
-        return const MediaPickFailed(kMediaInaccessibleMessage);
-      }
-      final byteSize = await file.length();
-      if (byteSize < 1) {
-        return const MediaPickFailed(kMediaInaccessibleMessage);
-      }
-      final name = _nameOf(file.name, path);
-      final platformMime = file.mimeType;
-      final contentType = resolveChroniqueMediaContentType(
-        kind: kind,
-        fileName: name,
-        localPath: path,
-        platformMime: platformMime,
-      );
-      if (contentType == null) {
-        return const MediaPickFailed(kMediaUnsupportedMessage);
-      }
-      return MediaPickSelected(
+      final selected = await _selectedFromXFile(
+        file,
         kind: kind,
         sourceType: sourceType,
-        fileName: name,
-        byteSize: byteSize,
-        localPath: path,
-        contentType: contentType,
-        platformMime: platformMime,
       );
+      if (selected == null) {
+        return const MediaPickFailed(kMediaUnsupportedMessage);
+      }
+      return selected;
     } on PlatformException catch (error) {
       if (sourceType == MediaDraftSourceType.camera && _isCameraAccessDenied(error)) {
         return const MediaPickFailed(kCameraAccessDeniedMessage);
@@ -127,51 +148,108 @@ class DeviceChroniqueLocalMediaPicker implements ChroniqueLocalMediaPicker {
         (message.contains('camera') && message.contains('denied'));
   }
 
+  Future<MediaPickSelected?> _selectedFromXFile(
+    XFile file, {
+    required MediaDraftKind kind,
+    required MediaDraftSourceType sourceType,
+  }) async {
+    final path = file.path.trim();
+    if (path.isEmpty) {
+      return null;
+    }
+    final byteSize = await file.length();
+    if (byteSize < 1) {
+      return null;
+    }
+    final name = _nameOf(file.name, path);
+    final platformMime = file.mimeType;
+    final contentType = resolveChroniqueMediaContentType(
+      kind: kind,
+      fileName: name,
+      localPath: path,
+      platformMime: platformMime,
+    );
+    return MediaPickSelected(
+      kind: kind,
+      sourceType: sourceType,
+      fileName: name,
+      byteSize: byteSize,
+      localPath: path,
+      contentType: contentType,
+      platformMime: platformMime,
+    );
+  }
+
   Future<MediaPickResult> _pickWithFilePicker({
     required MediaDraftKind kind,
+    required MediaDraftSourceType sourceType,
     required FileType type,
     List<String>? allowedExtensions,
+    required bool allowMultiple,
   }) async {
     try {
       final result = await FilePicker.pickFiles(
         type: type,
         allowedExtensions: allowedExtensions,
-        allowMultiple: false,
+        allowMultiple: allowMultiple,
       );
       if (result == null || result.files.isEmpty) {
         return const MediaPickCancelled();
       }
-      final file = result.files.single;
-      final path = file.path?.trim();
-      if (path == null || path.isEmpty) {
+      final items = <MediaPickSelected>[];
+      var sawUnsupported = false;
+      var sawInaccessible = false;
+      for (final file in result.files) {
+        final path = file.path?.trim();
+        if (path == null || path.isEmpty) {
+          sawInaccessible = true;
+          continue;
+        }
+        final extension = _extensionOf(file.name.isNotEmpty ? file.name : path);
+        if (kind == MediaDraftKind.document &&
+            !_documentExtensions.contains(extension)) {
+          sawUnsupported = true;
+          continue;
+        }
+        final byteSize = file.size > 0 ? file.size : _lengthOf(path);
+        if (byteSize < 1) {
+          sawInaccessible = true;
+          continue;
+        }
+        final name = _nameOf(file.name, path);
+        final contentType = resolveChroniqueMediaContentType(
+          kind: kind,
+          fileName: name,
+          localPath: path,
+        );
+        if (contentType == null) {
+          sawUnsupported = true;
+          continue;
+        }
+        items.add(
+          MediaPickSelected(
+            kind: kind,
+            sourceType: sourceType,
+            fileName: name,
+            byteSize: byteSize,
+            localPath: path,
+            contentType: contentType,
+          ),
+        );
+      }
+      if (items.isEmpty) {
+        if (sawUnsupported) {
+          return const MediaPickFailed(kMediaUnsupportedMessage);
+        }
+        if (sawInaccessible) {
+          return const MediaPickFailed(kMediaInaccessibleMessage);
+        }
         return const MediaPickFailed(kMediaInaccessibleMessage);
       }
-      final extension = _extensionOf(file.name.isNotEmpty ? file.name : path);
-      if (kind == MediaDraftKind.document &&
-          !_documentExtensions.contains(extension)) {
-        return const MediaPickFailed(kMediaUnsupportedMessage);
+      if (!allowMultiple && items.length == 1) {
+        return items.single;
       }
-      final byteSize = file.size > 0 ? file.size : _lengthOf(path);
-      if (byteSize < 1) {
-        return const MediaPickFailed(kMediaInaccessibleMessage);
-      }
-      final name = _nameOf(file.name, path);
-      final contentType = resolveChroniqueMediaContentType(
-        kind: kind,
-        fileName: name,
-        localPath: path,
-      );
-      if (contentType == null) {
-        return const MediaPickFailed(kMediaUnsupportedMessage);
-      }
-      return MediaPickSelected(
-        kind: kind,
-        sourceType: MediaDraftSourceType.upload,
-        fileName: name,
-        byteSize: byteSize,
-        localPath: path,
-        contentType: contentType,
-      );
+      return MediaPickMany(items);
     } on Exception {
       return const MediaPickFailed(kMediaInaccessibleMessage);
     }

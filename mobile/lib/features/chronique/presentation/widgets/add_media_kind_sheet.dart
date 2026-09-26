@@ -48,7 +48,7 @@ Future<MediaDraftSourceType?> showAddImageSourceSheet(BuildContext context) {
             children: [
               ListTile(
                 title: Text(
-                  'Galerie',
+                  'Galerie (plusieurs)',
                   style: AppTextTheme.bodyLarge.copyWith(color: colors.textPrimary),
                 ),
                 onTap: () => Navigator.of(context).pop(MediaDraftSourceType.gallery),
@@ -82,7 +82,7 @@ Future<MediaDraftSourceType?> showAddVideoSourceSheet(BuildContext context) {
             children: [
               ListTile(
                 title: Text(
-                  'Galerie',
+                  'Galerie (plusieurs)',
                   style: AppTextTheme.bodyLarge.copyWith(color: colors.textPrimary),
                 ),
                 onTap: () => Navigator.of(context).pop(MediaDraftSourceType.gallery),

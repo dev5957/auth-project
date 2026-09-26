@@ -34,19 +34,26 @@ final class MediaPickSelected extends MediaPickResult {
   final String? platformMime;
 }
 
+/// Plusieurs fichiers issus d’une même ouverture du sélecteur.
+final class MediaPickMany extends MediaPickResult {
+  const MediaPickMany(this.items);
+
+  final List<MediaPickSelected> items;
+}
+
 /// Sélection locale téléphone. Pas d’upload, pas d’API.
 abstract class ChroniqueLocalMediaPicker {
-  Future<MediaPickResult> pickImage();
+  Future<MediaPickResult> pickImage({int? limit});
 
   Future<MediaPickResult> pickImageFromCamera();
 
-  Future<MediaPickResult> pickVideo();
+  Future<MediaPickResult> pickVideo({int? limit});
 
   Future<MediaPickResult> pickVideoFromCamera();
 
   Future<MediaPickResult> pickAudio();
 
-  Future<MediaPickResult> pickDocument();
+  Future<MediaPickResult> pickDocument({int? limit});
 }
 
 const String kMediaInaccessibleMessage = 'Le fichier est inaccessible';
