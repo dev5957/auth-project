@@ -147,9 +147,11 @@ class ChroniqueReadyAudioPlayer extends StatefulWidget {
   const ChroniqueReadyAudioPlayer({
     super.key,
     required this.url,
+    this.fromFile = false,
   });
 
   final String url;
+  final bool fromFile;
 
   @override
   State<ChroniqueReadyAudioPlayer> createState() => _ChroniqueReadyAudioPlayerState();
@@ -177,7 +179,11 @@ class _ChroniqueReadyAudioPlayerState extends State<ChroniqueReadyAudioPlayer> {
     final player = AudioPlayer();
     _player = player;
     try {
-      await player.setUrl(widget.url);
+      if (widget.fromFile) {
+        await player.setFilePath(widget.url);
+      } else {
+        await player.setUrl(widget.url);
+      }
       if (!mounted) {
         await player.dispose();
         return;

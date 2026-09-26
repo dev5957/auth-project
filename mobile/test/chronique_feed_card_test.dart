@@ -290,8 +290,39 @@ void main() {
       ),
     );
     await tester.pump();
+    expect(find.byKey(const ValueKey('chronique-media-viewer-dialog')), findsOneWidget);
     expect(find.byKey(const ValueKey('chronique-media-viewer-video')), findsOneWidget);
     expect(find.byType(ChroniqueReadyVideoPlayer), findsOneWidget);
     expect(find.text('Vidéo'), findsWidgets);
+  });
+
+  testWidgets('audio tile fills the cell with a mini player chrome', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ChroniqueFeedMediaBand(
+          medias: [
+            _media(id: 4, kind: 'audio', fileName: 'voix.mp3'),
+          ],
+        ),
+      ),
+    );
+    expect(find.byKey(const ValueKey('chronique-feed-media-4')), findsOneWidget);
+    expect(find.text('voix.mp3'), findsOneWidget);
+    expect(find.byIcon(Icons.play_circle), findsOneWidget);
+    expect(find.byIcon(Icons.graphic_eq), findsOneWidget);
+  });
+
+  testWidgets('media viewer opens in a dialog rather than a fullscreen route', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(extensions: const [LuminaColors.light]),
+        home: ChroniqueMediaViewerPage(
+          media: _media(id: 8, kind: 'audio', readUrl: 'https://example.test/clip.m4a'),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.byKey(const ValueKey('chronique-media-viewer-dialog')), findsOneWidget);
+    expect(find.byKey(const ValueKey('chronique-media-viewer-audio')), findsOneWidget);
   });
 }

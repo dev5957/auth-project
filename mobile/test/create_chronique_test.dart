@@ -1483,8 +1483,8 @@ void main() {
     await _goToPreview(tester);
     expect(find.text('Premier soir'), findsWidgets);
     expect(find.text(_validBody), findsWidgets);
-    expect(find.text(kChroniquePublishNowLabel), findsWidgets);
-    expect(find.text(kChroniqueNoExpirationLabel), findsOneWidget);
+    expect(find.byKey(const ValueKey('chronique-preview-card')), findsOneWidget);
+    expect(find.text(kChroniquePausedOptionsPreviewTitle), findsNothing);
 
     await tester.tap(find.text('Retour'));
     await tester.pumpAndSettle();
@@ -1558,18 +1558,21 @@ void main() {
       matching: find.byType(Icon),
     )).icon, Icons.radio_button_checked);
     expect(find.byKey(const ValueKey('assistant-theme')), findsOneWidget);
-    expect(find.text(kChroniqueThemePausedMessage), findsOneWidget);
+    expect(find.text('Thèmes'), findsOneWidget);
+    expect(find.text(kChroniqueThemePausedMessage), findsNothing);
     expect(find.byKey(const ValueKey('assistant-comments')), findsOneWidget);
-    expect(find.text(kChroniqueCommentsUnavailableMessage), findsOneWidget);
+    expect(find.text(kChroniqueCommentsUnavailableMessage), findsNothing);
     expect(find.byKey(const ValueKey('comments-yes')), findsOneWidget);
+    expect(find.byKey(const ValueKey('comments-no')), findsOneWidget);
     expect(find.byKey(const ValueKey('assistant-visibility')), findsOneWidget);
-    expect(find.byKey(const ValueKey('visibility-private')), findsOneWidget);
-    expect(find.byKey(const ValueKey('visibility-public')), findsOneWidget);
+    final publicTop = tester.getTopLeft(find.byKey(const ValueKey('visibility-public')));
+    final privateTop = tester.getTopLeft(find.byKey(const ValueKey('visibility-private')));
+    expect(publicTop.dy, lessThan(privateTop.dy));
     expect(find.text('Famille'), findsOneWidget);
     expect(find.text('Amis'), findsOneWidget);
     expect(find.text('Collègues'), findsOneWidget);
     expect(find.text('Autres'), findsOneWidget);
-    expect(find.text(kChroniqueVisibilityUnavailableMessage), findsOneWidget);
+    expect(find.text(kChroniqueVisibilityUnavailableMessage), findsNothing);
     expect(find.text('30 jours'), findsNothing);
 
     await tester.tap(find.byKey(const ValueKey('expiration-yes')));
@@ -1584,11 +1587,11 @@ void main() {
     await tester.tap(find.text('Suivant'));
     await tester.pumpAndSettle();
     expect(find.text('Aperçu'), findsWidgets);
-    expect(find.text(kChroniquePublishNowLabel), findsWidgets);
-    expect(find.textContaining('30 jours'), findsOneWidget);
-    expect(find.text(kChroniquePausedOptionsPreviewTitle), findsOneWidget);
-    expect(find.textContaining(kChroniqueThemePausedMessage), findsWidgets);
-    expect(find.textContaining(kChroniqueCommentsUnavailableMessage), findsWidgets);
+    expect(find.byKey(const ValueKey('chronique-preview-card')), findsOneWidget);
+    expect(find.text('Expire le'), findsOneWidget);
+    expect(find.text(kChroniquePausedOptionsPreviewTitle), findsNothing);
+    expect(find.textContaining(kChroniqueThemePausedMessage), findsNothing);
+    expect(find.textContaining(kChroniqueCommentsUnavailableMessage), findsNothing);
     expect(find.text('Commentaires activés'), findsNothing);
 
     await tester.tap(find.text('Retour'));
@@ -1627,9 +1630,9 @@ void main() {
 
     expect(find.text('Soir programmé'), findsWidgets);
     expect(find.text(_validBody), findsWidgets);
-    expect(find.text(kChroniquePublishScheduleLabel), findsWidgets);
-    expect(find.byKey(const ValueKey('preview-scheduled-at')), findsOneWidget);
-    expect(find.text(kChroniqueNoExpirationLabel), findsOneWidget);
+    expect(find.byKey(const ValueKey('chronique-preview-card')), findsOneWidget);
+    expect(find.text('Programmée'), findsOneWidget);
+    expect(find.text(kChroniquePausedOptionsPreviewTitle), findsNothing);
 
     await tester.tap(find.text('Retour'));
     await tester.pumpAndSettle();

@@ -576,5 +576,13 @@ void main() {
     expect(find.byType(ChroniqueDetailScreen), findsNothing);
     expect(api.getCalls, 0);
     expect(api.listCalls, 1);
+
+    await tester.tap(find.byKey(const ValueKey('chronique-media-viewer-close')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byType(ChroniqueMediaViewerPage), findsNothing);
+    expect(find.byType(MonFilScreen), findsOneWidget);
+    expect(api.getCalls, 0);
+    expect(api.listCalls, 1);
   });
 }

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
@@ -152,9 +154,11 @@ class ChroniqueReadyVideoPlayer extends StatefulWidget {
   const ChroniqueReadyVideoPlayer({
     super.key,
     required this.url,
+    this.fromFile = false,
   });
 
   final String url;
+  final bool fromFile;
 
   @override
   State<ChroniqueReadyVideoPlayer> createState() => _ChroniqueReadyVideoPlayerState();
@@ -174,7 +178,9 @@ class _ChroniqueReadyVideoPlayerState extends State<ChroniqueReadyVideoPlayer> {
   }
 
   Future<void> _open() async {
-    final controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+    final controller = widget.fromFile
+        ? VideoPlayerController.file(File(widget.url))
+        : VideoPlayerController.networkUrl(Uri.parse(widget.url));
     _controller = controller;
     try {
       await controller.initialize();

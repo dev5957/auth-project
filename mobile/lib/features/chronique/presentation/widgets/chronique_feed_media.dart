@@ -1,9 +1,13 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_text_theme.dart';
 import '../../models/chronique.dart';
+
+const List<double> kChroniqueFeedAudioDecorHeights = [8, 14, 10, 16, 9, 12, 7, 11, 15, 8];
 
 const double kChroniqueFeedReferenceWidth = 390;
 const double kChroniqueFeedMediaGap = 2;
@@ -85,10 +89,12 @@ class ChroniqueFeedMediaBand extends StatelessWidget {
     super.key,
     required this.medias,
     this.onSelect,
+    this.localPaths = const {},
   });
 
   final List<ChroniqueMedia> medias;
   final ValueChanged<ChroniqueMedia>? onSelect;
+  final Map<int, String> localPaths;
 
   @override
   Widget build(BuildContext context) {
@@ -147,9 +153,11 @@ class ChroniqueFeedMediaBand extends StatelessWidget {
   }
 
   Widget _tile(BuildContext context, ChroniqueMedia media, int index) {
+    final id = media.id;
     return ChroniqueFeedMediaTile(
       media: media,
       index: index,
+      localPath: id == null ? null : localPaths[id],
       onTap: onSelect == null ? null : () => onSelect!(media),
     );
   }
@@ -161,11 +169,13 @@ class ChroniqueFeedMediaTile extends StatelessWidget {
     required this.media,
     required this.index,
     this.onTap,
+    this.localPath,
   });
 
   final ChroniqueMedia media;
   final int index;
   final VoidCallback? onTap;
+  final String? localPath;
 
   @override
   Widget build(BuildContext context) {
@@ -198,6 +208,18 @@ class ChroniqueFeedMediaTile extends StatelessWidget {
   }
 
   Widget _image(LuminaColors colors) {
+    final path = localPath?.trim();
+    if (path != null && path.isNotEmpty) {
+      return Image.file(
+        File(path),
+        fit: BoxFit.cover,
+        width: double.infinity,
+        height: double.infinity,
+        errorBuilder: (context, error, stackTrace) {
+          return _fallback(colors, label: 'Média indisponible');
+        },
+      );
+    }
     if (!chroniqueFeedHasUsableReadUrl(media)) {
       return _fallback(
         colors,
@@ -243,18 +265,56 @@ class ChroniqueFeedMediaTile extends StatelessWidget {
   }
 
   Widget _audio(LuminaColors colors) {
+    final name = media.originalFilename?.trim();
     return Padding(
       padding: const EdgeInsets.all(AppSpacing.sm),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Icon(Icons.audiotrack_outlined, color: colors.primary),
-          const SizedBox(height: AppSpacing.xs),
-          Text(
-            'Audio',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTextTheme.labelSmall.copyWith(color: colors.textPrimary),
+          Row(
+            children: [
+              Icon(Icons.graphic_eq, color: colors.primary, size: 28),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(
+                  (name == null || name.isEmpty) ? 'Audio' : name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextTheme.labelSmall.copyWith(color: colors.textPrimary),
+                ),
+              ),
+              Icon(
+                Icons.play_circle,
+                color: colors.primary,
+                size: 36,
+              ),
+            ],
+          ),
+          const Spacer(),
+          ExcludeSemantics(
+            child: SizedBox(
+              height: 22,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  for (final height in kChroniqueFeedAudioDecorHeights) ...[
+                    Expanded(
+                      child: Align(
+                        alignment: Alignment.bottomCenter,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: colors.border,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                          child: SizedBox(height: height, width: double.infinity),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 2),
+                  ],
+                ],
+              ),
+            ),
           ),
         ],
       ),
