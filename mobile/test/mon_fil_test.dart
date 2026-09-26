@@ -17,6 +17,7 @@ import 'package:mobile/features/chronique/presentation/screens/chronique_detail_
 import 'package:mobile/features/chronique/presentation/screens/mon_fil_screen.dart';
 import 'package:mobile/features/chronique/presentation/state/mon_fil_controller.dart';
 import 'package:mobile/features/chronique/presentation/widgets/chronique_card.dart';
+import 'package:mobile/features/chronique/presentation/widgets/chronique_media_viewer.dart';
 import 'package:mobile/features/chronique/providers/chronique_providers.dart';
 import 'package:mobile/features/chronique/services/chronique_api_service.dart';
 import 'package:mobile/features/home/presentation/screens/home_screen.dart';
@@ -376,6 +377,9 @@ void main() {
       'https://example.test/a.jpg',
       'https://example.test/b.mp4',
     ]);
+    expect(find.byKey(const ValueKey('chronique-feed-media-band')), findsOneWidget);
+    expect(find.byKey(const ValueKey('chronique-feed-media-10')), findsOneWidget);
+    expect(find.byKey(const ValueKey('chronique-feed-media-20')), findsOneWidget);
   });
 
   testWidgets('Mon Fil displays a chronique card', (tester) async {
@@ -418,7 +422,7 @@ void main() {
     final container = await _pumpHome(tester, api: api);
     await _openMonFil(tester);
 
-    await tester.tap(find.byType(ChroniqueCard));
+    await tester.tap(find.byKey(const ValueKey('chronique-card-copy')));
     await tester.pumpAndSettle();
 
     expect(find.byType(ChroniqueDetailScreen), findsOneWidget);
@@ -437,6 +441,7 @@ void main() {
     expect(find.byType(MonFilScreen), findsOneWidget);
     expect(find.byType(ChroniqueCard), findsOneWidget);
     expect(container.read(authControllerProvider), isA<AuthAuthenticated>());
+    expect(api.getCalls, 1);
   });
 
   testWidgets('Mon Fil shows an empty state when there are no items', (tester) async {
@@ -537,5 +542,39 @@ void main() {
     expect(find.text('Modifier'), findsOneWidget);
     expect(find.text('Archiver'), findsOneWidget);
     expect(find.text('Supprimer'), findsNothing);
+  });
+
+  testWidgets('tapping a feed media opens the viewer without a detail GET', (tester) async {
+    const image = ChroniqueMedia(
+      id: 10,
+      kind: 'image',
+      status: 'ready',
+      contentType: 'image/jpeg',
+      sortOrder: 0,
+      readUrl: 'https://example.test/a.jpg',
+    );
+    final api = _ChroniqueApiProbe()
+      ..items = const [
+        Chronique(
+          id: 2,
+          title: 'Avec medias',
+          body: 'Le texte de la chronique, d au moins vingt caracteres.',
+          status: 'active',
+          publishedAt: '2026-09-22T11:00:00.000Z',
+          media: [image],
+        ),
+      ];
+    await _pumpHome(tester, api: api);
+    await _openMonFil(tester);
+    expect(api.getCalls, 0);
+
+    await tester.tap(find.byKey(const ValueKey('chronique-feed-media-10')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.byType(ChroniqueMediaViewerPage), findsOneWidget);
+    expect(find.byType(ChroniqueDetailScreen), findsNothing);
+    expect(api.getCalls, 0);
+    expect(api.listCalls, 1);
   });
 }
