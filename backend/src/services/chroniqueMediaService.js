@@ -5,7 +5,7 @@ const { parseMediaId, parseUploadInput, parseMediaOrder } = require('../validato
 const { toPublicChronique, toPublicMedia, withOwnedPublication } = require('./chroniqueService');
 const { getStorage } = require('./storageService');
 
-const MAX_MEDIA = 20;
+const MAX_MEDIA = 5;
 const MAX_BYTES = 209715200;
 const MEDIA_WRITABLE_STATUSES = ['draft', 'scheduled', 'active'];
 
@@ -170,7 +170,11 @@ async function completeMedia(userId, rawId, rawMediaId, deps = {}) {
     }
 
     const usage = await quotaUsage(client, row.id);
-    if (usage.count > MAX_MEDIA || usage.bytes > MAX_BYTES) {
+    // Le plafond de 5 médias s’applique aux nouveaux uploads (createMediaUpload).
+    // complete ne refuse pas un dépassement de compteur : les chroniques déjà
+    // au-delà de 5 médias, et les pending_upload amorcés avant le lot, restent
+    // consultables et finalisables sans suppression.
+    if (usage.bytes > MAX_BYTES) {
       await client.query(
         `UPDATE publication_media
          SET status = 'failed'
@@ -180,7 +184,7 @@ async function completeMedia(userId, rawId, rawMediaId, deps = {}) {
       );
       const next = await quotaUsage(client, row.id);
       await setMediaTotalBytes(client, row.id, row.user_id, next.bytes);
-      throw new AppError(400, usage.count > MAX_MEDIA ? 'Too many media' : 'Media quota exceeded');
+      throw new AppError(400, 'Media quota exceeded');
     }
 
     const maxOrder = await client.query(

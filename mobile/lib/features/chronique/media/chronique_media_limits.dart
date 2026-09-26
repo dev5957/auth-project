@@ -1,8 +1,8 @@
 /// Quotas UX alignés sur le backend (`MAX_MEDIA` / `MAX_BYTES`). Le serveur reste la source de vérité.
-const int kChroniqueMaxMediaCount = 20;
+const int kChroniqueMaxMediaCount = 5;
 const int kChroniqueMaxMediaBytes = 209715200;
 
-const String kTooManyMediaMessage = 'Maximum 20 médias';
+const String kTooManyMediaMessage = 'Maximum 5 médias';
 const String kMediaQuotaExceededMessage = 'La taille totale des médias dépasse 200 Mo';
 const String kMediaUploadFailedMessage = 'L\'envoi du média a échoué';
 const String kPartialMediaUploadMessage = 'Certains médias n\'ont pas pu être envoyés';

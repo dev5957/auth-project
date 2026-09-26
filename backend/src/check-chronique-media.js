@@ -99,6 +99,16 @@ function createMemoryDb({ publications = [], media = [] } = {}) {
       return { rows: row ? [{ ...row }] : [], rowCount: row ? 1 : 0 };
     }
 
+    if (key.includes('FROM PUBLICATIONS') && key.includes('LIMIT 1') && key.includes('STATUS <>')) {
+      const row = state.publications.find(
+        (item) =>
+          Number(item.id) === Number(params[0]) &&
+          Number(item.user_id) === Number(params[1]) &&
+          item.status !== 'deleted'
+      );
+      return { rows: row ? [{ ...row }] : [], rowCount: row ? 1 : 0 };
+    }
+
     if (key.includes('FROM PUBLICATION_MEDIA') && key.includes('COUNT(*)') && key.includes('SUM(BYTE_SIZE)')) {
       const counted = state.media.filter(
         (item) =>
@@ -491,7 +501,73 @@ async function main() {
     400,
     'Too many media'
   );
-  console.log('F OK quota 20 / 200 Mio');
+  console.log('F OK quota 5 / 200 Mio');
+
+  const exactBytesDb = createMemoryDb({
+    publications: [samplePublication({ id: 4, media_total_bytes: 0 })],
+  });
+  const exact = await createMediaUpload(
+    OWNER_ID,
+    4,
+    validUpload({ byte_size: MAX_BYTES }),
+    { db: exactBytesDb, storage: mockStorage }
+  );
+  assert(exact.media.byte_size === MAX_BYTES, 'exactly 200 MiB accepted');
+
+  const mixedKinds = [
+    validUpload({ kind: 'image', source_type: 'gallery', content_type: 'image/jpeg', original_filename: 'a.jpg' }),
+    validUpload({ kind: 'video', source_type: 'gallery', content_type: 'video/mp4', original_filename: 'b.mp4' }),
+    validUpload({ kind: 'audio', source_type: 'upload', content_type: 'audio/mpeg', original_filename: 'c.mp3' }),
+    validUpload({
+      kind: 'document',
+      source_type: 'upload',
+      content_type: 'application/pdf',
+      original_filename: 'd.pdf',
+    }),
+    validUpload({ kind: 'image', source_type: 'camera', content_type: 'image/jpeg', original_filename: 'e.jpg' }),
+  ];
+  const mixedDb = createMemoryDb({
+    publications: [samplePublication({ id: 5, media_total_bytes: 0 })],
+  });
+  for (const item of mixedKinds) {
+    await createMediaUpload(OWNER_ID, 5, item, { db: mixedDb, storage: mockStorage });
+  }
+  assert(mixedDb.state.media.length === 5, 'five mixed kinds accepted');
+  await expectStatus(
+    () => createMediaUpload(OWNER_ID, 5, validUpload(), { db: mixedDb, storage: mockStorage }),
+    400,
+    'Too many media'
+  );
+  assert(mixedDb.state.media.length === 5, 'sixth mixed upload does not insert');
+
+  const sixReady = [];
+  for (let i = 0; i < 6; i += 1) {
+    sixReady.push({
+      id: 400 + i,
+      publication_id: 6,
+      kind: i % 2 === 0 ? 'image' : 'video',
+      source_type: 'gallery',
+      storage_key: `publications/6/media/${i}`,
+      content_type: i % 2 === 0 ? 'image/jpeg' : 'video/mp4',
+      byte_size: 10,
+      original_filename: `old${i}.bin`,
+      sort_order: i,
+      status: 'ready',
+      created_at: new Date(),
+    });
+  }
+  const sixDb = createMemoryDb({
+    publications: [samplePublication({ id: 6, media_total_bytes: 60 })],
+    media: sixReady,
+  });
+  assert(sixDb.state.media.length === 6, 'existing 6 media are not deleted');
+  await expectStatus(
+    () => createMediaUpload(OWNER_ID, 6, validUpload(), { db: sixDb, storage: mockStorage }),
+    400,
+    'Too many media'
+  );
+  assert(sixDb.state.media.length === 6, 'existing 6 media unchanged after refused add');
+  console.log('F2 OK 5 mixed / 200 MiB exact / existing 6 media readable');
 
   const beforeDelete = db.state.media.length;
   const toDelete = db.state.media.find((row) => row.status === 'ready');

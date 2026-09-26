@@ -453,12 +453,12 @@ void main() {
     expect(api.createCalls, 0);
   });
 
-  test('more than 20 media is rejected before POST /chroniques', () async {
+  test('more than 5 media is rejected before POST /chroniques', () async {
     final api = _Api();
     final container = _container(api: api);
     addTearDown(container.dispose);
     final controller = container.read(createChroniqueControllerProvider.notifier);
-    for (var i = 0; i < 21; i++) {
+    for (var i = 0; i < 6; i++) {
       _add(controller, _image(id: 0, name: 'p$i.jpg', path: '/tmp/p$i.jpg', bytes: 1));
     }
     await expectLater(
@@ -468,7 +468,58 @@ void main() {
       ),
     );
     expect(api.createCalls, 0);
-    expect(container.read(createChroniqueControllerProvider).medias, hasLength(21));
+    expect(container.read(createChroniqueControllerProvider).medias, hasLength(6));
+  });
+
+  test('five mixed media are accepted at the count limit', () async {
+    final api = _Api();
+    final put = _PutClient();
+    final container = _container(api: api, put: put);
+    addTearDown(container.dispose);
+    final controller = container.read(createChroniqueControllerProvider.notifier);
+    _add(controller, _image(id: 0, name: 'a.jpg', path: '/tmp/a.jpg', bytes: 10));
+    controller.addMediaDraft(
+      kind: MediaDraftKind.video,
+      sourceType: MediaDraftSourceType.gallery,
+      fileName: 'b.mp4',
+      byteSize: 20,
+      localPath: '/tmp/b.mp4',
+      contentType: 'video/mp4',
+    );
+    controller.addMediaDraft(
+      kind: MediaDraftKind.audio,
+      sourceType: MediaDraftSourceType.upload,
+      fileName: 'c.mp3',
+      byteSize: 30,
+      localPath: '/tmp/c.mp3',
+      contentType: 'audio/mpeg',
+    );
+    controller.addMediaDraft(
+      kind: MediaDraftKind.document,
+      sourceType: MediaDraftSourceType.upload,
+      fileName: 'd.pdf',
+      byteSize: 40,
+      localPath: '/tmp/d.pdf',
+      contentType: 'application/pdf',
+    );
+    _add(controller, _image(id: 0, name: 'e.jpg', path: '/tmp/e.jpg', bytes: 50));
+    await controller.publish(body: body);
+    expect(api.createCalls, 1);
+    expect(api.initCalls, 5);
+    expect(put.putCalls, 5);
+    expect(container.read(createChroniqueControllerProvider).medias, hasLength(5));
+  });
+
+  test('exactly 200 MiB is accepted', () async {
+    final api = _Api();
+    final put = _PutClient();
+    final container = _container(api: api, put: put);
+    addTearDown(container.dispose);
+    final controller = container.read(createChroniqueControllerProvider.notifier);
+    _add(controller, _image(id: 0, bytes: kChroniqueMaxMediaBytes));
+    await controller.publish(body: body);
+    expect(api.createCalls, 1);
+    expect(put.putCalls, 1);
   });
 
   test('inaccessible file is rejected before POST /chroniques', () async {

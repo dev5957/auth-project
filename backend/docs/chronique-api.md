@@ -70,6 +70,7 @@ backend/src/services/storageService.js         # interface ; pas de R2 dans le m
 backend/src/validators/chroniqueFields.js
 backend/sql/008_create_publications.sql        # existe
 backend/sql/009_create_publication_media.sql   # existe
+backend/sql/011_update_publications_body_limits.sql  # limites texte 10 / 1 000
 backend/docs/chronique-api.md
 ```
 
@@ -81,7 +82,7 @@ Montage prévu : `app.use('/chroniques', chroniqueRoutes)` — **sans** toucher 
 
 **V1 limites :**
 
-- **Quota utilisateur** (par publication, propriétaire JWT) : 20 médias `pending_upload`+`ready`, 200 Mio — **service**.
+- **Quota utilisateur** (par publication, propriétaire JWT) : 5 médias `pending_upload`+`ready`, 200 Mio — **service**.
 - **Rate limit IP** (fenêtre type Auth, 15 min) → `429` `{ "error": "Too many requests" }`. Pas de quota de débit par `userId` en V1 au-delà de l’IP.
 
 ---
@@ -98,7 +99,7 @@ Une chronique **appartient obligatoirement** à un utilisateur (`user_id` → `u
 | `user_id` | oui | issu du JWT. FK future `publications.user_id` → `users.id` **`ON DELETE RESTRICT`** : supprimer un utilisateur **ne** cascade **pas** sur ses publications |
 | `theme_id` | non | **nullable**, préparation thèmes. **Pas** de table `themes` en V1. **Pas** de logique métier. Toujours `null` en écriture Module 2 |
 | `title` | non | chaîne trimée ; vide / espaces uniquement → `null` ; max **200** caractères |
-| `body` | oui | texte central, 20–5000 caractères après trim |
+| `body` | oui | texte central : après trim, min **10** caractères non blancs, max **1 000** points de code (espaces internes compris) |
 | `status` | oui | `draft` \| `scheduled` \| `active` \| `archived` \| `expired` \| `deleted` |
 | `scheduled_at` | si `scheduled` | instant UTC de passage prévu à `active` |
 | `published_at` | si déjà activée | instant UTC de première activation |
@@ -111,7 +112,7 @@ Une chronique **appartient obligatoirement** à un utilisateur (`user_id` → `u
 | `is_public` | oui | **inerte** — toujours `false` en Module 2 |
 | `audience` | oui | **inerte** — toujours `"private"` en Module 2 |
 | `comments_enabled` | oui | **inerte** — toujours `false` en Module 2 |
-| `media_total_bytes` | oui (dérivé, applicatif) | somme des tailles. Plafond **200 Mio** et max **20** médias : **couche service**, pas CHECK SQL de quota / MIME |
+| `media_total_bytes` | oui (dérivé, applicatif) | somme des tailles. Plafond **200 Mio** et max **5** médias : **couche service**, pas CHECK SQL de quota / MIME |
 | `created_at` | oui | |
 | `updated_at` | oui | |
 
@@ -148,7 +149,7 @@ Chaque média a :
 | `status` | `pending_upload` \| `ready` \| `failed` |
 | `created_at` | |
 
-Quota **200 Mio** et plafond **20** médias : validés par le **service** (voir [§6.4](#64-quota-et-formats--couche-service)). La base ne porte que des contraintes **structurelles** (PK, FK **`ON DELETE CASCADE`**, NOT NULL, ensembles `kind` / `source_type` / `status` média, `storage_key` unique, `byte_size >= 1`). **Pas** de CHECK MIME ni de CHECK « 20 lignes / 200 Mio ».
+Quota **200 Mio** et plafond **5** médias : validés par le **service** (voir [§6.4](#64-quota-et-formats--couche-service)). La base ne porte que des contraintes **structurelles** (PK, FK **`ON DELETE CASCADE`**, NOT NULL, ensembles `kind` / `source_type` / `status` média, `storage_key` unique, `byte_size >= 1`). **Pas** de CHECK MIME ni de CHECK « 5 lignes / 200 Mio ».
 
 #### Origine utilisateur (`source_type`)
 
@@ -231,7 +232,7 @@ Un champ optionnel `read_url` (URL **signée**, courte, **non persistée**) pour
 Toutes les routes exigent `requireAuth`. Aucune n’est publique en Module 2.
 
 **Rate limit V1 :** par **IP** (famille Auth, 15 min) → `429` `{ "error": "Too many requests" }`.  
-**Quota V1 :** par **utilisateur** (publication du JWT) — 20 médias / 200 Mio, couche service.
+**Quota V1 :** par **utilisateur** (publication du JWT) — 5 médias / 200 Mio, couche service.
 
 CORS actuel : `GET`, `POST`, `OPTIONS`. `PATCH` / `DELETE` web exigeront d’étendre CORS **sans** changer `/auth`. Hors de cette étape.
 
@@ -261,7 +262,7 @@ Crée une chronique pour l’utilisateur authentifié.
 | Champ | Obligatoire | Notes |
 |---|---|---|
 | `title` | non | max 200 ; omis / `null` / blancs → `null` |
-| `body` | oui | 20–5000 après trim ; espaces seuls refusés |
+| `body` | oui | après trim : min 10 caractères non blancs ; max 1 000 points de code (espaces internes conservés) ; espaces seuls refusés |
 | `publish` | oui* | `"draft"` \| `"now"` \| `"schedule"` — voir modes ci-dessous |
 | `scheduled_at` | si mode planifié | ISO-8601 UTC **strictement dans le futur** |
 | `is_time_limited` | non | booléen, défaut `false` |
@@ -436,7 +437,7 @@ Au moins un champ reconnu.
 | Champ | Notes |
 |---|---|
 | `title` | max 200 ; `null` efface |
-| `body` | 20–5000 après trim |
+| `body` | après trim : min 10 non blancs, max 1 000 |
 | `publish` | `"draft"` \| `"now"` \| `"schedule"` |
 | `scheduled_at` | si planification |
 | `is_time_limited` | booléen |
@@ -728,7 +729,7 @@ Confirme l’upload direct. `StorageService` vérifie l’objet (taille) avant `
 ```
 
 Objet absent / taille incohérente → `failed` et `400` `{ "error": "Upload is incomplete" }`.  
-`failed` ne compte plus dans le quota ni les 20 médias.
+`failed` ne compte plus dans le quota ni les 5 médias.
 
 #### Erreurs
 
@@ -818,9 +819,10 @@ Permutation **exacte** des ids `ready`.
 
 - `body` obligatoire à la création et à chaque PATCH qui l’envoie.
 - Longueur **après `trim()`**, **points de code Unicode**.
-- Minimum **20** → sinon `body is too short`.
-- Maximum **5000** → sinon `body is too long`.
+- Minimum **10 caractères non blancs** (espaces et autres blancs exclus du minimum) → sinon `body is too short`.
+- Maximum **1000** (espaces internes compris) → sinon `body is too long`.
 - Absent, non-string, vide, **espaces seuls** → `body is required`.
+- CHECK SQL (fichier historique `008` : 20–5000 ; migration additive `011`, **NOT VALID**) : 10 non blancs / 1 000, sans réécriture des lignes existantes.
 - Le titre ne remplace pas le body.
 
 ### 4.3 Titre
@@ -833,7 +835,7 @@ Permutation **exacte** des ids `ready`.
 ### 4.4 Médias
 
 - Optionnels (texte seul valide).
-- Max **20** médias, **200 Mio** cumulés (**quota utilisateur** / publication, service).
+- Max **5** médias, **200 Mio** cumulés (**quota utilisateur** / publication, service).
 - **Rate limit V1** : par IP, pas par `userId`.
 - `kind` + `source_type` + métadonnées techniques.
 - `document` : **V1 actif** ; `source_type` = `upload` ; MIME/extensions **service** (PDF, DOC, DOCX, TXT).
@@ -1012,13 +1014,14 @@ Aucun encodage automatique. MIME refusés → `content_type is invalid`.
 
 Les règles suivantes **ne sont pas** des CHECK SQL. Elles sont appliquées par le **service / validators** :
 
-- maximum **20** médias (`pending_upload` + `ready`) par publication ;
+- maximum **5** médias (`pending_upload` + `ready`) par publication ;
 - quota total **200 Mio** = **209 715 200** octets (`pending_upload` + `ready`) ;
 - MIME V1 listés en [§6.3](#63-formats-acceptés-v1) (y compris documents) ;
 - couples `kind` / `source_type` (`document` → `upload` seulement).
 
-Contrôle à `uploads` et à `complete`.  
-La base : PK/FK, `kind` / `source_type` / `status` fermés, `storage_key` UNIQUE, `byte_size >= 1`, éventuellement colonne `media_total_bytes` **sans** CHECK de plafond.
+Contrôle du **nombre** à `POST …/media/uploads` (nouveaux ajouts).  
+Contrôle des **octets** à `uploads` et à `complete`.  
+Les chroniques déjà au-delà de 5 médias restent lisibles ; aucun CHECK SQL de quota média.
 
 ---
 
@@ -1062,7 +1065,7 @@ users
 - Métadonnées PostgreSQL uniquement. Fichiers : `StorageService` (R2 V1), `storage_key` opaque.
 - **`publications.user_id` → `users.id` `ON DELETE RESTRICT`**.
 - **`publication_media.publication_id` → `publications.id` `ON DELETE CASCADE`** : le hard delete parent retire les métadonnées médias ; les objets storage restent à la charge du job de purge.
-- Quota 20 médias / 200 Mio / MIME : **service**, pas CHECK SQL.
+- Quota 5 médias / 200 Mio / MIME : **service**, pas CHECK SQL.
 - Pagination API : `before_at` + `before_id`.
 - Hard delete : `deleted_at + 30 days`.
 

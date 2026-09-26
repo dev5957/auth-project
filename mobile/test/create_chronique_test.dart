@@ -14,6 +14,7 @@ import 'package:mobile/features/auth/providers/auth_providers.dart';
 import 'package:mobile/features/auth/state/auth_state.dart';
 import 'package:mobile/features/chronique/media/chronique_local_file_access.dart';
 import 'package:mobile/features/chronique/media/chronique_local_media_picker.dart';
+import 'package:mobile/features/chronique/media/chronique_media_limits.dart';
 import 'package:mobile/features/chronique/media/chronique_microphone_recorder.dart';
 import 'package:mobile/features/chronique/models/chronique.dart';
 import 'package:mobile/features/chronique/models/chronique_date.dart';
@@ -461,7 +462,7 @@ void main() {
     expect(find.text('Texte *'), findsOneWidget);
     expect(find.text('Suivant'), findsOneWidget);
     expect(find.text('Publier'), findsNothing);
-    expect(find.text('0 / 5000'), findsOneWidget);
+    expect(find.text('0 / 1000'), findsOneWidget);
     expect(find.text('+ Ajouter un média'), findsOneWidget);
     expect(find.text('Aucun média ajouté'), findsOneWidget);
     expect(find.text('Programmer'), findsNothing);
@@ -488,7 +489,7 @@ void main() {
     expect(find.byType(CreateChroniqueScreen), findsOneWidget);
   });
 
-  testWidgets('body shorter than 20 characters does not call the API', (tester) async {
+  testWidgets('body with fewer than 10 non-whitespace characters does not call the API', (tester) async {
     final api = _ChroniqueApiProbe();
     await _pumpHome(tester, api: api);
     await _openCreate(tester);
@@ -496,25 +497,25 @@ void main() {
     await tester.enterText(find.byType(TextField).at(1), 'trop court');
     await tester.pump();
 
-    expect(find.text('Le texte doit contenir au moins 20 caractères'), findsOneWidget);
-    expect(find.text('10 / 5000'), findsOneWidget);
+    expect(find.text('Le texte doit contenir au moins 10 caractères'), findsOneWidget);
+    expect(find.text('10 / 1000'), findsOneWidget);
     expect(_nextInkWell(tester).onTap, isNull);
     await tester.tap(find.text('Suivant'));
     await tester.pump();
     expect(api.createCalls, 0);
   });
 
-  testWidgets('body longer than 5000 characters does not call the API', (tester) async {
+  testWidgets('body longer than 1000 characters does not call the API', (tester) async {
     final api = _ChroniqueApiProbe();
     await _pumpHome(tester, api: api);
     await _openCreate(tester);
 
-    final tooLong = 'a' * 5001;
+    final tooLong = 'a' * 1001;
     await tester.enterText(find.byType(TextField).at(1), tooLong);
     await tester.pump();
 
     expect(find.text('Le texte est trop long'), findsOneWidget);
-    expect(find.text('5001 / 5000'), findsOneWidget);
+    expect(find.text('1001 / 1000'), findsOneWidget);
     expect(_nextInkWell(tester).onTap, isNull);
     expect(api.createCalls, 0);
   });
@@ -524,14 +525,14 @@ void main() {
     await _pumpHome(tester, api: api);
     await _openCreate(tester);
 
-    expect(find.text('0 / 5000'), findsOneWidget);
+    expect(find.text('0 / 1000'), findsOneWidget);
     expect(_nextInkWell(tester).onTap, isNull);
 
     const body = 'Le texte de la chronique, d au moins vingt caracteres.';
     await tester.enterText(find.byType(TextField).at(1), body);
     await tester.pump();
 
-    expect(find.text('${body.trim().runes.length} / 5000'), findsOneWidget);
+    expect(find.text('${body.trim().runes.length} / 1000'), findsOneWidget);
     expect(_nextInkWell(tester).onTap, isNotNull);
     expect(api.createCalls, 0);
   });
@@ -664,6 +665,34 @@ void main() {
     expect(find.text('Aucun média ajouté'), findsOneWidget);
     expect(find.byType(MediaDraftList), findsNothing);
     expect(container.read(createChroniqueControllerProvider).medias, isEmpty);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('sixth media is blocked in the assistant without opening the kind sheet', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final container = await _pumpHome(tester, api: api);
+    await _openCreate(tester);
+    final controller = container.read(createChroniqueControllerProvider.notifier);
+    for (var i = 0; i < kChroniqueMaxMediaCount; i++) {
+      controller.addMediaDraft(
+        kind: MediaDraftKind.image,
+        sourceType: MediaDraftSourceType.gallery,
+        fileName: 'p$i.jpg',
+        byteSize: 1024,
+        localPath: '/tmp/p$i.jpg',
+        contentType: 'image/jpeg',
+      );
+    }
+    await tester.pump();
+
+    expect(container.read(createChroniqueControllerProvider).medias, hasLength(5));
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+
+    expect(find.text(kTooManyMediaMessage), findsOneWidget);
+    expect(find.text('Image'), findsNothing);
+    expect(container.read(createChroniqueControllerProvider).medias, hasLength(5));
     expect(api.createCalls, 0);
   });
 

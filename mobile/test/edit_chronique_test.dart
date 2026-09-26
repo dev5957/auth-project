@@ -310,7 +310,7 @@ void main() {
       tester.widget<TextField>(find.byType(TextField).at(1)).controller?.text,
       'Le texte de la chronique, d au moins vingt caracteres.',
     );
-    expect(find.text('${_ChroniqueApiProbe.sample.body.trim().runes.length} / 5000'), findsOneWidget);
+    expect(find.text('${_ChroniqueApiProbe.sample.body.trim().runes.length} / 1000'), findsOneWidget);
     expect(_saveInkWell(tester).onTap, isNull);
     expect(api.updateCalls, 0);
     expect(container.read(authControllerProvider), isA<AuthAuthenticated>());
@@ -331,10 +331,15 @@ void main() {
 
     await tester.enterText(find.byType(TextField).at(1), 'trop court');
     await tester.pump();
-    expect(find.text('Le texte doit contenir au moins 20 caractères'), findsOneWidget);
+    expect(find.text('Le texte doit contenir au moins 10 caractères'), findsOneWidget);
     expect(_saveInkWell(tester).onTap, isNull);
 
-    await tester.enterText(find.byType(TextField).at(1), 'a' * 5001);
+    await tester.enterText(find.byType(TextField).at(1), 'abcdefghij');
+    await tester.pump();
+    expect(find.text('Le texte doit contenir au moins 10 caractères'), findsNothing);
+    expect(find.text('10 / 1000'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).at(1), 'a' * 1001);
     await tester.pump();
     expect(find.text('Le texte est trop long'), findsOneWidget);
     expect(_saveInkWell(tester).onTap, isNull);

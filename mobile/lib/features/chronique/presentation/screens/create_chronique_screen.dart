@@ -10,6 +10,7 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_text_theme.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_text_field.dart';
+import '../../media/chronique_media_limits.dart';
 import '../../models/chronique_fields.dart';
 import '../../models/chronique_schedule_draft.dart';
 import '../../models/media_draft.dart';
@@ -105,6 +106,12 @@ class CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
 
   Future<void> _addMedia() async {
     if (_submitting) {
+      return;
+    }
+    final currentMedias =
+        ref.read(createChroniqueControllerProvider).medias;
+    if (currentMedias.length >= kChroniqueMaxMediaCount) {
+      setState(() => _formError = kTooManyMediaMessage);
       return;
     }
     final kind = await showAddMediaKindSheet(context);

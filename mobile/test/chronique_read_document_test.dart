@@ -281,6 +281,19 @@ void main() {
     ]);
   });
 
+  test('existing chronique with more than 5 media stays fully listed', () {
+    final six = displayableChroniqueRemoteMedia([
+      _image(id: 1, sortOrder: 0),
+      _video(id: 2, sortOrder: 1),
+      _audio(id: 3, sortOrder: 2),
+      _document(id: 4, sortOrder: 3, originalFilename: 'a.pdf'),
+      _image(id: 5, sortOrder: 4, readUrl: 'https://example.test/second.jpg'),
+      _document(id: 6, sortOrder: 5, originalFilename: 'b.txt'),
+    ]);
+    expect(six, hasLength(6));
+    expect(six.map((item) => item.id).toList(), [1, 2, 3, 4, 5, 6]);
+  });
+
   testWidgets('17-18 mix builds image document audio document video, never audio for documents', (
     tester,
   ) async {
