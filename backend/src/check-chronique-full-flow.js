@@ -68,6 +68,22 @@ function createMemoryDb() {
       return { rows: [{ ...row }], rowCount: 1 };
     }
 
+    if (key.includes('FROM PUBLICATIONS') && key.includes('WHERE USER_ID = $1') && key.includes('AND STATUS = $2')) {
+      const userId = params[0];
+      const status = params[1];
+      const limit = Number(params[params.length - 1]);
+      const rows = state.publications
+        .filter((item) => Number(item.user_id) === Number(userId) && item.status === status)
+        .sort((a, b) => {
+          const av = a.published_at ? new Date(a.published_at).getTime() : 0;
+          const bv = b.published_at ? new Date(b.published_at).getTime() : 0;
+          return bv - av || Number(b.id) - Number(a.id);
+        })
+        .slice(0, limit)
+        .map((item) => ({ ...item }));
+      return { rows, rowCount: rows.length };
+    }
+
     if (key.includes('FROM PUBLICATIONS') && key.includes('FOR UPDATE')) {
       const row = state.publications.find(
         (item) => Number(item.id) === Number(params[0]) && Number(item.user_id) === Number(params[1])
@@ -180,6 +196,24 @@ function createMemoryDb() {
         .filter((item) => Number(item.publication_id) === Number(params[0]) && item.status === 'ready')
         .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id)
         .map((item) => ({ id: item.id }));
+      return { rows, rowCount: rows.length };
+    }
+
+    if (key.includes('FROM PUBLICATION_MEDIA') && key.includes('ANY($1::BIGINT[])')) {
+      const rawIds = Array.isArray(params[0]) ? params[0] : [params[0]];
+      const ids = new Set(rawIds.map((id) => Number(id)));
+      const kinds = new Set(['image', 'video', 'audio', 'document']);
+      const rows = state.media
+        .filter((item) => ids.has(Number(item.publication_id)))
+        .filter((item) => item.status === 'ready')
+        .filter((item) => kinds.has(item.kind))
+        .sort(
+          (a, b) =>
+            Number(a.publication_id) - Number(b.publication_id) ||
+            Number(a.sort_order) - Number(b.sort_order) ||
+            Number(a.id) - Number(b.id)
+        )
+        .map((item) => ({ ...item }));
       return { rows, rowCount: rows.length };
     }
 
@@ -507,6 +541,27 @@ async function main() {
     assertNoSecrets(read.json, read.raw);
     console.log('C OK GET /chroniques/:id avec medias ready, sans secrets Storage');
 
+    const listed = await httpRequest({
+      port: TEST_PORT,
+      method: 'GET',
+      urlPath: '/chroniques',
+      headers: auth,
+    });
+    assert(listed.status === 200, `GET list ${listed.status} ${listed.raw}`);
+    assert(listed.json.items.length === 1, 'list count');
+    assert(listed.json.items[0].media.length === 3, 'list media count');
+    assert(
+      listed.json.items[0].media.every(
+        (item) =>
+          typeof item.read_url === 'string' &&
+          item.read_url.startsWith('https://mock-storage.local/read/')
+      ),
+      'list signed read_url'
+    );
+    assert(storageCalls.createReadUrl === 6, `list+detail read urls ${storageCalls.createReadUrl}`);
+    assertNoSecrets(listed.json, listed.raw);
+    console.log('C2 OK GET /chroniques hydrate les medias ready');
+
     const unauth = await httpRequest({
       port: TEST_PORT,
       method: 'POST',
@@ -524,7 +579,7 @@ async function main() {
     });
     assert(stranger.status === 404, `other GET ${stranger.status} ${stranger.raw}`);
     assert(stranger.json.error === 'Chronique not found', stranger.raw);
-    assert(storageCalls.createReadUrl === 3, 'stranger GET must not sign');
+    assert(storageCalls.createReadUrl === 6, 'stranger GET must not sign');
 
     const badDoc = await httpRequest({
       port: TEST_PORT,

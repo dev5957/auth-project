@@ -223,7 +223,7 @@ V1 : le stockage conserve le **fichier original**. **Aucun** encodage ni transfo
 Non renvoyés : `user_id`, `storage_key`, `deleted_at`, secrets, URL fournisseur stable.  
 `theme_id` est renvoyé (toujours `null` tant que les thèmes sont en pause). Le client **ne peut pas** le poser.
 
-Un champ optionnel `read_url` (URL **signée**, courte, **non persistée**) pourra apparaître sur chaque média `ready` dans les GET. Il n’est pas une URL publique permanente.
+Un champ optionnel `read_url` (URL **signée**, courte, **non persistée**) est ajouté sur chaque média `ready` des GET **liste** et **détail** lorsqu’une signature valide a été produite. Il n’est pas une URL publique permanente. TTL par défaut : **15 minutes**. Champ associé : `read_expires_at`.
 
 ---
 
@@ -371,8 +371,22 @@ Fil « récit » = `status=active`. Archives volontaires = `archived`. Conservat
 }
 ```
 
-`items` : chroniques avec médias `ready` seulement.  
-`next` : `null` s’il n’y a plus de page. `before_at` est l’horodatage de tri de **cette** vue.
+`items` : publications de la page, **sans JOIN** qui dupliquerait les lignes.  
+Chaque item porte `media` :
+
+- publication **sans** média ready affichable → `media: []` ;
+- médias **affichables du fil** uniquement : `status === "ready"`, `kind` ∈ `image|video|audio|document`, et une `read_url` signée non vide générée via `createReadUrl` (même mécanisme que le détail) ;
+- `pending_upload`, `failed`, clé de stockage vide, ou signature sans URL exploitable → **absents** de `media` (pas d’URL inventée, pas de `storage_key`) ;
+- ordre déterministe : `sort_order` croissant, puis `id` croissant ;
+- chargement **groupé** : une requête `publication_media` sur les IDs de la page courante (`ANY($1::bigint[])`), pas un GET `/:id` par publication.
+
+`read_url` : URL **GET signée**, non persistée. Durée de validité : **15 minutes** (`SIGNED_TTL_MS` MockStorage ; `readTtlSeconds` R2, défaut 15 min). Champ `read_expires_at` ISO-8601 UTC.  
+Échec de signature **sur un média** : log `[chronique-media-read-url]` (ids + message, **sans** clé/URL) ; le média est omis de la liste ; les autres restent.  
+Panne **générale** de stockage (`503 Storage is not configured`) : la liste échoue, elle n’est pas renvoyée comme un fil sans médias.
+
+`next` : `null` s’il n’y a plus de page. `before_at` est l’horodatage de tri de **cette** vue. Pagination (`limit` 20, curseur) **inchangée**.
+
+**Différence liste / détail :** `GET /chroniques/:id` continue d’inclure les médias `pending_upload` et `failed` (sans `read_url`). La liste ne les expose pas.
 
 #### Erreurs
 
@@ -403,6 +417,10 @@ Lecture d’une chronique **appartenant** à l’utilisateur.
   "chronique": { }
 }
 ```
+
+`chronique.media` : tous les médias de la publication, `ORDER BY sort_order ASC, id ASC`.  
+Les médias `ready` reçoivent `read_url` / `read_expires_at` via `createReadUrl` (TTL **15 min** par défaut).  
+`pending_upload` et `failed` restent dans le tableau **sans** `read_url`. `storage_key` n’est jamais renvoyé.
 
 #### Erreurs
 
@@ -1128,7 +1146,7 @@ Existants : `test:publications-schema`, `test:publication-media-schema`.
 
 ## Validation backend Module 2 — Chronique
 
-Le backend Module 2 est **implémenté et validé**. Auth, Flutter et les fichiers SQL `008` / `009` ne sont pas retravaillés. Les jobs, le transcodage, CORS bucket R2 et `read_url` sur GET restent hors gel (voir [§4.8](#48-jobs-futurs-hors-de-cette-étape) et [§10](#10-hors-périmètre-de-cette-étape)).
+Le backend Module 2 est **implémenté et validé**. Auth, Flutter et les fichiers SQL `008` / `009` ne sont pas retravaillés. Les jobs, le transcodage et CORS bucket R2 restent hors gel (voir [§4.8](#48-jobs-futurs-hors-de-cette-étape) et [§10](#10-hors-périmètre-de-cette-étape)). `read_url` est généré à la volée sur `GET /chroniques` (médias affichables du fil) et `GET /chroniques/:id` (médias `ready`).
 
 ### API Chronique
 
@@ -1171,7 +1189,8 @@ Règles validées :
 - `document` **actif V1** : PDF, DOC, DOCX, TXT ;
 - `document` uniquement `source_type=upload`.
 
-`GET /chroniques/:id` renvoie `media[]` (champs publics uniquement, sans `storage_key`).
+`GET /chroniques/:id` renvoie `media[]` (champs publics, sans `storage_key` ; `ready` avec `read_url`).  
+`GET /chroniques` renvoie, pour chaque item, `media[]` **filtrée** aux médias ready affichables (avec `read_url`).
 
 ### Storage
 
@@ -1188,7 +1207,7 @@ Le métier Chronique **ne** parle **pas** à Cloudflare.
 - **MockStorage** : tests métier rapides (`test:chronique-*` hors `*-r2-live`).
 - **R2Storage** : adaptateur Cloudflare R2, SDK **S3-compatible**, URLs **signées** (PUT / GET), **aucun secret** côté client. Sélection : `STORAGE_PROVIDER=mock` (défaut) ou `r2`.
 
-`createReadUrl` existe sur l’adaptateur ; il n’est **pas** branché sur `GET /chroniques/:id` dans ce gel.
+`GET /chroniques/:id` et `GET /chroniques` signent les médias `ready` via `createReadUrl` (sans exposer `storage_key`). La liste n’inclut que les médias affichables (`ready` + URL). Le détail conserve aussi `pending_upload` / `failed` sans URL.
 
 ### Tests validés
 

@@ -88,10 +88,58 @@ function createMemory({ publications, media }) {
     if (key.includes('FROM PUBLICATIONS') && key.includes('WHERE USER_ID = $1') && key.includes('AND STATUS = $2')) {
       const userId = params[0];
       const status = params[1];
+      const hasCursor = params.length >= 5;
+      const cursorAt = hasCursor ? new Date(params[2]).getTime() : null;
+      const cursorId = hasCursor ? Number(params[3]) : null;
       const limit = Number(params[params.length - 1]);
-      const rows = publications
-        .filter((item) => Number(item.user_id) === Number(userId) && item.status === status)
-        .slice(0, limit)
+      const sortColumn =
+        status === 'scheduled'
+          ? 'scheduled_at'
+          : status === 'archived'
+            ? 'archived_at'
+            : status === 'expired'
+              ? 'expired_at'
+              : status === 'draft'
+                ? 'updated_at'
+                : 'published_at';
+      let rows = publications.filter(
+        (item) => Number(item.user_id) === Number(userId) && item.status === status
+      );
+      rows.sort((a, b) => {
+        const av = a[sortColumn] ? new Date(a[sortColumn]).getTime() : 0;
+        const bv = b[sortColumn] ? new Date(b[sortColumn]).getTime() : 0;
+        if (status === 'scheduled') {
+          return av - bv || Number(a.id) - Number(b.id);
+        }
+        return bv - av || Number(b.id) - Number(a.id);
+      });
+      if (hasCursor) {
+        rows = rows.filter((item) => {
+          const it = item[sortColumn] ? new Date(item[sortColumn]).getTime() : 0;
+          if (status === 'scheduled') {
+            return it > cursorAt || (it === cursorAt && Number(item.id) > cursorId);
+          }
+          return it < cursorAt || (it === cursorAt && Number(item.id) < cursorId);
+        });
+      }
+      rows = rows.slice(0, limit).map((item) => ({ ...item }));
+      return { rows, rowCount: rows.length };
+    }
+
+    if (key.includes('FROM PUBLICATION_MEDIA') && key.includes('ANY($1::BIGINT[])')) {
+      const rawIds = Array.isArray(params[0]) ? params[0] : [params[0]];
+      const ids = new Set(rawIds.map((id) => Number(id)));
+      const kinds = new Set(['image', 'video', 'audio', 'document']);
+      const rows = media
+        .filter((item) => ids.has(Number(item.publication_id)))
+        .filter((item) => item.status === 'ready')
+        .filter((item) => kinds.has(item.kind))
+        .sort(
+          (a, b) =>
+            Number(a.publication_id) - Number(b.publication_id) ||
+            Number(a.sort_order) - Number(b.sort_order) ||
+            Number(a.id) - Number(b.id)
+        )
         .map((item) => ({ ...item }));
       return { rows, rowCount: rows.length };
     }
@@ -308,9 +356,12 @@ async function main() {
   const listed = await listChroniques(OWNER_A, { status: 'active' }, { db: listDb, storage: listStorage });
   assert(listed.items.length === 1, 'list count');
   assert(Array.isArray(listed.items[0].media), 'list media array');
-  assert(listed.items[0].media.length === 0, 'list media still []');
-  assert(listStorage.signedKeys.length === 0, 'list must not sign');
-  console.log('7 OK GET /chroniques ne genere pas de read_url');
+  assert(listed.items[0].media.length === 1, 'list hydrates ready media');
+  assert(listed.items[0].media[0].read_url.startsWith('https://mock-storage.local/read/'), 'list read_url');
+  assert(listed.items[0].media[0].read_expires_at === '2026-09-25T10:16:00.000Z', 'list expires');
+  assertPublicMedia(listed.items[0].media[0]);
+  assert(listStorage.signedKeys.length === 1, 'list signs ready media');
+  console.log('7 OK GET /chroniques hydrate le media ready avec read_url');
 
   const mixedStatusStorage = createStorageSpy();
   const mixedStatusDb = createMemory({
@@ -331,6 +382,274 @@ async function main() {
   assert(!mixedStatus.media[2].read_url, 'failed unsigned');
   assert(mixedStatusStorage.signedKeys.length === 1, 'sign ready only');
   console.log('8 OK ready signe, pending/failed listes sans URL');
+
+  const emptyList = await listChroniques(OWNER_A, { status: 'archived' }, {
+    db: createMemory({ publications: [publicationRow()], media: [mediaRow()] }),
+    storage: createStorageSpy(),
+  });
+  assert(Array.isArray(emptyList.items), 'empty list items');
+  assert(emptyList.items.length === 0, 'empty list count');
+  assert(emptyList.next == null, 'empty list next');
+  console.log('9 OK liste vide -> items=[], next=null');
+
+  const noMediaStorage = createStorageSpy();
+  const noMediaListed = await listChroniques(OWNER_A, { status: 'active' }, {
+    db: createMemory({ publications: [publicationRow()], media: [] }),
+    storage: noMediaStorage,
+  });
+  assert(noMediaListed.items[0].media.length === 0, 'publication without media');
+  assert(noMediaStorage.signedKeys.length === 0, 'no sign without ready media');
+  console.log('10 OK publication sans media -> media=[]');
+
+  const skippedStorage = createStorageSpy();
+  const skippedListed = await listChroniques(OWNER_A, { status: 'active' }, {
+    db: createMemory({
+      publications: [publicationRow({ media_total_bytes: 12345 })],
+      media: [
+        mediaRow({
+          id: 1,
+          status: 'ready',
+          sort_order: 0,
+          storage_key: 'publications/1/media/ok',
+        }),
+        mediaRow({
+          id: 2,
+          status: 'pending_upload',
+          sort_order: 1,
+          storage_key: 'publications/1/media/wait',
+        }),
+        mediaRow({
+          id: 3,
+          status: 'failed',
+          sort_order: 2,
+          storage_key: 'publications/1/media/bad',
+        }),
+        mediaRow({
+          id: 4,
+          status: 'ready',
+          sort_order: 3,
+          storage_key: '   ',
+          original_filename: 'empty-key.jpg',
+        }),
+      ],
+    }),
+    storage: skippedStorage,
+  });
+  assert(skippedListed.items[0].media.length === 1, 'list omits pending/failed/unsignable');
+  assert(skippedListed.items[0].media[0].id === 1, 'only ready with url');
+  assert(skippedStorage.signedKeys.length === 1, 'sign only ready with key');
+  console.log('11 OK liste: pending/failed/cle vide exclus');
+
+  const orderStorage = createStorageSpy();
+  const orderListed = await listChroniques(OWNER_A, { status: 'active' }, {
+    db: createMemory({
+      publications: [publicationRow()],
+      media: [
+        mediaRow({
+          id: 30,
+          sort_order: 1,
+          storage_key: 'publications/1/media/second',
+          original_filename: 'b.jpg',
+        }),
+        mediaRow({
+          id: 10,
+          sort_order: 0,
+          storage_key: 'publications/1/media/first',
+          original_filename: 'a.jpg',
+        }),
+        mediaRow({
+          id: 20,
+          sort_order: 1,
+          storage_key: 'publications/1/media/third',
+          original_filename: 'c.jpg',
+        }),
+      ],
+    }),
+    storage: orderStorage,
+  });
+  assert(
+    orderListed.items[0].media.map((item) => item.id).join(',') === '10,20,30',
+    'list sort_order then id'
+  );
+  console.log('12 OK liste tri sort_order puis id');
+
+  const groupedStorage = createStorageSpy();
+  const groupedDb = createMemory({
+    publications: [
+      publicationRow({
+        id: 1,
+        published_at: new Date('2026-09-25T12:00:00.000Z'),
+        title: 'A',
+      }),
+      publicationRow({
+        id: 2,
+        published_at: new Date('2026-09-25T11:00:00.000Z'),
+        title: 'B',
+      }),
+    ],
+    media: [
+      mediaRow({
+        id: 101,
+        publication_id: 1,
+        storage_key: 'publications/1/media/a',
+        original_filename: 'a.jpg',
+      }),
+      mediaRow({
+        id: 202,
+        publication_id: 2,
+        storage_key: 'publications/2/media/b',
+        original_filename: 'b.jpg',
+      }),
+      mediaRow({
+        id: 203,
+        publication_id: 2,
+        sort_order: 1,
+        storage_key: 'publications/2/media/b2',
+        original_filename: 'b2.jpg',
+      }),
+    ],
+  });
+  const grouped = await listChroniques(OWNER_A, { status: 'active' }, {
+    db: groupedDb,
+    storage: groupedStorage,
+  });
+  assert(grouped.items.length === 2, 'two publications');
+  assert(grouped.items[0].id === 1 && grouped.items[1].id === 2, 'no duplicate publications');
+  assert(grouped.items[0].media.map((item) => item.id).join(',') === '101', 'media stay on A');
+  assert(grouped.items[1].media.map((item) => item.id).join(',') === '202,203', 'media stay on B');
+  assert(groupedStorage.signedKeys.length === 3, 'sign page media only');
+  console.log('13 OK regroupement par publication, sans melange');
+
+  const pageStorage = createStorageSpy();
+  const pageDb = createMemory({
+    publications: [
+      publicationRow({
+        id: 3,
+        published_at: new Date('2026-09-25T13:00:00.000Z'),
+      }),
+      publicationRow({
+        id: 2,
+        published_at: new Date('2026-09-25T12:00:00.000Z'),
+      }),
+      publicationRow({
+        id: 1,
+        published_at: new Date('2026-09-25T11:00:00.000Z'),
+      }),
+    ],
+    media: [
+      mediaRow({ id: 31, publication_id: 3, storage_key: 'publications/3/media/x' }),
+      mediaRow({ id: 21, publication_id: 2, storage_key: 'publications/2/media/y' }),
+      mediaRow({ id: 11, publication_id: 1, storage_key: 'publications/1/media/z' }),
+    ],
+  });
+  const firstPage = await listChroniques(OWNER_A, { status: 'active', limit: '2' }, {
+    db: pageDb,
+    storage: pageStorage,
+  });
+  assert(firstPage.items.length === 2, 'page size');
+  assert(firstPage.items.map((item) => item.id).join(',') === '3,2', 'page ids');
+  assert(firstPage.next && firstPage.next.before_id === 2, 'cursor before_id');
+  assert(firstPage.items[0].media[0].id === 31, 'page 1 media');
+  assert(firstPage.items[1].media[0].id === 21, 'page 2 media');
+  assert(pageStorage.signedKeys.length === 2, 'do not sign off-page media');
+  const secondPage = await listChroniques(
+    OWNER_A,
+    { status: 'active', limit: '2', before_at: firstPage.next.before_at, before_id: firstPage.next.before_id },
+    { db: pageDb, storage: createStorageSpy() }
+  );
+  assert(secondPage.items.length === 1, 'second page count');
+  assert(secondPage.items[0].id === 1, 'second page id');
+  assert(secondPage.next == null, 'second page exhausted');
+  console.log('14 OK pagination inchangee, medias de la page seulement');
+
+  const isolationStorage = createStorageSpy();
+  const isolationDb = createMemory({
+    publications: [
+      publicationRow({ id: 1, user_id: OWNER_A }),
+      publicationRow({ id: 9, user_id: OWNER_B, title: 'Secret B' }),
+    ],
+    media: [
+      mediaRow({ id: 1, publication_id: 1, storage_key: 'publications/1/media/a' }),
+      mediaRow({
+        id: 9,
+        publication_id: 9,
+        storage_key: 'publications/9/media/secret',
+        original_filename: 'secret.jpg',
+      }),
+    ],
+  });
+  const isolated = await listChroniques(OWNER_A, { status: 'active' }, {
+    db: isolationDb,
+    storage: isolationStorage,
+  });
+  assert(isolated.items.length === 1 && isolated.items[0].id === 1, 'owner list only');
+  assert(isolated.items[0].media.length === 1, 'owner media only');
+  assert(isolationStorage.signedKeys.join(',') === 'publications/1/media/a', 'must not sign stranger');
+  console.log('15 OK isolation utilisateur liste+medias');
+
+  const failOneStorage = createStorageSpy();
+  failOneStorage.createReadUrl = async (storageKey) => {
+    failOneStorage.signedKeys.push(storageKey);
+    if (storageKey.includes('boom')) {
+      throw new Error('signature backend error');
+    }
+    return {
+      method: 'GET',
+      url: `https://mock-storage.local/read/${encodeURIComponent(storageKey)}`,
+      expires_at: '2026-09-25T10:16:00.000Z',
+    };
+  };
+  const failOneListed = await listChroniques(OWNER_A, { status: 'active' }, {
+    db: createMemory({
+      publications: [publicationRow()],
+      media: [
+        mediaRow({
+          id: 1,
+          sort_order: 0,
+          storage_key: 'publications/1/media/ok',
+          original_filename: 'ok.jpg',
+        }),
+        mediaRow({
+          id: 2,
+          sort_order: 1,
+          storage_key: 'publications/1/media/boom',
+          original_filename: 'boom.jpg',
+        }),
+      ],
+    }),
+    storage: failOneStorage,
+  });
+  assert(failOneListed.items[0].media.length === 1, 'omit unsigned media');
+  assert(failOneListed.items[0].media[0].id === 1, 'keep signed media');
+  assert(!failOneListed.items[0].media[0].read_url.includes('boom'), 'no invalid url');
+  console.log('16 OK echec signature d un media -> omis, les autres conserves');
+
+  const blankUrlStorage = createStorageSpy();
+  blankUrlStorage.createReadUrl = async (storageKey) => {
+    blankUrlStorage.signedKeys.push(storageKey);
+    return { method: 'GET', url: '   ', expires_at: '2026-09-25T10:16:00.000Z' };
+  };
+  const blankListed = await listChroniques(OWNER_A, { status: 'active' }, {
+    db: createMemory({ publications: [publicationRow()], media: [mediaRow()] }),
+    storage: blankUrlStorage,
+  });
+  assert(blankListed.items[0].media.length === 0, 'blank url not displayable');
+  console.log('17 OK URL de lecture vide -> media absent de la liste');
+
+  const outageStorage = createStorageSpy();
+  outageStorage.createReadUrl = async () => {
+    throw new AppError(503, 'Storage is not configured');
+  };
+  await expectStatus(
+    () =>
+      listChroniques(OWNER_A, { status: 'active' }, {
+        db: createMemory({ publications: [publicationRow()], media: [mediaRow()] }),
+        storage: outageStorage,
+      }),
+    503,
+    'Storage is not configured'
+  );
+  console.log('18 OK panne stockage 503 non masquee');
 
   console.log('Chronique read-url check succeeded.');
 }
