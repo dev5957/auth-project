@@ -128,6 +128,7 @@ class _MediaDraftTile extends StatelessWidget {
               media.status != MediaDraftStatus.uploading &&
               media.status != MediaDraftStatus.uploaded)
             IconButton(
+              key: ValueKey('remove-media-${media.id}'),
               tooltip: 'Supprimer',
               onPressed: onRemove,
               icon: Icon(Icons.close, color: colors.textSecondary),

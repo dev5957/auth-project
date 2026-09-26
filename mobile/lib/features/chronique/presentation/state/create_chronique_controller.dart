@@ -131,10 +131,7 @@ class CreateChroniqueController extends AutoDisposeNotifier<ChroniqueDraft> {
         if (media.localPath != null && media.localPath!.trim().isNotEmpty)
           media.localPath!.trim(),
     };
-    var usedBytes = 0;
-    for (final media in state.medias) {
-      usedBytes += media.byteSize ?? 0;
-    }
+    var usedBytes = chroniqueDraftMediaBytes(state.medias);
 
     var remaining = _remainingSlots;
     var skippedLimit = false;

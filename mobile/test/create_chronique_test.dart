@@ -494,6 +494,26 @@ void main() {
     expect(scheduled.expiresAt, DateTime.parse('2026-09-25T15:30:00.000Z'));
   });
 
+  test('media total is summed from the current draft list only', () {
+    const a = MediaDraft(
+      id: 1,
+      kind: MediaDraftKind.document,
+      sourceType: MediaDraftSourceType.upload,
+      byteSize: 120 * 1024 * 1024,
+    );
+    const b = MediaDraft(
+      id: 2,
+      kind: MediaDraftKind.document,
+      sourceType: MediaDraftSourceType.upload,
+      byteSize: 90 * 1024 * 1024,
+    );
+    expect(chroniqueDraftMediaBytes([a, b]), 210 * 1024 * 1024);
+    expect(chroniqueDraftMediaError([a, b]), kMediaQuotaExceededMessage);
+    expect(chroniqueDraftMediaBytes([a]), 120 * 1024 * 1024);
+    expect(chroniqueDraftMediaError([a]), isNull);
+    expect(chroniqueDraftMediaError(const <MediaDraft>[]), isNull);
+  });
+
   testWidgets('authenticated user opens CREATE as a full-screen create assistant', (
     tester,
   ) async {
@@ -1751,7 +1771,7 @@ void main() {
     expect(find.text('b.pdf'), findsOneWidget);
 
     picker.documentResults = null;
-    picker.documentResult = MediaPickSelected(
+    picker.documentResult = const MediaPickSelected(
       kind: MediaDraftKind.document,
       sourceType: MediaDraftSourceType.upload,
       fileName: 'huge.pdf',
@@ -1806,5 +1826,163 @@ void main() {
     final mediaBottom = tester.getRect(find.text('last.jpg')).bottom;
     final nextTop = tester.getRect(find.text('Suivant')).top;
     expect(mediaBottom, lessThanOrEqualTo(nextTop));
+  });
+
+  testWidgets('quota error and Next follow the remaining media list', (tester) async {
+    const firstBytes = 120 * 1024 * 1024;
+    const secondBytes = 90 * 1024 * 1024;
+    final api = _ChroniqueApiProbe();
+    final container = await _pumpHome(tester, api: api);
+    await _openCreate(tester);
+    await _enterValidBody(tester);
+    expect(_nextInkWell(tester).onTap, isNotNull);
+
+    final controller = container.read(createChroniqueControllerProvider.notifier);
+    controller.addMediaDraft(
+      kind: MediaDraftKind.document,
+      sourceType: MediaDraftSourceType.upload,
+      fileName: 'big-a.pdf',
+      byteSize: firstBytes,
+      localPath: '/tmp/big-a.pdf',
+      contentType: 'application/pdf',
+    );
+    controller.addMediaDraft(
+      kind: MediaDraftKind.document,
+      sourceType: MediaDraftSourceType.upload,
+      fileName: 'big-b.pdf',
+      byteSize: secondBytes,
+      localPath: '/tmp/big-b.pdf',
+      contentType: 'application/pdf',
+    );
+    await tester.pump();
+
+    var medias = container.read(createChroniqueControllerProvider).medias;
+    expect(medias, hasLength(2));
+    expect(chroniqueDraftMediaBytes(medias), firstBytes + secondBytes);
+    expect(find.text(kMediaQuotaExceededMessage), findsOneWidget);
+    expect(_nextInkWell(tester).onTap, isNull);
+
+    await tester.ensureVisible(find.byTooltip('Supprimer').last);
+    await tester.tap(find.byTooltip('Supprimer').last);
+    await tester.pump();
+
+    medias = container.read(createChroniqueControllerProvider).medias;
+    expect(medias, hasLength(1));
+    expect(medias.single.fileName, 'big-a.pdf');
+    expect(chroniqueDraftMediaBytes(medias), firstBytes);
+    expect(find.text(kMediaQuotaExceededMessage), findsNothing);
+    expect(_nextInkWell(tester).onTap, isNotNull);
+
+    await tester.tap(find.byTooltip('Supprimer'));
+    await tester.pump();
+
+    medias = container.read(createChroniqueControllerProvider).medias;
+    expect(medias, isEmpty);
+    expect(chroniqueDraftMediaBytes(medias), 0);
+    expect(find.text(kMediaQuotaExceededMessage), findsNothing);
+    expect(_nextInkWell(tester).onTap, isNotNull);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('editing text after a media error does not restore a stale quota message', (
+    tester,
+  ) async {
+    final api = _ChroniqueApiProbe();
+    final picker = _FakeLocalMediaPicker()
+      ..documentResult = const MediaPickSelected(
+        kind: MediaDraftKind.document,
+        sourceType: MediaDraftSourceType.upload,
+        fileName: 'ok.pdf',
+        byteSize: 124 * 1024 * 1024,
+        localPath: '/tmp/ok.pdf',
+        contentType: 'application/pdf',
+      );
+    final container = await _pumpHome(tester, api: api, picker: picker);
+    await _openCreate(tester);
+    await _enterValidBody(tester);
+
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Document'));
+    await tester.pumpAndSettle();
+
+    picker.documentResult = const MediaPickSelected(
+      kind: MediaDraftKind.document,
+      sourceType: MediaDraftSourceType.upload,
+      fileName: 'huge.pdf',
+      byteSize: kChroniqueMaxMediaBytes + 1,
+      localPath: '/tmp/huge.pdf',
+      contentType: 'application/pdf',
+    );
+    await tester.ensureVisible(find.text('+ Ajouter un média'));
+    await tester.tap(find.text('+ Ajouter un média'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Document'));
+    await tester.pumpAndSettle();
+
+    expect(container.read(createChroniqueControllerProvider).medias, hasLength(1));
+    expect(find.text('ok.pdf'), findsOneWidget);
+    expect(find.text(kMediaQuotaExceededMessage), findsOneWidget);
+    expect(_nextInkWell(tester).onTap, isNotNull);
+
+    await tester.enterText(find.byType(TextField).at(1), '$_validBody suite');
+    await tester.pump();
+
+    expect(find.text(kMediaQuotaExceededMessage), findsNothing);
+    expect(container.read(createChroniqueControllerProvider).medias, hasLength(1));
+    expect(_nextInkWell(tester).onTap, isNotNull);
+    expect(api.createCalls, 0);
+  });
+
+  testWidgets('last media and delete stay above Next with several attachments', (tester) async {
+    final api = _ChroniqueApiProbe();
+    final container = await _pumpHome(tester, api: api);
+    await _openCreate(tester);
+    await tester.enterText(find.byType(TextField).at(1), 'a' * 400);
+    await tester.pump();
+
+    final controller = container.read(createChroniqueControllerProvider.notifier);
+    for (var i = 0; i < 4; i++) {
+      controller.addMediaDraft(
+        kind: MediaDraftKind.image,
+        sourceType: MediaDraftSourceType.gallery,
+        fileName: 'shot$i.jpg',
+        byteSize: 2048,
+        localPath: '/tmp/shot$i.jpg',
+        contentType: 'image/jpeg',
+      );
+    }
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('shot3.jpg'));
+    final mediaBottom = tester.getRect(find.text('shot3.jpg')).bottom;
+    final removeBottom = tester.getRect(find.byTooltip('Supprimer').last).bottom;
+    final nextTop = tester.getRect(find.text('Suivant')).top;
+    expect(mediaBottom, lessThan(nextTop));
+    expect(removeBottom, lessThan(nextTop));
+
+    tester.view.viewInsets = const FakeViewPadding(bottom: 280);
+    addTearDown(tester.view.resetViewInsets);
+    await tester.pump();
+    await tester.ensureVisible(find.text('shot3.jpg'));
+    expect(
+      tester.getRect(find.text('shot3.jpg')).bottom,
+      lessThan(tester.getRect(find.text('Suivant')).top),
+    );
+    await tester.ensureVisible(find.byTooltip('Supprimer').last);
+    expect(
+      tester.getRect(find.byTooltip('Supprimer').last).bottom,
+      lessThan(tester.getRect(find.text('Suivant')).top),
+    );
+
+    tester.view.viewInsets = FakeViewPadding.zero;
+    await tester.pump();
+    await tester.ensureVisible(find.text('shot3.jpg'));
+    expect(
+      tester.getRect(find.text('shot3.jpg')).bottom,
+      lessThan(tester.getRect(find.text('Suivant')).top),
+    );
+    expect(api.createCalls, 0);
   });
 }
