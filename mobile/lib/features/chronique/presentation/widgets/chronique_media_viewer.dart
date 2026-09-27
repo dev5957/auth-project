@@ -105,7 +105,7 @@ class ChroniqueMediaViewerPage extends StatelessWidget {
 
   Widget _body(LuminaColors colors) {
     final usableRemote = chroniqueFeedHasUsableReadUrl(media);
-    if (!usableRemote && !_hasLocalFile && media.kind != 'document') {
+    if (!usableRemote && !_hasLocalFile) {
       return Text(
         chroniqueFeedReadUrlExpired(media) ? 'Lien expiré' : 'Média indisponible',
         key: const ValueKey('chronique-media-viewer-unavailable'),
@@ -157,6 +157,7 @@ class ChroniqueMediaViewerPage extends StatelessWidget {
           key: const ValueKey('chronique-media-viewer-document'),
           media: media,
           url: url.isEmpty ? (media.readUrl ?? '') : url,
+          localPath: _hasLocalFile ? filePath : null,
         ),
       _ => _unavailable(colors),
     };

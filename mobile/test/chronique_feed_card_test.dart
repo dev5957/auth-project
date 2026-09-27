@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -6,7 +8,9 @@ import 'package:mobile/features/chronique/models/chronique.dart';
 import 'package:mobile/features/chronique/presentation/widgets/chronique_card.dart';
 import 'package:mobile/features/chronique/presentation/widgets/chronique_feed_media.dart';
 import 'package:mobile/features/chronique/presentation/widgets/chronique_media_viewer.dart';
+import 'package:mobile/features/chronique/presentation/widgets/chronique_ready_document_list.dart';
 import 'package:mobile/features/chronique/presentation/widgets/chronique_ready_video_list.dart';
+import 'package:mobile/features/chronique/services/chronique_document_read_client.dart';
 
 Widget _wrap(Widget child, {double width = 390}) {
   return MaterialApp(
@@ -29,13 +33,14 @@ ChroniqueMedia _media({
   int? byteSize,
   String? thumbnailUrl,
   DateTime? thumbnailExpiresAt,
+  String? contentType,
 }) {
   return ChroniqueMedia(
     id: id,
     kind: kind,
     sortOrder: sortOrder,
     status: 'ready',
-    contentType: kind == 'image' ? 'image/jpeg' : '$kind/test',
+    contentType: contentType ?? (kind == 'image' ? 'image/jpeg' : '$kind/test'),
     originalFilename: fileName,
     byteSize: byteSize,
     readUrl: readUrl,
@@ -43,6 +48,19 @@ ChroniqueMedia _media({
     thumbnailUrl: thumbnailUrl,
     thumbnailExpiresAt: thumbnailExpiresAt,
   );
+}
+
+class _NoDownloadClient extends ChroniqueDocumentReadClient {
+  int calls = 0;
+
+  @override
+  Future<void> downloadToFile({
+    required String url,
+    required String savePath,
+  }) async {
+    calls += 1;
+    throw StateError('remote download should not run for a local document');
+  }
 }
 
 Chronique _chronique({
@@ -69,6 +87,14 @@ void main() {
     expect(chroniqueFeedMediaBandHeight(count: 4, width: 390), 310);
     expect(chroniqueFeedMediaBandHeight(count: 5, width: 390), 360);
     expect(chroniqueFeedMediaBandHeight(count: 2, width: 195), 109.5);
+  });
+
+  test('tile density follows the shared height contract', () {
+    expect(chroniqueFeedTileDensity(219), ChroniqueFeedTileDensity.comfort);
+    expect(chroniqueFeedTileDensity(130), ChroniqueFeedTileDensity.comfort);
+    expect(chroniqueFeedTileDensity(129), ChroniqueFeedTileDensity.standard);
+    expect(chroniqueFeedTileDensity(78), ChroniqueFeedTileDensity.standard);
+    expect(chroniqueFeedTileDensity(77), ChroniqueFeedTileDensity.compact);
   });
 
   test('expired signed url is not treated as missing media', () {
@@ -336,7 +362,7 @@ void main() {
       _media(id: 4, kind: 'video', sortOrder: 3, fileName: 'b.mp4'),
       _media(id: 5, kind: 'document', sortOrder: 4, fileName: 'note.pdf', byteSize: 2048),
     ]);
-    expect(find.byIcon(Icons.description_outlined), findsOneWidget);
+    expect(find.byIcon(Icons.picture_as_pdf_outlined), findsOneWidget);
 
     await pumpBand([
       _media(id: 1, kind: 'image', sortOrder: 0),
@@ -375,7 +401,7 @@ void main() {
     expect(band.width, 294);
     expect(band.height, closeTo(chroniqueFeedMediaBandHeight(count: 5, width: 294), 0.5));
     expect(find.byIcon(Icons.play_circle), findsWidgets);
-    expect(find.byIcon(Icons.description_outlined), findsOneWidget);
+    expect(find.byIcon(Icons.picture_as_pdf_outlined), findsOneWidget);
     expect(find.byIcon(Icons.graphic_eq), findsOneWidget);
   });
 
@@ -443,7 +469,7 @@ void main() {
     );
     await tester.pump();
     expect(tester.takeException(), isNull);
-    expect(find.byIcon(Icons.description_outlined), findsOneWidget);
+    expect(find.byIcon(Icons.picture_as_pdf_outlined), findsOneWidget);
   });
 
   testWidgets('tapping the fifth mosaic tile selects that media', (tester) async {
@@ -663,7 +689,7 @@ void main() {
     expect(find.byKey(const ValueKey('chronique-feed-video-thumb')), findsNothing);
     expect(find.text('voix.mp3'), findsOneWidget);
     expect(find.text('note.pdf'), findsOneWidget);
-    expect(find.byIcon(Icons.description_outlined), findsOneWidget);
+    expect(find.byIcon(Icons.picture_as_pdf_outlined), findsOneWidget);
   });
 
   testWidgets('document and audio dialogs stay compact', (tester) async {
@@ -773,6 +799,359 @@ void main() {
       tester.getSize(find.byKey(const ValueKey('chronique-media-viewer-sheet'))).height,
       lessThan(640 * 0.5),
     );
+  });
+
+  testWidgets('solo audio keeps identity and play without a duration', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ChroniqueFeedMediaBand(
+          medias: [_media(id: 4, kind: 'audio', fileName: 'voix.mp3')],
+        ),
+      ),
+    );
+    expect(find.text('voix.mp3'), findsOneWidget);
+    expect(find.byIcon(Icons.graphic_eq), findsOneWidget);
+    expect(find.byKey(const ValueKey('chronique-feed-audio-play')), findsOneWidget);
+    expect(find.textContaining(':'), findsNothing);
+  });
+
+  testWidgets('solo documents show type badges for pdf doc and txt', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ChroniqueFeedMediaBand(
+          medias: [
+            _media(
+              id: 1,
+              kind: 'document',
+              sortOrder: 0,
+              fileName: 'a.pdf',
+              contentType: 'application/pdf',
+              byteSize: 2048,
+            ),
+            _media(
+              id: 2,
+              kind: 'document',
+              sortOrder: 1,
+              fileName: 'b.doc',
+              contentType: 'application/msword',
+              byteSize: 4096,
+            ),
+            _media(
+              id: 3,
+              kind: 'document',
+              sortOrder: 2,
+              fileName: 'c.txt',
+              contentType: 'text/plain',
+            ),
+          ],
+        ),
+      ),
+    );
+    expect(find.byIcon(Icons.picture_as_pdf_outlined), findsOneWidget);
+    expect(find.byIcon(Icons.description_outlined), findsOneWidget);
+    expect(find.byIcon(Icons.notes_outlined), findsOneWidget);
+    expect(find.text('PDF'), findsOneWidget);
+    expect(find.text('DOC'), findsOneWidget);
+    expect(find.text('TXT'), findsOneWidget);
+    expect(find.text('a.pdf'), findsOneWidget);
+    expect(find.text('2 Ko'), findsOneWidget);
+    expect(find.text('c.txt'), findsOneWidget);
+    await tester.pumpWidget(
+      _wrap(
+        ChroniqueFeedMediaBand(
+          medias: [
+            _media(
+              id: 4,
+              kind: 'document',
+              fileName: 'd.docx',
+              contentType:
+                  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            ),
+          ],
+        ),
+      ),
+    );
+    expect(find.text('DOCX'), findsOneWidget);
+    expect(find.byIcon(Icons.description_outlined), findsOneWidget);
+  });
+
+  testWidgets('audio and documents stay identifiable in small 3 4 and 5 cells', (tester) async {
+    Future<void> pump(List<ChroniqueMedia> medias) async {
+      await tester.pumpWidget(_wrap(ChroniqueFeedMediaBand(medias: medias)));
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    }
+
+    await pump([
+      _media(id: 1, kind: 'image', sortOrder: 0),
+      _media(id: 2, kind: 'audio', sortOrder: 1, fileName: 'clip.mp3'),
+      _media(
+        id: 3,
+        kind: 'document',
+        sortOrder: 2,
+        fileName: 'note.pdf',
+        contentType: 'application/pdf',
+        byteSize: 2048,
+      ),
+    ]);
+    expect(find.byKey(const ValueKey('chronique-feed-audio-play')), findsOneWidget);
+    expect(find.byIcon(Icons.play_circle), findsWidgets);
+    expect(find.text('PDF'), findsOneWidget);
+    expect(find.text('2 Ko'), findsNothing);
+
+    await pump([
+      _media(id: 1, kind: 'image', sortOrder: 0),
+      _media(id: 2, kind: 'audio', sortOrder: 1, fileName: 'clip.mp3'),
+      _media(id: 3, kind: 'document', sortOrder: 2, fileName: 'note.pdf', contentType: 'application/pdf'),
+      _media(id: 4, kind: 'document', sortOrder: 3, fileName: 'notes.txt', contentType: 'text/plain'),
+    ]);
+    expect(find.byKey(const ValueKey('chronique-feed-audio-play')), findsOneWidget);
+    expect(find.text('PDF'), findsOneWidget);
+    expect(find.text('TXT'), findsOneWidget);
+    expect(find.text('2 Ko'), findsNothing);
+
+    await pump([
+      _media(id: 1, kind: 'image', sortOrder: 0),
+      _media(id: 2, kind: 'video', sortOrder: 1, fileName: 'clip.mp4'),
+      _media(id: 3, kind: 'audio', sortOrder: 2, fileName: 'voix.mp3'),
+      _media(id: 4, kind: 'document', sortOrder: 3, fileName: 'note.pdf', contentType: 'application/pdf'),
+      _media(id: 5, kind: 'document', sortOrder: 4, fileName: 'notes.txt', contentType: 'text/plain'),
+    ]);
+    final audio = tester.getSize(find.byKey(const ValueKey('chronique-feed-media-3')));
+    expect(audio.height, lessThan(130));
+    expect(find.byKey(const ValueKey('chronique-feed-audio-play')), findsOneWidget);
+    expect(find.byIcon(Icons.play_circle), findsWidgets);
+    expect(find.text('PDF'), findsOneWidget);
+    expect(find.text('TXT'), findsOneWidget);
+  });
+
+  testWidgets('five mixed media keep mosaic geometry and type chrome', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ChroniqueFeedMediaBand(
+          medias: [
+            _media(id: 1, kind: 'image', sortOrder: 0),
+            _media(id: 2, kind: 'video', sortOrder: 1, fileName: 'clip.mp4'),
+            _media(id: 3, kind: 'audio', sortOrder: 2, fileName: 'voix.mp3'),
+            _media(
+              id: 4,
+              kind: 'document',
+              sortOrder: 3,
+              fileName: 'note.pdf',
+              contentType: 'application/pdf',
+              byteSize: 2048,
+            ),
+            _media(
+              id: 5,
+              kind: 'document',
+              sortOrder: 4,
+              fileName: 'notes.txt',
+              contentType: 'text/plain',
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    final first = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-1')));
+    final second = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2')));
+    final third = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-3')));
+    expect(first.left, closeTo(second.left, 0.5));
+    expect(first.top, lessThan(second.top));
+    expect(first.left, lessThan(third.left));
+    final band = tester.getSize(find.byKey(const ValueKey('chronique-feed-media-band')));
+    expect(band.height, closeTo(360, 0.5));
+    expect(find.byIcon(Icons.graphic_eq), findsOneWidget);
+    expect(find.byKey(const ValueKey('chronique-feed-audio-play')), findsOneWidget);
+    expect(find.text('PDF'), findsOneWidget);
+    expect(find.text('TXT'), findsOneWidget);
+    expect(find.text('2 Ko'), findsNothing);
+  });
+
+  testWidgets('missing names and byteSize still render audio and document tiles', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ChroniqueFeedMediaBand(
+          medias: [
+            _media(id: 1, kind: 'audio'),
+            _media(id: 2, kind: 'document', contentType: 'application/pdf'),
+          ],
+        ),
+      ),
+    );
+    expect(find.text('Audio'), findsOneWidget);
+    expect(find.text('PDF'), findsOneWidget);
+    expect(find.byKey(const ValueKey('chronique-feed-audio-play')), findsOneWidget);
+  });
+
+  testWidgets('long document name is ellipsized in a five-media cell', (tester) async {
+    const longName = 'compte-rendu-assemblee-generale-annuelle-tres-long-nom-de-fichier.pdf';
+    await tester.pumpWidget(
+      _wrap(
+        ChroniqueFeedMediaBand(
+          medias: [
+            _media(id: 1, kind: 'image', sortOrder: 0),
+            _media(id: 2, kind: 'image', sortOrder: 1),
+            _media(id: 3, kind: 'image', sortOrder: 2),
+            _media(id: 4, kind: 'image', sortOrder: 3),
+            _media(
+              id: 5,
+              kind: 'document',
+              sortOrder: 4,
+              fileName: longName,
+              contentType: 'application/pdf',
+              byteSize: 999999,
+            ),
+          ],
+        ),
+      ),
+    );
+    final text = tester.widget<Text>(find.text(longName));
+    expect(text.maxLines, 1);
+    expect(text.overflow, TextOverflow.ellipsis);
+    expect(find.text('999.0 Mo'), findsNothing);
+  });
+
+  testWidgets('narrow band and large text scale do not overflow mixed mosaic', (tester) async {
+    Future<void> pumpScale(double scale) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(extensions: const [LuminaColors.light]),
+          builder: (context, child) {
+            return MediaQuery(
+              data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(scale)),
+              child: child!,
+            );
+          },
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 240,
+                child: ChroniqueFeedMediaBand(
+                  medias: [
+                    _media(id: 1, kind: 'image', sortOrder: 0),
+                    _media(id: 2, kind: 'video', sortOrder: 1, fileName: 'clip.mp4'),
+                    _media(id: 3, kind: 'audio', sortOrder: 2, fileName: 'voix.mp3'),
+                    _media(
+                      id: 4,
+                      kind: 'document',
+                      sortOrder: 3,
+                      fileName: 'note.pdf',
+                      contentType: 'application/pdf',
+                    ),
+                    _media(
+                      id: 5,
+                      kind: 'document',
+                      sortOrder: 4,
+                      fileName: 'notes.txt',
+                      contentType: 'text/plain',
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const ValueKey('chronique-feed-audio-play')), findsOneWidget);
+      expect(find.byIcon(Icons.play_circle), findsWidgets);
+    }
+
+    await pumpScale(1.3);
+    await pumpScale(1.6);
+  });
+
+  testWidgets('viewer forwards localPath to a document card', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(extensions: const [LuminaColors.light]),
+        home: ChroniqueMediaViewerPage(
+          media: _media(
+            id: 9,
+            kind: 'document',
+            fileName: 'note.pdf',
+            contentType: 'application/pdf',
+            readUrl: null,
+          ),
+          localPath: '/tmp/note.pdf',
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.byKey(const ValueKey('chronique-media-viewer-unavailable')), findsNothing);
+    final card = tester.widget<ChroniqueReadyDocumentCard>(
+      find.byKey(const ValueKey('chronique-media-viewer-document')),
+    );
+    expect(card.localPath, '/tmp/note.pdf');
+  });
+
+  testWidgets('local document open does not download a remote url', (tester) async {
+    final read = _NoDownloadClient();
+    String? opened;
+    final service = ChroniqueDocumentOpenService(
+      readClient: read,
+      cacheRoot: () async => Directory.systemTemp,
+      openFile: (path, mime) async {
+        opened = path;
+        expect(mime, 'application/pdf');
+        return true;
+      },
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(extensions: const [LuminaColors.light]),
+        home: Scaffold(
+          body: ChroniqueReadyDocumentCard(
+            media: _media(
+              id: 9,
+              kind: 'document',
+              fileName: 'note.pdf',
+              contentType: 'application/pdf',
+              readUrl: 'https://example.test/should-not-fetch.pdf',
+            ),
+            url: 'https://example.test/should-not-fetch.pdf',
+            localPath: '/tmp/draft-note.pdf',
+            openService: service,
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Ouvrir'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(read.calls, 0);
+    expect(opened, '/tmp/draft-note.pdf');
+  });
+
+  testWidgets('published document open still uses the remote handler', (tester) async {
+    var remoteCalls = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(extensions: const [LuminaColors.light]),
+        home: Scaffold(
+          body: ChroniqueReadyDocumentCard(
+            media: _media(
+              id: 9,
+              kind: 'document',
+              fileName: 'note.pdf',
+              contentType: 'application/pdf',
+            ),
+            url: 'https://example.test/file',
+            openHandler: (media) async {
+              remoteCalls += 1;
+              expect(media.readUrl, 'https://example.test/file');
+              return ChroniqueDocumentOpenOutcome.opened;
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Ouvrir'));
+    await tester.pump();
+    expect(remoteCalls, 1);
   });
 
   testWidgets('video dialog stays within a short phone without overflow', (tester) async {

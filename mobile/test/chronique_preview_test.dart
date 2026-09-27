@@ -7,6 +7,7 @@ import 'package:mobile/features/chronique/models/media_draft.dart';
 import 'package:mobile/features/chronique/presentation/widgets/chronique_card.dart';
 import 'package:mobile/features/chronique/presentation/widgets/chronique_media_viewer.dart';
 import 'package:mobile/features/chronique/presentation/widgets/chronique_preview.dart';
+import 'package:mobile/features/chronique/presentation/widgets/chronique_ready_document_list.dart';
 
 Widget _wrap(Widget child) {
   return MaterialApp(
@@ -111,6 +112,7 @@ void main() {
     expect(find.byKey(const ValueKey('chronique-feed-media-3')), findsOneWidget);
     expect(find.byKey(const ValueKey('chronique-feed-media-4')), findsOneWidget);
     expect(find.text('d.pdf'), findsOneWidget);
+    expect(find.text('PDF'), findsOneWidget);
     expect(find.text('2 Ko'), findsOneWidget);
   });
 
@@ -161,6 +163,36 @@ void main() {
     expect(find.byType(ChroniqueMediaViewerPage), findsOneWidget);
     expect(find.byKey(const ValueKey('chronique-media-viewer-dialog')), findsOneWidget);
     expect(find.byKey(const ValueKey('chronique-media-viewer-audio')), findsOneWidget);
+  });
+
+  testWidgets('preview local document opens without a signed url', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ChroniquePreview(
+          title: 'Titre',
+          body: 'Le texte de la chronique, d au moins vingt caracteres.',
+          medias: [
+            _draft(
+              id: 4,
+              kind: MediaDraftKind.document,
+              fileName: 'd.pdf',
+              byteSize: 2048,
+              localPath: '/tmp/d.pdf',
+            ),
+          ],
+          schedule: const ChroniqueScheduleDraft(),
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('chronique-feed-media-4')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.byKey(const ValueKey('chronique-media-viewer-unavailable')), findsNothing);
+    final card = tester.widget<ChroniqueReadyDocumentCard>(
+      find.byKey(const ValueKey('chronique-media-viewer-document')),
+    );
+    expect(card.localPath, '/tmp/d.pdf');
+    expect(find.text('Ouvrir'), findsOneWidget);
   });
 
   test('draft mapping keeps local files and sort order without remote urls', () {

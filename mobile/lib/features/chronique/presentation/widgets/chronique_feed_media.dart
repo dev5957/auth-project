@@ -6,11 +6,24 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_text_theme.dart';
 import '../../models/chronique.dart';
-
-const List<double> kChroniqueFeedAudioDecorHeights = [8, 14, 10, 16, 9, 12, 7, 11, 15, 8];
+import 'chronique_ready_document_list.dart' show chroniqueDocumentShortType;
 
 const double kChroniqueFeedReferenceWidth = 390;
 const double kChroniqueFeedMediaGap = 2;
+const double kChroniqueFeedTileComfortMinHeight = 130;
+const double kChroniqueFeedTileStandardMinHeight = 78;
+
+enum ChroniqueFeedTileDensity { comfort, standard, compact }
+
+ChroniqueFeedTileDensity chroniqueFeedTileDensity(double height) {
+  if (height >= kChroniqueFeedTileComfortMinHeight) {
+    return ChroniqueFeedTileDensity.comfort;
+  }
+  if (height >= kChroniqueFeedTileStandardMinHeight) {
+    return ChroniqueFeedTileDensity.standard;
+  }
+  return ChroniqueFeedTileDensity.compact;
+}
 
 const Map<int, double> kChroniqueFeedMediaReferenceHeights = {
   2: 219,
@@ -306,8 +319,9 @@ class ChroniqueFeedMediaTile extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final height = constraints.maxHeight;
-        final showLabel = height >= 48;
-        final iconSize = height >= 70 ? 40.0 : (height >= 36 ? 28.0 : 20.0);
+        final density = chroniqueFeedTileDensity(height);
+        final showLabel = density != ChroniqueFeedTileDensity.compact;
+        final iconSize = _tileIconSize(density, play: true);
         return Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -337,9 +351,11 @@ class ChroniqueFeedMediaTile extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final height = constraints.maxHeight;
-        final showName = name != null && name.isNotEmpty && height >= 78;
-        final showLabel = height >= 48;
-        final iconSize = height >= 70 ? 40.0 : (height >= 36 ? 28.0 : 20.0);
+        final density = chroniqueFeedTileDensity(height);
+        final showName =
+            name != null && name.isNotEmpty && density == ChroniqueFeedTileDensity.comfort;
+        final showLabel = density != ChroniqueFeedTileDensity.compact;
+        final iconSize = _tileIconSize(density, play: true);
         return Stack(
           fit: StackFit.expand,
           children: [
@@ -386,65 +402,53 @@ class ChroniqueFeedMediaTile extends StatelessWidget {
     final name = media.originalFilename?.trim();
     return LayoutBuilder(
       builder: (context, constraints) {
-        final compact = constraints.maxHeight < 74;
-        final padding = compact ? AppSpacing.xs : AppSpacing.sm;
-        final playSize = compact ? 24.0 : 36.0;
-        final eqSize = compact ? 20.0 : 28.0;
+        final height = constraints.maxHeight;
+        final density = chroniqueFeedTileDensity(height);
+        final padding = density == ChroniqueFeedTileDensity.compact ? AppSpacing.xs : AppSpacing.sm;
+        final lineHeight = _labelLineHeight(context);
+        final inner = height - padding * 2;
+        final eqSize = density == ChroniqueFeedTileDensity.compact ? 20.0 : 28.0;
+        final playSize = density == ChroniqueFeedTileDensity.compact ? 24.0 : 36.0;
+        final reserved = eqSize > playSize ? eqSize : playSize;
+        final hasFileName = name != null && name.isNotEmpty;
+        final showName = inner >= reserved &&
+            inner >= lineHeight &&
+            (hasFileName || density != ChroniqueFeedTileDensity.compact);
+        final label = hasFileName ? name : 'Audio';
         return Padding(
           padding: EdgeInsets.all(padding),
-          child: Column(
-            mainAxisSize: compact ? MainAxisSize.min : MainAxisSize.max,
-            mainAxisAlignment: compact ? MainAxisAlignment.center : MainAxisAlignment.start,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  Icon(Icons.graphic_eq, color: colors.primary, size: eqSize),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: SizedBox(
+              width: constraints.maxWidth - padding * 2,
+              child: Row(
+              children: [
+                Icon(
+                  Icons.graphic_eq,
+                  color: colors.primary,
+                  size: eqSize,
+                ),
+                if (showName) ...[
                   const SizedBox(width: AppSpacing.sm),
                   Expanded(
                     child: Text(
-                      (name == null || name.isEmpty) ? 'Audio' : name,
-                      maxLines: 1,
+                      label,
+                      maxLines: density == ChroniqueFeedTileDensity.comfort ? 2 : 1,
                       overflow: TextOverflow.ellipsis,
                       style: AppTextTheme.labelSmall.copyWith(color: colors.textPrimary),
                     ),
                   ),
-                  Icon(
-                    Icons.play_circle,
-                    color: colors.primary,
-                    size: playSize,
-                  ),
-                ],
-              ),
-              if (!compact) ...[
-                const Spacer(),
-                ExcludeSemantics(
-                  child: SizedBox(
-                    height: 22,
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        for (final barHeight in kChroniqueFeedAudioDecorHeights) ...[
-                          Expanded(
-                            child: Align(
-                              alignment: Alignment.bottomCenter,
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  color: colors.border,
-                                  borderRadius: BorderRadius.circular(2),
-                                ),
-                                child: SizedBox(height: barHeight, width: double.infinity),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 2),
-                        ],
-                      ],
-                    ),
-                  ),
+                ] else
+                  const Spacer(),
+                Icon(
+                  Icons.play_circle,
+                  key: const ValueKey('chronique-feed-audio-play'),
+                  color: colors.primary,
+                  size: playSize,
                 ),
               ],
-            ],
+            ),
+            ),
           ),
         );
       },
@@ -454,28 +458,77 @@ class ChroniqueFeedMediaTile extends StatelessWidget {
   Widget _document(LuminaColors colors) {
     final name = media.originalFilename?.trim();
     final size = chroniqueFeedSizeLabel(media.byteSize);
+    final type = chroniqueDocumentShortType(media);
     return LayoutBuilder(
       builder: (context, constraints) {
         final height = constraints.maxHeight;
-        final padding = height >= 56 ? AppSpacing.sm : AppSpacing.xs;
+        final density = chroniqueFeedTileDensity(height);
+        final padding = density == ChroniqueFeedTileDensity.compact ? AppSpacing.xs : AppSpacing.sm;
+        final lineHeight = _labelLineHeight(context);
         final inner = height - padding * 2;
-        final showSize = size != null && inner >= 78;
-        final showName = inner >= 36;
-        final nameLines = inner >= 64 ? 2 : 1;
+        const slack = 3.0;
+        final iconSize = _tileIconSize(density, play: false);
+        var remaining = inner - iconSize - slack;
+        final showType = remaining >= lineHeight;
+        if (showType) {
+          remaining -= lineHeight + AppSpacing.xs;
+        }
+        var nameLines = 0;
+        if (name != null && name.isNotEmpty && remaining >= lineHeight) {
+          if (density == ChroniqueFeedTileDensity.comfort && remaining >= lineHeight * 2) {
+            nameLines = 2;
+          } else {
+            nameLines = 1;
+          }
+        }
+        if (nameLines > 0) {
+          remaining -= lineHeight * nameLines + AppSpacing.xs;
+        }
+        final showSize =
+            density == ChroniqueFeedTileDensity.comfort && size != null && remaining >= lineHeight;
+        final showFallbackName =
+            (name == null || name.isEmpty) && density != ChroniqueFeedTileDensity.compact;
         return Padding(
           padding: EdgeInsets.all(padding),
-          child: Column(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.center,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: constraints.maxWidth - padding * 2),
+              child: Column(
             mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.description_outlined, color: colors.primary),
-              if (showName) ...[
+              Icon(
+                _documentIcon(type),
+                color: colors.primary,
+                size: iconSize,
+              ),
+              if (showType) ...[
                 const SizedBox(height: AppSpacing.xs),
                 Text(
-                  (name == null || name.isEmpty) ? 'Document' : name,
+                  type,
+                  key: const ValueKey('chronique-feed-document-type'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
+                ),
+              ],
+              if (nameLines > 0) ...[
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  name!,
                   maxLines: nameLines,
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.center,
+                  style: AppTextTheme.labelSmall.copyWith(color: colors.textPrimary),
+                ),
+              ] else if (showFallbackName) ...[
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  'Document',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: AppTextTheme.labelSmall.copyWith(color: colors.textPrimary),
                 ),
               ],
@@ -490,9 +543,34 @@ class ChroniqueFeedMediaTile extends StatelessWidget {
               ],
             ],
           ),
+            ),
+          ),
         );
       },
     );
+  }
+
+  static IconData _documentIcon(String type) {
+    return switch (type) {
+      'PDF' => Icons.picture_as_pdf_outlined,
+      'TXT' => Icons.notes_outlined,
+      _ => Icons.description_outlined,
+    };
+  }
+
+  static double _tileIconSize(ChroniqueFeedTileDensity density, {required bool play}) {
+    return switch (density) {
+      ChroniqueFeedTileDensity.comfort => play ? 40.0 : 28.0,
+      ChroniqueFeedTileDensity.standard => play ? 28.0 : 24.0,
+      ChroniqueFeedTileDensity.compact => play ? 20.0 : 20.0,
+    };
+  }
+
+  static double _labelLineHeight(BuildContext context) {
+    const style = AppTextTheme.labelSmall;
+    final size = style.fontSize ?? 12;
+    final height = style.height ?? 1.2;
+    return MediaQuery.textScalerOf(context).scale(size) * height;
   }
 
   Widget _fallback(LuminaColors colors, {required String label}) {

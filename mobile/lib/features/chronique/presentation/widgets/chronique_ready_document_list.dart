@@ -134,12 +134,14 @@ class ChroniqueReadyDocumentCard extends StatefulWidget {
     super.key,
     required this.media,
     required this.url,
+    this.localPath,
     this.openHandler,
     this.openService,
   });
 
   final ChroniqueMedia media;
   final String url;
+  final String? localPath;
   final ChroniqueDocumentOpenHandler? openHandler;
   final ChroniqueDocumentOpenService? openService;
 
@@ -157,10 +159,17 @@ class _ChroniqueReadyDocumentCardState extends State<ChroniqueReadyDocumentCard>
     }
     setState(() => _busy = true);
     try {
+      final local = widget.localPath?.trim();
+      final ChroniqueDocumentOpenOutcome outcome;
+      if (local != null && local.isNotEmpty) {
+        final service = widget.openService ?? _fallbackOpenService;
+        outcome = await service.openExistingFile(media: widget.media, path: local);
+      } else {
         final handler = widget.openHandler ??
             widget.openService?.open ??
             _fallbackOpenService.open;
-      final outcome = await handler(widget.media);
+        outcome = await handler(widget.media);
+      }
       if (!mounted) {
         return;
       }

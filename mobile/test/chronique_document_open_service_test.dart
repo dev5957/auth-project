@@ -208,4 +208,27 @@ void main() {
     await service.open(_doc(id: 1));
     expect(stale.existsSync(), isFalse);
   });
+
+  test('openExistingFile opens a local path without downloading', () async {
+    final read = _FakeReadClient();
+    String? openedPath;
+    String? openedMime;
+    final service = ChroniqueDocumentOpenService(
+      readClient: read,
+      cacheRoot: () async => root,
+      openFile: (path, mime) async {
+        openedPath = path;
+        openedMime = mime;
+        return true;
+      },
+    );
+    final outcome = await service.openExistingFile(
+      media: _doc(id: 4, readUrl: null, contentType: 'application/pdf', originalFilename: 'note.pdf'),
+      path: '/tmp/draft-note.pdf',
+    );
+    expect(outcome, ChroniqueDocumentOpenOutcome.opened);
+    expect(read.calls, 0);
+    expect(openedPath, '/tmp/draft-note.pdf');
+    expect(openedMime, 'application/pdf');
+  });
 }

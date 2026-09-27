@@ -90,6 +90,29 @@ class ChroniqueDocumentOpenService {
     return file;
   }
 
+  Future<ChroniqueDocumentOpenOutcome> openExistingFile({
+    required ChroniqueMedia media,
+    required String path,
+  }) async {
+    final trimmed = path.trim();
+    if (trimmed.isEmpty) {
+      return ChroniqueDocumentOpenOutcome.retrieveFailed;
+    }
+    final mime = chroniqueDocumentMime(media);
+    if (mime == null) {
+      return ChroniqueDocumentOpenOutcome.openFailed;
+    }
+    try {
+      final opened = await _openFile(trimmed, mime);
+      if (!opened) {
+        return ChroniqueDocumentOpenOutcome.openFailed;
+      }
+      return ChroniqueDocumentOpenOutcome.opened;
+    } on Exception {
+      return ChroniqueDocumentOpenOutcome.openFailed;
+    }
+  }
+
   Future<ChroniqueDocumentOpenOutcome> open(ChroniqueMedia media) async {
     final url = media.readUrl?.trim();
     if (url == null || url.isEmpty) {
