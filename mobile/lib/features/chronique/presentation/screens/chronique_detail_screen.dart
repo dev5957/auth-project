@@ -129,7 +129,7 @@ class _ChroniqueDetailScreenState extends ConsumerState<ChroniqueDetailScreen> {
     }
     _loadGeneration++;
     setState(() {
-      _chronique = updated;
+      _chronique = Chronique.keepExistingMedia(current, updated);
       _error = null;
     });
     ref.read(monFilControllerProvider.notifier).upsert(updated);

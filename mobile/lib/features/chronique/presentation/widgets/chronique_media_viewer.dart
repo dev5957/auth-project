@@ -26,7 +26,7 @@ Future<void> openChroniqueFeedMedia(
   );
 }
 
-/// Consultation média en fenêtre, pas en route plein écran.
+/// Consultation média en fenêtre compacte, calée sur le contenu.
 class ChroniqueMediaViewerPage extends StatelessWidget {
   const ChroniqueMediaViewerPage({
     super.key,
@@ -41,14 +41,14 @@ class ChroniqueMediaViewerPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.luminaColors;
     final size = MediaQuery.sizeOf(context);
-    final compact = media.kind == 'audio';
-    final maxWidth = size.width * (compact ? 0.92 : 0.94);
-    final maxHeight = size.height * (compact ? 0.28 : 0.78);
+    final maxWidth = size.width * 0.92;
+    final maxHeight = size.height * 0.78;
     return Dialog(
       key: const ValueKey('chronique-media-viewer-dialog'),
       insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
       backgroundColor: colors.bgSurface,
       child: ConstrainedBox(
+        key: const ValueKey('chronique-media-viewer-sheet'),
         constraints: BoxConstraints(maxWidth: maxWidth, maxHeight: maxHeight),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(
@@ -58,7 +58,7 @@ class ChroniqueMediaViewerPage extends StatelessWidget {
             AppSpacing.md,
           ),
           child: Column(
-            mainAxisSize: compact ? MainAxisSize.min : MainAxisSize.max,
+            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Row(
@@ -77,10 +77,7 @@ class ChroniqueMediaViewerPage extends StatelessWidget {
                   ),
                 ],
               ),
-              if (compact)
-                _body(colors)
-              else
-                Expanded(child: _body(colors)),
+              _body(colors, maxWidth, maxHeight),
             ],
           ),
         ),
@@ -103,23 +100,24 @@ class ChroniqueMediaViewerPage extends StatelessWidget {
     return path != null && path.isNotEmpty;
   }
 
-  Widget _body(LuminaColors colors) {
+  Widget _body(LuminaColors colors, double maxWidth, double maxHeight) {
     final usableRemote = chroniqueFeedHasUsableReadUrl(media);
     if (!usableRemote && !_hasLocalFile && media.kind != 'document') {
-      return Center(
-        child: Text(
-          chroniqueFeedReadUrlExpired(media) ? 'Lien expiré' : 'Média indisponible',
-          key: const ValueKey('chronique-media-viewer-unavailable'),
-          textAlign: TextAlign.center,
-          style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
-        ),
+      return Text(
+        chroniqueFeedReadUrlExpired(media) ? 'Lien expiré' : 'Média indisponible',
+        key: const ValueKey('chronique-media-viewer-unavailable'),
+        textAlign: TextAlign.center,
+        style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
       );
     }
     final url = media.readUrl?.trim() ?? '';
     final filePath = localPath?.trim() ?? '';
     return switch (media.kind) {
-      'image' => Center(
+      'image' => ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: maxHeight * 0.7),
           child: InteractiveViewer(
+            minScale: 0.8,
+            maxScale: 4,
             child: _hasLocalFile
                 ? Image.file(
                     File(filePath),
@@ -133,13 +131,11 @@ class ChroniqueMediaViewerPage extends StatelessWidget {
                   ),
           ),
         ),
-      'video' => Center(
-          child: KeyedSubtree(
-            key: const ValueKey('chronique-media-viewer-video'),
-            child: ChroniqueReadyVideoPlayer(
-              url: _hasLocalFile ? filePath : url,
-              fromFile: _hasLocalFile,
-            ),
+      'video' => KeyedSubtree(
+          key: const ValueKey('chronique-media-viewer-video'),
+          child: ChroniqueReadyVideoPlayer(
+            url: _hasLocalFile ? filePath : url,
+            fromFile: _hasLocalFile,
           ),
         ),
       'audio' => ChroniqueReadyAudioPlayer(

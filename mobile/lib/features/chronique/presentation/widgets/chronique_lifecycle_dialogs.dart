@@ -40,6 +40,11 @@ Future<bool> confirmDeleteChronique(
               ? 'Supprimer cette chronique programmée ?'
               : 'Supprimer cette chronique ?',
         ),
+        content: Text(
+          scheduled
+              ? 'Elle sera retirée de À venir.'
+              : 'Elle sera retirée de Mon Fil.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),

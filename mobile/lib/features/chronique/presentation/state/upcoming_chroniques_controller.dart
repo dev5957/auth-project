@@ -70,7 +70,7 @@ class UpcomingChroniquesController extends AutoDisposeNotifier<UpcomingChronique
     }
     final items = [
       for (final item in current.items)
-        if (item.id == chronique.id) chronique else item,
+        if (item.id == chronique.id) Chronique.keepExistingMedia(item, chronique) else item,
     ];
     final exists = current.items.any((item) => item.id == chronique.id);
     state = UpcomingChroniquesReady(exists ? items : [...items, chronique]);

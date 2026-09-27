@@ -541,7 +541,93 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Modifier'), findsOneWidget);
     expect(find.text('Archiver'), findsOneWidget);
-    expect(find.text('Supprimer'), findsNothing);
+    expect(find.text('Supprimer'), findsOneWidget);
+  });
+
+  testWidgets('active card delete confirms then removes the card', (tester) async {
+    final api = _ChroniqueApiProbe()
+      ..items = const [
+        Chronique(
+          id: 42,
+          title: 'Premier soir',
+          body: 'Le texte de la chronique, d au moins vingt caracteres.',
+          status: 'active',
+          publishedAt: '2026-09-22T10:00:00.000Z',
+        ),
+      ];
+    await _pumpHome(tester, api: api);
+    await _openMonFil(tester);
+
+    await tester.tap(find.byTooltip('Actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Supprimer'));
+    await tester.pumpAndSettle();
+    expect(find.text('Supprimer cette chronique ?'), findsOneWidget);
+    expect(find.text('Elle sera retirée de Mon Fil.'), findsOneWidget);
+    expect(find.textContaining('irréversible'), findsNothing);
+    expect(find.textContaining('définitivement'), findsNothing);
+
+    await tester.tap(find.widgetWithText(TextButton, 'Supprimer'));
+    await tester.pumpAndSettle();
+
+    expect(api.deleteCalls, 1);
+    expect(api.lastDeleteId, 42);
+    expect(find.byType(ChroniqueCard), findsNothing);
+    expect(find.text('Aucune chronique pour le moment.'), findsOneWidget);
+  });
+
+  testWidgets('active card delete API error keeps the card', (tester) async {
+    final api = _ChroniqueApiProbe()
+      ..items = const [
+        Chronique(
+          id: 42,
+          title: 'Premier soir',
+          body: 'Le texte de la chronique, d au moins vingt caracteres.',
+          status: 'active',
+          publishedAt: '2026-09-22T10:00:00.000Z',
+        ),
+      ]
+      ..failDeleteWith = const ApiException(message: 'Too many requests', statusCode: 429);
+    await _pumpHome(tester, api: api);
+    await _openMonFil(tester);
+
+    await tester.tap(find.byTooltip('Actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Supprimer'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Supprimer'));
+    await tester.pump();
+
+    expect(api.deleteCalls, 1);
+    expect(api.lastDeleteId, 42);
+    expect(find.text('Too many requests'), findsOneWidget);
+    expect(find.byType(ChroniqueCard), findsOneWidget);
+    expect(find.text('Premier soir'), findsOneWidget);
+    expect(find.text('Aucune chronique pour le moment.'), findsNothing);
+  });
+
+  testWidgets('active card delete cancellation does not call DELETE', (tester) async {
+    final api = _ChroniqueApiProbe()
+      ..items = const [
+        Chronique(
+          id: 42,
+          title: 'Premier soir',
+          body: 'Le texte de la chronique, d au moins vingt caracteres.',
+          status: 'active',
+          publishedAt: '2026-09-22T10:00:00.000Z',
+        ),
+      ];
+    await _pumpHome(tester, api: api);
+    await _openMonFil(tester);
+    await tester.tap(find.byTooltip('Actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Supprimer'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Annuler'));
+    await tester.pumpAndSettle();
+
+    expect(api.deleteCalls, 0);
+    expect(find.byType(ChroniqueCard), findsOneWidget);
   });
 
   testWidgets('tapping a feed media opens the viewer without a detail GET', (tester) async {

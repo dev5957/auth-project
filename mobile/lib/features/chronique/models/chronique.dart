@@ -67,6 +67,18 @@ class Chronique {
     );
   }
 
+  /// PATCH ne renvoie pas toujours `media`. Conserve le catalogue déjà affiché
+  /// pour la **même** chronique (id identique). Ne fusionne jamais deux ids.
+  static Chronique keepExistingMedia(Chronique previous, Chronique updated) {
+    if (previous.id != updated.id) {
+      return updated;
+    }
+    if (updated.media.isEmpty && previous.media.isNotEmpty) {
+      return updated.copyWith(media: previous.media);
+    }
+    return updated;
+  }
+
   factory Chronique.fromJson(Map<String, dynamic> json) {
     final body = json['body'];
     final status = json['status'];

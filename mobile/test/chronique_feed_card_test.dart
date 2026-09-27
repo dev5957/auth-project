@@ -312,17 +312,130 @@ void main() {
     expect(find.byIcon(Icons.graphic_eq), findsOneWidget);
   });
 
-  testWidgets('media viewer opens in a dialog rather than a fullscreen route', (tester) async {
+  testWidgets('local video tile shows chrome instead of unavailable', (tester) async {
     await tester.pumpWidget(
-      MaterialApp(
-        theme: ThemeData(extensions: const [LuminaColors.light]),
-        home: ChroniqueMediaViewerPage(
-          media: _media(id: 8, kind: 'audio', readUrl: 'https://example.test/clip.m4a'),
+      _wrap(
+        const ChroniqueFeedMediaBand(
+          medias: [
+            ChroniqueMedia(
+              id: 5,
+              kind: 'video',
+              status: 'ready',
+              originalFilename: 'clip.mp4',
+              sortOrder: 0,
+            ),
+          ],
+          localPaths: {5: '/tmp/clip.mp4'},
         ),
       ),
     );
-    await tester.pump();
-    expect(find.byKey(const ValueKey('chronique-media-viewer-dialog')), findsOneWidget);
+    expect(find.text('Média indisponible'), findsNothing);
+    expect(find.text('Vidéo'), findsOneWidget);
+    expect(find.text('clip.mp4'), findsOneWidget);
+    expect(find.byIcon(Icons.play_circle), findsOneWidget);
+  });
+
+  testWidgets('document and audio dialogs stay compact', (tester) async {
+    Future<void> openKind(ChroniqueMedia media) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(extensions: const [LuminaColors.light]),
+          home: Builder(
+            builder: (context) {
+              return Scaffold(
+                body: TextButton(
+                  onPressed: () => openChroniqueFeedMedia(context, media),
+                  child: const Text('open'),
+                ),
+              );
+            },
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+    }
+
+    await openKind(_media(id: 8, kind: 'audio', readUrl: 'https://example.test/clip.m4a'));
     expect(find.byKey(const ValueKey('chronique-media-viewer-audio')), findsOneWidget);
+    expect(
+      tester.getSize(find.byKey(const ValueKey('chronique-media-viewer-sheet'))).height,
+      lessThan(tester.getSize(find.byType(Scaffold)).height * 0.5),
+    );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await openKind(_media(id: 9, kind: 'document', fileName: 'note.pdf', byteSize: 2048));
+    expect(find.byKey(const ValueKey('chronique-media-viewer-document')), findsOneWidget);
+    expect(
+      tester.getSize(find.byKey(const ValueKey('chronique-media-viewer-sheet'))).height,
+      lessThan(tester.getSize(find.byType(Scaffold)).height * 0.5),
+    );
+  });
+
+  test('keepExistingMedia retains previous media when the PATCH payload omits them', () {
+    const previous = Chronique(
+      id: 1,
+      body: 'Le texte de la chronique, d au moins vingt caracteres.',
+      status: 'active',
+      media: [
+        ChroniqueMedia(id: 10, kind: 'image', status: 'ready', sortOrder: 0),
+      ],
+    );
+    const updated = Chronique(
+      id: 1,
+      title: 'Nouveau',
+      body: 'Texte modifié d au moins vingt caracteres.',
+      status: 'active',
+    );
+    final merged = Chronique.keepExistingMedia(previous, updated);
+    expect(merged.id, 1);
+    expect(merged.title, 'Nouveau');
+    expect(merged.media, hasLength(1));
+    expect(merged.media.single.id, 10);
+  });
+
+  test('keepExistingMedia uses a non-empty media list from the same chronique', () {
+    const previous = Chronique(
+      id: 1,
+      body: 'Le texte de la chronique, d au moins vingt caracteres.',
+      status: 'active',
+      media: [
+        ChroniqueMedia(id: 10, kind: 'image', status: 'ready', sortOrder: 0),
+      ],
+    );
+    const updated = Chronique(
+      id: 1,
+      title: 'Nouveau',
+      body: 'Texte modifié d au moins vingt caracteres.',
+      status: 'active',
+      media: [
+        ChroniqueMedia(id: 20, kind: 'video', status: 'ready', sortOrder: 0),
+      ],
+    );
+    final merged = Chronique.keepExistingMedia(previous, updated);
+    expect(merged.media, hasLength(1));
+    expect(merged.media.single.id, 20);
+  });
+
+  test('keepExistingMedia does not mix media from different chronique ids', () {
+    const previous = Chronique(
+      id: 1,
+      body: 'Le texte de la chronique, d au moins vingt caracteres.',
+      status: 'active',
+      media: [
+        ChroniqueMedia(id: 10, kind: 'image', status: 'ready', sortOrder: 0),
+      ],
+    );
+    const updated = Chronique(
+      id: 2,
+      title: 'Autre',
+      body: 'Texte d une autre chronique d au moins vingt caracteres.',
+      status: 'active',
+    );
+    final merged = Chronique.keepExistingMedia(previous, updated);
+    expect(merged.id, 2);
+    expect(merged.title, 'Autre');
+    expect(merged.media, isEmpty);
   });
 }

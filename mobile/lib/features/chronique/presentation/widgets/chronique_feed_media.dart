@@ -239,8 +239,13 @@ class ChroniqueFeedMediaTile extends StatelessWidget {
     );
   }
 
+  bool get _hasLocalFile {
+    final path = localPath?.trim();
+    return path != null && path.isNotEmpty;
+  }
+
   Widget _video(LuminaColors colors) {
-    if (!chroniqueFeedHasUsableReadUrl(media)) {
+    if (!_hasLocalFile && !chroniqueFeedHasUsableReadUrl(media)) {
       return _fallback(
         colors,
         label: chroniqueFeedReadUrlExpired(media)
@@ -248,16 +253,39 @@ class ChroniqueFeedMediaTile extends StatelessWidget {
             : 'Média indisponible',
       );
     }
+    final name = media.originalFilename?.trim();
     return Stack(
       fit: StackFit.expand,
       children: [
         ColoredBox(color: colors.bgRaised),
         const ColoredBox(color: Color(0x59000000)),
         Center(
-          child: Icon(
-            Icons.play_circle,
-            color: colors.textOnPrimary,
-            size: 40,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.play_circle,
+                color: colors.textOnPrimary,
+                size: 40,
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                'Vidéo',
+                key: const ValueKey('chronique-feed-video-label'),
+                style: AppTextTheme.labelSmall.copyWith(color: colors.textOnPrimary),
+              ),
+              if (name != null && name.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(AppSpacing.sm, 2, AppSpacing.sm, 0),
+                  child: Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: AppTextTheme.labelSmall.copyWith(color: colors.textOnPrimary),
+                  ),
+                ),
+            ],
           ),
         ),
       ],

@@ -103,6 +103,9 @@ void main() {
     expect(find.byKey(const ValueKey('chronique-feed-media-band')), findsOneWidget);
     expect(find.byKey(const ValueKey('chronique-feed-media-1')), findsOneWidget);
     expect(find.byKey(const ValueKey('chronique-feed-media-2')), findsOneWidget);
+    expect(find.text('Média indisponible'), findsNothing);
+    expect(find.text('Vidéo'), findsOneWidget);
+    expect(find.byIcon(Icons.play_circle), findsWidgets);
     expect(find.byKey(const ValueKey('chronique-feed-media-3')), findsOneWidget);
     expect(find.byKey(const ValueKey('chronique-feed-media-4')), findsOneWidget);
     expect(find.text('d.pdf'), findsOneWidget);

@@ -5,7 +5,7 @@ import '../../models/chronique.dart';
 
 enum ChroniqueCardMenuAction { edit, archive, delete }
 
-/// Menu ⋮ d’une carte : active → Modifier/Archiver ; scheduled → Modifier/Supprimer.
+/// Menu ⋮ d’une carte : active → Modifier/Archiver/Supprimer ; scheduled → Modifier/Supprimer.
 class ChroniqueCardMenu extends StatelessWidget {
   const ChroniqueCardMenu({
     super.key,
@@ -49,6 +49,10 @@ class ChroniqueCardMenu extends StatelessWidget {
           PopupMenuItem(
             value: ChroniqueCardMenuAction.archive,
             child: Text('Archiver'),
+          ),
+          PopupMenuItem(
+            value: ChroniqueCardMenuAction.delete,
+            child: Text('Supprimer'),
           ),
         ];
       },

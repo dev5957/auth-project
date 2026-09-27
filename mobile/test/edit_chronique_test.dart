@@ -17,6 +17,7 @@ import 'package:mobile/features/chronique/presentation/screens/chronique_detail_
 import 'package:mobile/features/chronique/presentation/screens/edit_chronique_screen.dart';
 import 'package:mobile/features/chronique/presentation/screens/mon_fil_screen.dart';
 import 'package:mobile/features/chronique/presentation/widgets/chronique_card.dart';
+import 'package:mobile/features/chronique/presentation/widgets/chronique_ready_remote_media_list.dart';
 import 'package:mobile/features/chronique/providers/chronique_providers.dart';
 import 'package:mobile/features/chronique/services/chronique_api_service.dart';
 import 'package:mobile/features/home/presentation/screens/home_screen.dart';
@@ -416,6 +417,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Supprimer cette chronique ?'), findsOneWidget);
+    expect(find.text('Elle sera retirée de Mon Fil.'), findsOneWidget);
     expect(find.text('Annuler'), findsOneWidget);
 
     await tester.tap(find.widgetWithText(TextButton, 'Supprimer'));
@@ -512,5 +514,70 @@ void main() {
     expect(find.byType(ChroniqueDetailScreen), findsOneWidget);
     expect(container.read(authControllerProvider), isA<AuthAuthenticated>());
     expect(find.text('Logout'), findsNothing);
+  });
+
+  testWidgets('PATCH by owner keeps existing media after title and body edit', (tester) async {
+    const media = ChroniqueMedia(
+      id: 10,
+      kind: 'image',
+      status: 'ready',
+      originalFilename: 'soir.jpg',
+      sortOrder: 0,
+      readUrl: 'https://example.test/soir.jpg',
+    );
+    final api = _ChroniqueApiProbe()
+      ..items = const [
+        Chronique(
+          id: 42,
+          title: 'Premier soir',
+          body: 'Le texte de la chronique, d au moins vingt caracteres.',
+          status: 'active',
+          publishedAt: '2026-09-22T10:00:00.000Z',
+          media: [media],
+        ),
+      ];
+    await _pumpHome(tester, api: api);
+    await _openDetail(tester);
+    await _openMenu(tester);
+    await tester.tap(find.text('Modifier'));
+    await tester.pumpAndSettle();
+    expect(find.text('soir.jpg'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).at(0), 'Soir deux');
+    await tester.enterText(
+      find.byType(TextField).at(1),
+      'Texte modifié d au moins vingt caracteres.',
+    );
+    await tester.pump();
+    await tester.tap(find.text('Enregistrer'));
+    await tester.pumpAndSettle();
+
+    expect(api.updateCalls, 1);
+    expect(find.text('Soir deux'), findsWidgets);
+    expect(find.byType(ChroniqueReadyRemoteMediaList), findsOneWidget);
+    expect(find.byType(EditChroniqueScreen), findsNothing);
+  });
+
+  testWidgets('non-owner PATCH 404 is shown without logout', (tester) async {
+    final api = _ChroniqueApiProbe()
+      ..items = const [_ChroniqueApiProbe.sample]
+      ..failUpdateWith = const ApiException(message: 'Chronique not found', statusCode: 404);
+    final container = await _pumpHome(tester, api: api);
+    await _openDetail(tester);
+    await _openMenu(tester);
+    await tester.tap(find.text('Modifier'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byType(TextField).at(1),
+      'Texte modifié d au moins vingt caracteres.',
+    );
+    await tester.pump();
+    await tester.tap(find.text('Enregistrer'));
+    await tester.pump();
+
+    expect(api.updateCalls, 1);
+    expect(find.text('Chronique not found'), findsOneWidget);
+    expect(find.byType(EditChroniqueScreen), findsOneWidget);
+    expect(container.read(authControllerProvider), isA<AuthAuthenticated>());
   });
 }

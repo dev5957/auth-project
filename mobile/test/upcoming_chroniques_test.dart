@@ -307,6 +307,8 @@ void main() {
     await tester.tap(find.text('Supprimer'));
     await tester.pumpAndSettle();
     expect(find.text('Supprimer cette chronique programmée ?'), findsOneWidget);
+    expect(find.text('Elle sera retirée de À venir.'), findsOneWidget);
+    expect(find.textContaining('irréversible'), findsNothing);
 
     await tester.tap(find.widgetWithText(TextButton, 'Supprimer'));
     await tester.pumpAndSettle();
