@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
@@ -10,8 +11,10 @@ import 'package:mobile/core/network/api_exception.dart';
 import 'package:mobile/features/auth/data/storage/auth_token_storage.dart';
 import 'package:mobile/features/auth/providers/auth_providers.dart';
 import 'package:mobile/features/chronique/media/chronique_local_file_access.dart';
+import 'package:mobile/features/chronique/media/chronique_local_media_picker.dart';
 import 'package:mobile/features/chronique/media/chronique_media_limits.dart';
 import 'package:mobile/features/chronique/media/chronique_media_mime.dart';
+import 'package:mobile/features/chronique/media/chronique_video_thumbnail.dart';
 import 'package:mobile/features/chronique/models/chronique.dart';
 import 'package:mobile/features/chronique/models/chronique_media_upload.dart';
 import 'package:mobile/features/chronique/models/chronique_page.dart';
@@ -43,12 +46,34 @@ class _FileAccess implements ChroniqueLocalFileAccess {
 
   bool readable;
   int length = 1024;
+  bool failDelete = false;
+  Completer<void>? deleteGate;
+  final List<String> deleted = [];
+  final List<String> startedDeletes = [];
+  final List<String> skippedDeletes = [];
 
   @override
   Future<bool> isReadable(String path) async => readable && path.trim().isNotEmpty;
 
   @override
   Future<int> lengthOf(String path) async => length;
+
+  @override
+  Future<void> deleteQuietly(String path, {bool Function()? ifStillUnused}) async {
+    startedDeletes.add(path);
+    final gate = deleteGate;
+    if (gate != null) {
+      await gate.future;
+    }
+    if (ifStillUnused != null && !ifStillUnused()) {
+      skippedDeletes.add(path);
+      return;
+    }
+    deleted.add(path);
+    if (failDelete) {
+      throw Exception('delete failed');
+    }
+  }
 }
 
 class _PutClient extends ChroniqueMediaUploadClient {
@@ -160,6 +185,9 @@ class _Api extends ChroniqueApiService {
       method: 'PUT',
       url: 'https://signed.example/object/$_nextMediaId',
       headers: {'Content-Type': contentType},
+      thumbnailMethod: kind == 'video' ? 'PUT' : null,
+      thumbnailUrl: kind == 'video' ? 'https://signed.example/thumb/$_nextMediaId' : null,
+      thumbnailHeaders: kind == 'video' ? const {'Content-Type': 'image/jpeg'} : null,
     );
   }
 
@@ -186,15 +214,84 @@ ProviderContainer _container({
   required _Api api,
   _PutClient? put,
   _FileAccess? files,
+  ChroniqueVideoThumbnailExtractor? thumbs,
 }) {
-  return ProviderContainer(
+  final container = ProviderContainer(
     overrides: [
       authTokenStorageProvider.overrideWithValue(_MemoryTokens()),
       chroniqueApiServiceProvider.overrideWithValue(api),
       chroniqueMediaUploadClientProvider.overrideWithValue(put ?? _PutClient()),
       chroniqueLocalFileAccessProvider.overrideWithValue(files ?? _FileAccess()),
+      chroniqueVideoThumbnailExtractorProvider.overrideWithValue(
+        thumbs ?? const _SilentThumbnails(),
+      ),
     ],
   );
+  container.listen(createChroniqueControllerProvider, (_, __) {});
+  return container;
+}
+
+class _SilentThumbnails implements ChroniqueVideoThumbnailExtractor {
+  const _SilentThumbnails();
+
+  @override
+  Future<String?> extractJpeg({required String videoPath}) async => null;
+}
+
+class _ImmediateThumbnails implements ChroniqueVideoThumbnailExtractor {
+  const _ImmediateThumbnails(this.path);
+
+  final String path;
+
+  @override
+  Future<String?> extractJpeg({required String videoPath}) async => path;
+}
+
+class _QueuedThumbnails implements ChroniqueVideoThumbnailExtractor {
+  final List<Completer<String?>> pending = [];
+  final List<String> videoPaths = [];
+
+  @override
+  Future<String?> extractJpeg({required String videoPath}) {
+    videoPaths.add(videoPath);
+    final completer = Completer<String?>();
+    pending.add(completer);
+    return completer.future;
+  }
+}
+
+MediaDraft _video({
+  required int id,
+  String name = 'clip.mp4',
+  int bytes = 4096,
+  String path = '/tmp/clip.mp4',
+  String? thumbnailPath,
+}) {
+  return MediaDraft(
+    id: id,
+    kind: MediaDraftKind.video,
+    sourceType: MediaDraftSourceType.gallery,
+    fileName: name,
+    byteSize: bytes,
+    localPath: path,
+    localThumbnailPath: thumbnailPath,
+    contentType: 'video/mp4',
+  );
+}
+
+const MediaPickSelected _videoPick = MediaPickSelected(
+  kind: MediaDraftKind.video,
+  sourceType: MediaDraftSourceType.gallery,
+  fileName: 'clip.mp4',
+  byteSize: 4096,
+  localPath: '/tmp/clip.mp4',
+  contentType: 'video/mp4',
+);
+
+Future<void> _flushMicrotasks() async {
+  for (var i = 0; i < 8; i++) {
+    await Future<void>.delayed(Duration.zero);
+  }
 }
 
 MediaDraft _image({
@@ -222,6 +319,7 @@ void _add(CreateChroniqueController controller, MediaDraft media) {
     fileName: media.fileName,
     byteSize: media.byteSize,
     localPath: media.localPath,
+    localThumbnailPath: media.localThumbnailPath,
     contentType: media.contentType,
   );
 }
@@ -299,6 +397,31 @@ void main() {
     expect(session.method, 'PUT');
     expect(session.url, 'https://signed.example/put');
     expect(session.headers['Content-Type'], 'image/jpeg');
+  });
+
+  test('upload session JSON maps optional thumbnail PUT target', () {
+    final session = ChroniqueMediaUploadSession.fromJson({
+      'media': {
+        'id': 4,
+        'kind': 'video',
+        'content_type': 'video/mp4',
+        'byte_size': 12,
+        'status': 'pending_upload',
+      },
+      'upload': {
+        'method': 'PUT',
+        'url': 'https://signed.example/put-video',
+        'headers': {'Content-Type': 'video/mp4'},
+      },
+      'thumbnail_upload': {
+        'method': 'PUT',
+        'url': 'https://signed.example/put-thumb',
+        'headers': {'Content-Type': 'image/jpeg'},
+      },
+    });
+    expect(session.thumbnailUrl, 'https://signed.example/put-thumb');
+    expect(session.thumbnailMethod, 'PUT');
+    expect(session.thumbnailHeaders?['Content-Type'], 'image/jpeg');
   });
 
   test('text-only publish does not start the media pipeline', () async {
@@ -687,6 +810,317 @@ void main() {
     expect(
       container.read(createChroniqueControllerProvider).medias.single.status,
       MediaDraftStatus.selected,
+    );
+  });
+
+  test('video thumbnail PUT is optional and does not fail the media', () async {
+    final api = _Api();
+    final put = _PutClient()
+      ..failAt = 2
+      ..failWith = const ApiException(message: 'thumb put failed', statusCode: 400);
+    final file = File('${Directory.systemTemp.path}/chronique-unit-thumb.png');
+    await file.writeAsBytes(const [1, 2, 3, 4]);
+    addTearDown(() {
+      if (file.existsSync()) {
+        file.deleteSync();
+      }
+    });
+    final container = _container(api: api, put: put);
+    addTearDown(container.dispose);
+    final controller = container.read(createChroniqueControllerProvider.notifier);
+    _add(
+      controller,
+      MediaDraft(
+        id: 0,
+        kind: MediaDraftKind.video,
+        sourceType: MediaDraftSourceType.gallery,
+        fileName: 'clip.mp4',
+        byteSize: 4096,
+        localPath: '/tmp/clip.mp4',
+        localThumbnailPath: file.path,
+        contentType: 'video/mp4',
+      ),
+    );
+    await controller.publish(body: body);
+    expect(api.completeCalls, 1);
+    expect(put.putCalls, 2);
+    expect(put.urls.last, startsWith('https://signed.example/thumb/'));
+    expect(
+      container.read(createChroniqueControllerProvider).medias.single.status,
+      MediaDraftStatus.uploaded,
+    );
+  });
+
+  test('video without generated thumbnail still completes after a single PUT', () async {
+    final api = _Api();
+    final put = _PutClient();
+    final container = _container(api: api, put: put, thumbs: const _SilentThumbnails());
+    addTearDown(container.dispose);
+    final controller = container.read(createChroniqueControllerProvider.notifier);
+    controller.addMediaDraft(
+      kind: MediaDraftKind.video,
+      sourceType: MediaDraftSourceType.camera,
+      fileName: 'camera.mp4',
+      byteSize: 8192,
+      localPath: '/tmp/camera.mp4',
+      contentType: 'video/mp4',
+    );
+    await controller.publish(body: body);
+    expect(put.putCalls, 1);
+    expect(api.completeCalls, 1);
+    expect(
+      container.read(createChroniqueControllerProvider).medias.single.status,
+      MediaDraftStatus.uploaded,
+    );
+  });
+
+  test('JPEG thumbnail is deleted after a successful PUT', () async {
+    final api = _Api();
+    final put = _PutClient();
+    final files = _FileAccess();
+    final file = File('${Directory.systemTemp.path}/chronique-thumb-ok.jpg');
+    await file.writeAsBytes(const [1, 2, 3, 4]);
+    addTearDown(() {
+      if (file.existsSync()) {
+        file.deleteSync();
+      }
+    });
+    final container = _container(api: api, put: put, files: files);
+    addTearDown(container.dispose);
+    final controller = container.read(createChroniqueControllerProvider.notifier);
+    _add(controller, _video(id: 0, thumbnailPath: file.path));
+    await controller.publish(body: body);
+    expect(put.putCalls, 2);
+    expect(files.deleted, contains(file.path));
+    expect(files.deleted, isNot(contains('/tmp/clip.mp4')));
+    expect(
+      container.read(createChroniqueControllerProvider).medias.single.localThumbnailPath,
+      isNull,
+    );
+    expect(
+      container.read(createChroniqueControllerProvider).medias.single.status,
+      MediaDraftStatus.uploaded,
+    );
+  });
+
+  test('JPEG thumbnail is deleted after a failed thumbnail PUT', () async {
+    final api = _Api();
+    final put = _PutClient()
+      ..failAt = 2
+      ..failWith = const ApiException(message: 'thumb put failed', statusCode: 400);
+    final files = _FileAccess();
+    final file = File('${Directory.systemTemp.path}/chronique-thumb-fail.jpg');
+    await file.writeAsBytes(const [1, 2, 3, 4]);
+    addTearDown(() {
+      if (file.existsSync()) {
+        file.deleteSync();
+      }
+    });
+    final container = _container(api: api, put: put, files: files);
+    addTearDown(container.dispose);
+    final controller = container.read(createChroniqueControllerProvider.notifier);
+    _add(controller, _video(id: 0, thumbnailPath: file.path));
+    await controller.publish(body: body);
+    expect(put.putCalls, 2);
+    expect(files.deleted, contains(file.path));
+    expect(
+      container.read(createChroniqueControllerProvider).medias.single.status,
+      MediaDraftStatus.uploaded,
+    );
+  });
+
+  test('removing a video while extraction is in flight deletes the orphan JPEG', () async {
+    final api = _Api();
+    final files = _FileAccess();
+    final thumbs = _QueuedThumbnails();
+    final container = _container(api: api, files: files, thumbs: thumbs);
+    addTearDown(container.dispose);
+    final controller = container.read(createChroniqueControllerProvider.notifier);
+    await controller.applyMediaPick(_videoPick);
+    final mediaId = container.read(createChroniqueControllerProvider).medias.single.id;
+    expect(thumbs.pending, hasLength(1));
+    controller.removeMediaDraft(mediaId);
+    expect(container.read(createChroniqueControllerProvider).medias, isEmpty);
+    thumbs.pending.single.complete('/tmp/orphan-thumb.jpg');
+    await _flushMicrotasks();
+    expect(container.read(createChroniqueControllerProvider).medias, isEmpty);
+    expect(files.deleted, contains('/tmp/orphan-thumb.jpg'));
+    expect(files.deleted, isNot(contains('/tmp/clip.mp4')));
+  });
+
+  test('clearDraft during extraction deletes the JPEG and ignores the stale task', () async {
+    final api = _Api();
+    final files = _FileAccess();
+    final thumbs = _QueuedThumbnails();
+    final container = _container(api: api, files: files, thumbs: thumbs);
+    addTearDown(container.dispose);
+    final controller = container.read(createChroniqueControllerProvider.notifier);
+    await controller.applyMediaPick(_videoPick);
+    expect(thumbs.pending, hasLength(1));
+    controller.clearDraft();
+    expect(container.read(createChroniqueControllerProvider).medias, isEmpty);
+    thumbs.pending.single.complete('/tmp/stale-thumb.jpg');
+    await _flushMicrotasks();
+    expect(container.read(createChroniqueControllerProvider).medias, isEmpty);
+    expect(files.deleted, contains('/tmp/stale-thumb.jpg'));
+  });
+
+  test('stale extraction after clearDraft does not mutate the next draft', () async {
+    final api = _Api();
+    final files = _FileAccess();
+    final thumbs = _QueuedThumbnails();
+    final container = _container(api: api, files: files, thumbs: thumbs);
+    addTearDown(container.dispose);
+    final controller = container.read(createChroniqueControllerProvider.notifier);
+    await controller.applyMediaPick(_videoPick);
+    final firstId = container.read(createChroniqueControllerProvider).medias.single.id;
+    controller.clearDraft();
+    await controller.applyMediaPick(
+      const MediaPickSelected(
+        kind: MediaDraftKind.video,
+        sourceType: MediaDraftSourceType.gallery,
+        fileName: 'next.mp4',
+        byteSize: 4096,
+        localPath: '/tmp/next.mp4',
+        contentType: 'video/mp4',
+      ),
+    );
+    final second = container.read(createChroniqueControllerProvider).medias.single;
+    expect(second.id, isNot(firstId));
+    expect(thumbs.pending, hasLength(2));
+    thumbs.pending[0].complete('/tmp/old-thumb.jpg');
+    await _flushMicrotasks();
+    final afterStale = container.read(createChroniqueControllerProvider).medias.single;
+    expect(afterStale.id, second.id);
+    expect(afterStale.localPath, '/tmp/next.mp4');
+    expect(afterStale.localThumbnailPath, isNull);
+    expect(files.deleted, contains('/tmp/old-thumb.jpg'));
+    thumbs.pending[1].complete('/tmp/new-thumb.jpg');
+    await _flushMicrotasks();
+    expect(
+      container.read(createChroniqueControllerProvider).medias.single.localThumbnailPath,
+      '/tmp/new-thumb.jpg',
+    );
+    expect(files.deleted, isNot(contains('/tmp/new-thumb.jpg')));
+  });
+
+  test('JPEG delete failure does not fail video publication', () async {
+    final api = _Api();
+    final put = _PutClient();
+    final files = _FileAccess()..failDelete = true;
+    final file = File('${Directory.systemTemp.path}/chronique-thumb-delete-fail.jpg');
+    await file.writeAsBytes(const [1, 2, 3, 4]);
+    addTearDown(() {
+      if (file.existsSync()) {
+        file.deleteSync();
+      }
+    });
+    final container = _container(api: api, put: put, files: files);
+    addTearDown(container.dispose);
+    final controller = container.read(createChroniqueControllerProvider.notifier);
+    _add(controller, _video(id: 0, thumbnailPath: file.path));
+    await controller.publish(body: body);
+    expect(api.completeCalls, 1);
+    expect(
+      container.read(createChroniqueControllerProvider).medias.single.status,
+      MediaDraftStatus.uploaded,
+    );
+    expect(files.deleted, contains(file.path));
+  });
+
+  test('preview keeps the JPEG until remove or publish release', () async {
+    final api = _Api();
+    final files = _FileAccess();
+    const thumbs = _ImmediateThumbnails('/tmp/preview-thumb.jpg');
+    final container = _container(api: api, files: files, thumbs: thumbs);
+    addTearDown(container.dispose);
+    final controller = container.read(createChroniqueControllerProvider.notifier);
+    await controller.applyMediaPick(_videoPick);
+    await _flushMicrotasks();
+    expect(
+      container.read(createChroniqueControllerProvider).medias.single.localThumbnailPath,
+      '/tmp/preview-thumb.jpg',
+    );
+    expect(files.deleted, isEmpty);
+    controller.removeMediaDraft(
+      container.read(createChroniqueControllerProvider).medias.single.id,
+    );
+    await _flushMicrotasks();
+    expect(files.deleted, contains('/tmp/preview-thumb.jpg'));
+  });
+
+  test('removeMediaDraft never deletes a source path even if it equals the thumbnail path', () async {
+    final api = _Api();
+    final files = _FileAccess();
+    final container = _container(api: api, files: files);
+    addTearDown(container.dispose);
+    final controller = container.read(createChroniqueControllerProvider.notifier);
+    const shared = '/tmp/same-source-and-thumb.mp4';
+    controller.addMediaDraft(
+      kind: MediaDraftKind.video,
+      sourceType: MediaDraftSourceType.gallery,
+      fileName: 'same.mp4',
+      byteSize: 4096,
+      localPath: shared,
+      localThumbnailPath: shared,
+      contentType: 'video/mp4',
+    );
+    final id = container.read(createChroniqueControllerProvider).medias.single.id;
+    controller.removeMediaDraft(id);
+    await _flushMicrotasks();
+    expect(files.deleted, isEmpty);
+    expect(files.deleted, isNot(contains(shared)));
+    expect(files.skippedDeletes, isEmpty);
+  });
+
+  test('in-flight thumbnail delete is aborted if the path is reattached', () async {
+    final api = _Api();
+    final files = _FileAccess()..deleteGate = Completer<void>();
+    final container = _container(api: api, files: files);
+    addTearDown(container.dispose);
+    final controller = container.read(createChroniqueControllerProvider.notifier);
+    const thumb = '/tmp/reattach-thumb.jpg';
+    controller.addMediaDraft(
+      kind: MediaDraftKind.video,
+      sourceType: MediaDraftSourceType.gallery,
+      fileName: 'clip.mp4',
+      byteSize: 4096,
+      localPath: '/tmp/reattach-clip.mp4',
+      localThumbnailPath: thumb,
+      contentType: 'video/mp4',
+    );
+    final firstId = container.read(createChroniqueControllerProvider).medias.single.id;
+    controller.removeMediaDraft(firstId);
+    var started = false;
+    for (var i = 0; i < 20; i++) {
+      if (files.startedDeletes.contains(thumb)) {
+        started = true;
+        break;
+      }
+      await Future<void>.delayed(Duration.zero);
+    }
+    expect(started, isTrue);
+    expect(files.deleted, isEmpty);
+    controller.addMediaDraft(
+      kind: MediaDraftKind.video,
+      sourceType: MediaDraftSourceType.gallery,
+      fileName: 'next.mp4',
+      byteSize: 4096,
+      localPath: '/tmp/reattach-next.mp4',
+      localThumbnailPath: thumb,
+      contentType: 'video/mp4',
+    );
+    expect(
+      container.read(createChroniqueControllerProvider).medias.single.localThumbnailPath,
+      thumb,
+    );
+    files.deleteGate!.complete();
+    await _flushMicrotasks();
+    expect(files.deleted, isNot(contains(thumb)));
+    expect(files.skippedDeletes, contains(thumb));
+    expect(
+      container.read(createChroniqueControllerProvider).medias.single.localThumbnailPath,
+      thumb,
     );
   });
 

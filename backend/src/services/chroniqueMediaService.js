@@ -4,6 +4,7 @@ const { parseChroniqueId } = require('../validators/chroniqueFields');
 const { parseMediaId, parseUploadInput, parseMediaOrder } = require('../validators/mediaFields');
 const { toPublicChronique, toPublicMedia, withOwnedPublication } = require('./chroniqueService');
 const { getStorage } = require('./storageService');
+const { thumbnailStorageKey } = require('./mediaStorageKeys');
 
 const MAX_MEDIA = 5;
 const MAX_BYTES = 209715200;
@@ -122,10 +123,28 @@ async function createMediaUpload(userId, rawId, body, deps = {}) {
       byteSize: input.byteSize,
     });
 
-    return {
+    const result = {
       media: toPublicMedia(mediaRow),
       upload,
     };
+    if (input.kind === 'video') {
+      const thumbKey = thumbnailStorageKey(storageKey);
+      if (thumbKey) {
+        try {
+          result.thumbnail_upload = await storage.createDirectUpload({
+            storageKey: thumbKey,
+            contentType: 'image/jpeg',
+          });
+        } catch (err) {
+          const message = err && typeof err.message === 'string' ? err.message : 'thumbnail upload url failed';
+          console.error(
+            '[chronique-media-thumbnail] upload url failed',
+            `publication_id=${row.id} media_id=${mediaRow.id} message=${message}`
+          );
+        }
+      }
+    }
+    return result;
   });
 }
 
@@ -232,6 +251,20 @@ async function deleteMedia(userId, rawId, rawMediaId, deps = {}) {
     }
 
     await storage.delete(media.storage_key);
+    if (media.kind === 'video') {
+      const thumbKey = thumbnailStorageKey(media.storage_key);
+      if (thumbKey && thumbKey !== media.storage_key) {
+        try {
+          await storage.delete(thumbKey);
+        } catch (err) {
+          const message = err && typeof err.message === 'string' ? err.message : 'thumbnail delete failed';
+          console.error(
+            '[chronique-media-thumbnail] delete failed',
+            `publication_id=${row.id} media_id=${media.id} message=${message}`
+          );
+        }
+      }
+    }
     await client.query(`DELETE FROM publication_media WHERE id = $1 AND publication_id = $2`, [
       media.id,
       row.id,

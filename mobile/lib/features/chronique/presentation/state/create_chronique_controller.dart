@@ -1,3 +1,7 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/network/api_exception.dart';
@@ -5,6 +9,7 @@ import '../../media/chronique_local_file_access.dart';
 import '../../media/chronique_local_media_picker.dart';
 import '../../media/chronique_media_limits.dart';
 import '../../media/chronique_media_mime.dart';
+import '../../media/chronique_video_thumbnail.dart';
 import '../../models/chronique.dart';
 import '../../models/chronique_draft.dart';
 import '../../models/chronique_media_upload.dart';
@@ -15,6 +20,12 @@ import '../../services/chronique_media_upload_client.dart';
 /// Brouillon local (texte + médias) + pipeline create → URL signée → PUT R2 → complete.
 class CreateChroniqueController extends AutoDisposeNotifier<ChroniqueDraft> {
   int _nextMediaId = 0;
+  int _draftGeneration = 0;
+  final Map<int, Future<void>> _thumbnailTasks = {};
+  final Map<String, Future<void>> _thumbnailDeletes = {};
+  /// Chemins des fichiers source choisis par l’utilisateur. Jamais recyclés
+  /// comme cibles de suppression de miniature, y compris après `clearDraft()`.
+  final Set<String> _userSourcePaths = {};
 
   ChroniqueLocalMediaPicker get _picker =>
       ref.read(chroniqueLocalMediaPickerProvider);
@@ -24,6 +35,9 @@ class CreateChroniqueController extends AutoDisposeNotifier<ChroniqueDraft> {
 
   ChroniqueMediaUploadClient get _uploadClient =>
       ref.read(chroniqueMediaUploadClientProvider);
+
+  ChroniqueVideoThumbnailExtractor get _thumbnails =>
+      ref.read(chroniqueVideoThumbnailExtractorProvider);
 
   @override
   ChroniqueDraft build() => const ChroniqueDraft();
@@ -41,10 +55,12 @@ class CreateChroniqueController extends AutoDisposeNotifier<ChroniqueDraft> {
     String? fileName,
     int? byteSize,
     String? localPath,
+    String? localThumbnailPath,
     String? contentType,
     MediaDraftStatus status = MediaDraftStatus.selected,
   }) {
     _nextMediaId += 1;
+    _rememberUserSource(localPath);
     state = state.copyWith(
       medias: [
         ...state.medias,
@@ -55,6 +71,7 @@ class CreateChroniqueController extends AutoDisposeNotifier<ChroniqueDraft> {
           fileName: fileName,
           byteSize: byteSize,
           localPath: localPath,
+          localThumbnailPath: localThumbnailPath,
           contentType: contentType,
           status: status,
         ),
@@ -63,17 +80,43 @@ class CreateChroniqueController extends AutoDisposeNotifier<ChroniqueDraft> {
   }
 
   void removeMediaDraft(int id) {
-    state = state.copyWith(
-      medias: [
-        for (final media in state.medias)
-          if (media.id != id) media,
-      ],
-    );
+    MediaDraft? removed;
+    final remaining = <MediaDraft>[];
+    for (final media in state.medias) {
+      if (media.id == id) {
+        removed = media;
+      } else {
+        remaining.add(media);
+      }
+    }
+    final protected = {
+      ..._sourcePathsOf(remaining),
+      ..._sourcePathsOf([if (removed != null) removed]),
+    };
+    state = state.copyWith(medias: remaining);
+    _thumbnailTasks.remove(id);
+    final thumb = removed?.localThumbnailPath;
+    if (thumb != null && thumb.trim().isNotEmpty) {
+      unawaited(_deleteThumbnailIfUnused(thumb, extraProtected: protected));
+    }
   }
 
   void clearDraft() {
-    _nextMediaId = 0;
+    _draftGeneration += 1;
+    final thumbs = <String>[
+      for (final media in state.medias)
+        if (media.localThumbnailPath != null &&
+            media.localThumbnailPath!.trim().isNotEmpty)
+          media.localThumbnailPath!.trim(),
+    ];
+    final protected = _sourcePathsOf(state.medias);
+    _thumbnailTasks.clear();
+    // Ne jamais réinitialiser `_nextMediaId` : une extraction obsolète
+    // ne doit pas pouvoir cibler un nouveau média par collision d’id.
     state = const ChroniqueDraft();
+    for (final thumb in thumbs) {
+      unawaited(_deleteThumbnailIfUnused(thumb, extraProtected: protected));
+    }
   }
 
   Future<String?> pickImage() {
@@ -170,6 +213,7 @@ class CreateChroniqueController extends AutoDisposeNotifier<ChroniqueDraft> {
         continue;
       }
       _nextMediaId += 1;
+      _rememberUserSource(path);
       accepted.add(
         MediaDraft(
           id: _nextMediaId,
@@ -188,6 +232,11 @@ class CreateChroniqueController extends AutoDisposeNotifier<ChroniqueDraft> {
 
     if (accepted.isNotEmpty) {
       state = state.copyWith(medias: [...state.medias, ...accepted]);
+      for (final media in accepted) {
+        if (media.kind == MediaDraftKind.video) {
+          _startVideoThumbnail(media.id);
+        }
+      }
     }
 
     if (skippedLimit) {
@@ -332,6 +381,10 @@ class CreateChroniqueController extends AutoDisposeNotifier<ChroniqueDraft> {
           url: created.url,
           headers: created.headers,
           expiresAt: created.expiresAt,
+          thumbnailMethod: created.thumbnailMethod,
+          thumbnailUrl: created.thumbnailUrl,
+          thumbnailHeaders: created.thumbnailHeaders,
+          thumbnailExpiresAt: created.thumbnailExpiresAt,
         );
         current = current.copyWith(remoteUpload: session);
         _replaceMedia(current.id, current);
@@ -375,6 +428,8 @@ class CreateChroniqueController extends AutoDisposeNotifier<ChroniqueDraft> {
             mediaId: session.mediaId,
           );
 
+      await _putVideoThumbnailIfReady(media.id);
+
       _replaceMedia(
         media.id,
         _mediaById(media.id).copyWith(
@@ -395,6 +450,217 @@ class CreateChroniqueController extends AutoDisposeNotifier<ChroniqueDraft> {
           errorMessage: message,
         ),
       );
+    }
+  }
+
+  void _startVideoThumbnail(int mediaId) {
+    final generation = _draftGeneration;
+    late final Future<void> task;
+    task = _prepareVideoThumbnail(mediaId, generation).whenComplete(() {
+      if (identical(_thumbnailTasks[mediaId], task)) {
+        _thumbnailTasks.remove(mediaId);
+      }
+    });
+    _thumbnailTasks[mediaId] = task;
+  }
+
+  Future<void> _prepareVideoThumbnail(int mediaId, int generation) async {
+    MediaDraft current;
+    try {
+      current = _mediaById(mediaId);
+    } catch (_) {
+      return;
+    }
+    if (current.kind != MediaDraftKind.video) {
+      return;
+    }
+    final videoPath = current.localPath?.trim();
+    if (videoPath == null || videoPath.isEmpty) {
+      return;
+    }
+    try {
+      final jpegPath = await _thumbnails.extractJpeg(videoPath: videoPath);
+      if (jpegPath == null || jpegPath.trim().isEmpty) {
+        return;
+      }
+      final trimmed = jpegPath.trim();
+      if (generation != _draftGeneration) {
+        await _deleteThumbnailIfUnused(trimmed);
+        return;
+      }
+      try {
+        current = _mediaById(mediaId);
+      } catch (_) {
+        await _deleteThumbnailIfUnused(trimmed);
+        return;
+      }
+      if (current.kind != MediaDraftKind.video) {
+        await _deleteThumbnailIfUnused(trimmed);
+        return;
+      }
+      _replaceMedia(
+        mediaId,
+        current.copyWith(localThumbnailPath: trimmed),
+      );
+    } catch (error) {
+      debugPrint('[chronique-video-thumb] extract failed');
+    }
+  }
+
+  Future<void> _putVideoThumbnailIfReady(int mediaId) async {
+    var current = _mediaById(mediaId);
+    if (current.kind != MediaDraftKind.video) {
+      return;
+    }
+    final session = current.remoteUpload;
+    final thumbUrl = session?.thumbnailUrl?.trim();
+    final thumbMethod = session?.thumbnailMethod?.trim();
+    if (thumbUrl == null ||
+        thumbUrl.isEmpty ||
+        thumbMethod == null ||
+        thumbMethod.isEmpty ||
+        session?.thumbnailPutCompleted == true) {
+      return;
+    }
+    final pending = _thumbnailTasks[mediaId];
+    if (pending != null) {
+      await pending;
+      try {
+        current = _mediaById(mediaId);
+      } catch (_) {
+        return;
+      }
+    }
+    final jpegPath = current.localThumbnailPath?.trim();
+    if (jpegPath == null || jpegPath.isEmpty) {
+      return;
+    }
+    try {
+      final file = File(jpegPath);
+      if (!file.existsSync()) {
+        return;
+      }
+      final byteSize = file.lengthSync();
+      if (byteSize < 1) {
+        return;
+      }
+      await _uploadClient.putFile(
+        url: thumbUrl,
+        method: thumbMethod,
+        headers: session?.thumbnailHeaders ?? const {'Content-Type': 'image/jpeg'},
+        localPath: jpegPath,
+        byteSize: byteSize,
+      );
+      try {
+        current = _mediaById(mediaId);
+        final remote = current.remoteUpload;
+        if (remote != null) {
+          _replaceMedia(
+            mediaId,
+            current.copyWith(
+              remoteUpload: remote.copyWith(thumbnailPutCompleted: true),
+            ),
+          );
+        }
+      } catch (_) {
+        // Média retiré pendant le PUT : le JPEG est quand même relâché plus bas.
+      }
+    } catch (error) {
+      debugPrint('[chronique-video-thumb] put failed');
+    } finally {
+      await _releaseLocalThumbnailAfterPut(mediaId, jpegPath);
+    }
+  }
+
+  Future<void> _releaseLocalThumbnailAfterPut(int mediaId, String jpegPath) async {
+    try {
+      final current = _mediaById(mediaId);
+      final attached = current.localThumbnailPath?.trim();
+      if (attached != null && attached == jpegPath.trim()) {
+        _replaceMedia(mediaId, current.copyWith(clearThumbnail: true));
+      }
+    } catch (_) {
+      // Brouillon déjà sans ce média.
+    }
+    await _deleteThumbnailIfUnused(jpegPath);
+  }
+
+  Set<String> _sourcePathsOf(Iterable<MediaDraft> medias) {
+    return {
+      for (final media in medias)
+        if (media.localPath != null && media.localPath!.trim().isNotEmpty)
+          media.localPath!.trim(),
+    };
+  }
+
+  void _rememberUserSource(String? path) {
+    final trimmed = path?.trim();
+    if (trimmed == null || trimmed.isEmpty) {
+      return;
+    }
+    _userSourcePaths.add(trimmed);
+  }
+
+  bool _thumbnailPathIsProtected(String path, Set<String>? extraProtected) {
+    if (extraProtected != null && extraProtected.contains(path)) {
+      return true;
+    }
+    if (_userSourcePaths.contains(path)) {
+      return true;
+    }
+    for (final media in state.medias) {
+      final source = media.localPath?.trim();
+      if (source != null && source == path) {
+        return true;
+      }
+      final thumb = media.localThumbnailPath?.trim();
+      if (thumb != null && thumb == path) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  Future<void> _deleteThumbnailIfUnused(
+    String path, {
+    Set<String>? extraProtected,
+  }) async {
+    final trimmed = path.trim();
+    if (trimmed.isEmpty) {
+      return;
+    }
+    for (var attempt = 0; attempt < 8; attempt++) {
+      final inFlight = _thumbnailDeletes[trimmed];
+      if (inFlight != null) {
+        try {
+          await inFlight;
+        } catch (_) {
+          // Une suppression concurrente a déjà signalé l’échec.
+        }
+        continue;
+      }
+      if (_thumbnailPathIsProtected(trimmed, extraProtected)) {
+        return;
+      }
+      final pending = () async {
+        try {
+          await _files.deleteQuietly(
+            trimmed,
+            ifStillUnused: () => !_thumbnailPathIsProtected(trimmed, extraProtected),
+          );
+        } catch (error) {
+          debugPrint('[chronique-video-thumb] temp jpeg delete failed');
+        }
+      }();
+      _thumbnailDeletes[trimmed] = pending;
+      try {
+        await pending;
+      } finally {
+        if (identical(_thumbnailDeletes[trimmed], pending)) {
+          _thumbnailDeletes.remove(trimmed);
+        }
+      }
+      return;
     }
   }
 

@@ -403,6 +403,16 @@ async function main() {
   expectAppError(() => parseMediaOrder({ media_ids: [] }), 400, 'media_ids is invalid');
   console.log('A OK validators media / document');
 
+  const { thumbnailStorageKey, THUMBNAIL_SUFFIX } = require('./services/mediaStorageKeys');
+  const sampleKey = 'publications/1/media/550e8400-e29b-41d4-a716-446655440000';
+  assert(thumbnailStorageKey(sampleKey) === `${sampleKey}${THUMBNAIL_SUFFIX}`, 'deterministic thumb key');
+  assert(thumbnailStorageKey(sampleKey) !== sampleKey, 'thumb key distinct from original');
+  assert(
+    thumbnailStorageKey(thumbnailStorageKey(sampleKey)) === thumbnailStorageKey(sampleKey),
+    'thumb key idempotent'
+  );
+  assert(!String(thumbnailStorageKey(sampleKey)).includes('soir.jpg'), 'independent of filename');
+
   const db = createMemoryDb({ publications: [samplePublication()] });
   const created = await createMediaUpload(OWNER_ID, 1, validUpload(), { db, storage: mockStorage });
   assert(created.media.status === 'pending_upload', 'pending status');
@@ -410,6 +420,7 @@ async function main() {
   assert(created.upload.method === 'PUT', 'upload method');
   assert(String(created.upload.url).startsWith('https://mock-storage.local/upload/'), 'mock url');
   assert(created.media.storage_key == null, 'storage_key must not be public');
+  assert(created.thumbnail_upload == null, 'image has no thumbnail_upload');
   const stored = db.state.media[0];
   assert(stored.status === 'pending_upload', 'row pending');
   assert(stored.storage_key.includes('publications/1/media/'), 'opaque key');
@@ -575,6 +586,39 @@ async function main() {
   assert(db.state.media.length === beforeDelete - 1, 'media row removed');
   assert(mockStorage.getObject(toDelete.storage_key) == null, 'mock object deleted');
   console.log('G OK suppression media + mock delete');
+
+  const videoCreated = await createMediaUpload(
+    OWNER_ID,
+    1,
+    {
+      kind: 'video',
+      source_type: 'gallery',
+      content_type: 'video/mp4',
+      byte_size: 4096,
+      original_filename: 'clip.mp4',
+    },
+    { db, storage: mockStorage }
+  );
+  assert(videoCreated.media.kind === 'video', 'video kind');
+  assert(videoCreated.media.storage_key == null, 'video storage_key not public');
+  assert(videoCreated.thumbnail_upload && videoCreated.thumbnail_upload.method === 'PUT', 'thumbnail upload');
+  assert(
+    String(videoCreated.thumbnail_upload.url).startsWith('https://mock-storage.local/upload/'),
+    'thumbnail mock url'
+  );
+  assert(videoCreated.thumbnail_upload.url !== videoCreated.upload.url, 'thumbnail url distinct');
+  assert(!Object.prototype.hasOwnProperty.call(videoCreated, 'storage_key'), 'no storage_key on payload');
+  const videoRow = db.state.media.find((row) => row.id === videoCreated.media.id);
+  const videoThumbKey = thumbnailStorageKey(videoRow.storage_key);
+  mockStorage.put(videoRow.storage_key, { byteSize: 4096, contentType: 'video/mp4' });
+  mockStorage.put(videoThumbKey, { byteSize: 80, contentType: 'image/jpeg' });
+  const videoReady = await completeMedia(OWNER_ID, 1, videoRow.id, { db, storage: mockStorage });
+  assert(videoReady.media.some((item) => item.id === videoRow.id && item.status === 'ready'), 'video ready without depending on thumbnail');
+  const deletedVideo = await deleteMedia(OWNER_ID, 1, videoRow.id, { db, storage: mockStorage });
+  assert(!deletedVideo.media.some((item) => item.id === videoRow.id), 'video row gone');
+  assert(mockStorage.getObject(videoRow.storage_key) == null, 'video object deleted');
+  assert(mockStorage.getObject(videoThumbKey) == null, 'thumbnail object deleted');
+  console.log('G2 OK video thumbnail upload url + delete original and thumbnail');
 
   const foreign = createMemoryDb({
     publications: [samplePublication({ id: 9, user_id: 99 })],

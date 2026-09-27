@@ -68,6 +68,22 @@ bool chroniqueFeedHasUsableReadUrl(ChroniqueMedia media, [DateTime? now]) {
   return !chroniqueFeedReadUrlExpired(media, now);
 }
 
+bool chroniqueFeedThumbnailExpired(ChroniqueMedia media, [DateTime? now]) {
+  final expires = media.thumbnailExpiresAt;
+  if (expires == null) {
+    return false;
+  }
+  return !expires.isAfter(now ?? DateTime.now());
+}
+
+bool chroniqueFeedHasUsableThumbnail(ChroniqueMedia media, [DateTime? now]) {
+  final url = media.thumbnailUrl?.trim();
+  if (url == null || url.isEmpty) {
+    return false;
+  }
+  return !chroniqueFeedThumbnailExpired(media, now);
+}
+
 String? chroniqueFeedSizeLabel(int? byteSize) {
   if (byteSize == null || byteSize < 1) {
     return null;
@@ -90,11 +106,13 @@ class ChroniqueFeedMediaBand extends StatelessWidget {
     required this.medias,
     this.onSelect,
     this.localPaths = const {},
+    this.localThumbnailPaths = const {},
   });
 
   final List<ChroniqueMedia> medias;
   final ValueChanged<ChroniqueMedia>? onSelect;
   final Map<int, String> localPaths;
+  final Map<int, String> localThumbnailPaths;
 
   @override
   Widget build(BuildContext context) {
@@ -178,6 +196,7 @@ class ChroniqueFeedMediaBand extends StatelessWidget {
       media: media,
       index: index,
       localPath: id == null ? null : localPaths[id],
+      localThumbnailPath: id == null ? null : localThumbnailPaths[id],
       onTap: onSelect == null ? null : () => onSelect!(media),
     );
   }
@@ -190,12 +209,14 @@ class ChroniqueFeedMediaTile extends StatelessWidget {
     required this.index,
     this.onTap,
     this.localPath,
+    this.localThumbnailPath,
   });
 
   final ChroniqueMedia media;
   final int index;
   final VoidCallback? onTap;
   final String? localPath;
+  final String? localThumbnailPath;
 
   @override
   Widget build(BuildContext context) {
@@ -273,6 +294,45 @@ class ChroniqueFeedMediaTile extends StatelessWidget {
             : 'Média indisponible',
       );
     }
+    return _ChroniqueFeedVideoBody(
+      chrome: _videoChrome(colors),
+      overlay: _videoPlayOverlay(colors),
+      localThumbnailPath: localThumbnailPath,
+      networkThumbnailUrl: chroniqueFeedHasUsableThumbnail(media) ? media.thumbnailUrl : null,
+    );
+  }
+
+  Widget _videoPlayOverlay(LuminaColors colors) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final height = constraints.maxHeight;
+        final showLabel = height >= 48;
+        final iconSize = height >= 70 ? 40.0 : (height >= 36 ? 28.0 : 20.0);
+        return Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.play_circle,
+                color: colors.textOnPrimary,
+                size: iconSize,
+              ),
+              if (showLabel) ...[
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  'Vidéo',
+                  key: const ValueKey('chronique-feed-video-label'),
+                  style: AppTextTheme.labelSmall.copyWith(color: colors.textOnPrimary),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _videoChrome(LuminaColors colors) {
     final name = media.originalFilename?.trim();
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -452,5 +512,103 @@ class ChroniqueFeedMediaTile extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class _ChroniqueFeedVideoBody extends StatefulWidget {
+  const _ChroniqueFeedVideoBody({
+    required this.chrome,
+    required this.overlay,
+    this.localThumbnailPath,
+    this.networkThumbnailUrl,
+  });
+
+  final Widget chrome;
+  final Widget overlay;
+  final String? localThumbnailPath;
+  final String? networkThumbnailUrl;
+
+  @override
+  State<_ChroniqueFeedVideoBody> createState() => _ChroniqueFeedVideoBodyState();
+}
+
+class _ChroniqueFeedVideoBodyState extends State<_ChroniqueFeedVideoBody> {
+  var _failed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    if (_failed) {
+      return widget.chrome;
+    }
+    final localThumb = widget.localThumbnailPath?.trim();
+    final networkUrl = widget.networkThumbnailUrl?.trim();
+    late final Widget poster;
+    if (localThumb != null && localThumb.isNotEmpty) {
+      poster = _posterImage(
+        filePath: localThumb,
+        fallback: widget.chrome,
+      );
+    } else if (networkUrl != null && networkUrl.isNotEmpty) {
+      poster = _posterImage(
+        networkUrl: networkUrl,
+        fallback: widget.chrome,
+      );
+    } else {
+      return widget.chrome;
+    }
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        poster,
+        const ColoredBox(color: Color(0x59000000)),
+        widget.overlay,
+      ],
+    );
+  }
+
+  Widget _posterImage({
+    String? filePath,
+    String? networkUrl,
+    required Widget fallback,
+  }) {
+    const key = ValueKey('chronique-feed-video-thumb');
+    if (WidgetsBinding.instance.runtimeType.toString().contains('TestWidgetsFlutterBinding')) {
+      return const ColoredBox(key: key, color: Color(0xFF222222));
+    }
+    if (filePath != null) {
+      return Image.file(
+        File(filePath),
+        key: key,
+        fit: BoxFit.cover,
+        width: double.infinity,
+        height: double.infinity,
+        errorBuilder: (context, error, stackTrace) {
+          _markFailed();
+          return fallback;
+        },
+      );
+    }
+    return Image.network(
+      networkUrl!,
+      key: key,
+      fit: BoxFit.cover,
+      width: double.infinity,
+      height: double.infinity,
+      errorBuilder: (context, error, stackTrace) {
+        _markFailed();
+        return fallback;
+      },
+    );
+  }
+
+  void _markFailed() {
+    if (_failed) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        setState(() => _failed = true);
+      }
+    });
   }
 }

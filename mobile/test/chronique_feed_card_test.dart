@@ -27,6 +27,8 @@ ChroniqueMedia _media({
   DateTime? readExpiresAt,
   String? fileName,
   int? byteSize,
+  String? thumbnailUrl,
+  DateTime? thumbnailExpiresAt,
 }) {
   return ChroniqueMedia(
     id: id,
@@ -38,6 +40,8 @@ ChroniqueMedia _media({
     byteSize: byteSize,
     readUrl: readUrl,
     readExpiresAt: readExpiresAt,
+    thumbnailUrl: thumbnailUrl,
+    thumbnailExpiresAt: thumbnailExpiresAt,
   );
 }
 
@@ -147,6 +151,25 @@ void main() {
       final band = tester.getSize(find.byKey(const ValueKey('chronique-feed-media-band')));
       expect(band.height, closeTo(chroniqueFeedMediaBandHeight(count: count, width: band.width), 0.5));
     }
+  });
+
+  test('video thumbnail helpers treat missing and expired urls as unusable', () {
+    expect(
+      chroniqueFeedHasUsableThumbnail(_media(id: 1, kind: 'video', thumbnailUrl: 'https://example.test/t.jpg')),
+      isTrue,
+    );
+    expect(chroniqueFeedHasUsableThumbnail(_media(id: 1, kind: 'video')), isFalse);
+    expect(
+      chroniqueFeedHasUsableThumbnail(
+        _media(
+          id: 1,
+          kind: 'video',
+          thumbnailUrl: 'https://example.test/t.jpg',
+          thumbnailExpiresAt: DateTime.parse('2020-01-01T00:00:00.000Z'),
+        ),
+      ),
+      isFalse,
+    );
   });
 
   testWidgets('two media sit side by side in API order', (tester) async {
@@ -551,6 +574,96 @@ void main() {
     expect(find.text('Vidéo'), findsOneWidget);
     expect(find.text('clip.mp4'), findsOneWidget);
     expect(find.byIcon(Icons.play_circle), findsOneWidget);
+  });
+
+  testWidgets('remote video thumbnail shows cover image and play overlay', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ChroniqueFeedMediaBand(
+          medias: [
+            _media(id: 8, kind: 'video', fileName: 'clip.mp4'),
+          ],
+          localThumbnailPaths: const {8: '/tmp/clip-thumb.jpg'},
+        ),
+      ),
+    );
+    expect(find.byKey(const ValueKey('chronique-feed-video-thumb')), findsOneWidget);
+    expect(find.byIcon(Icons.play_circle), findsWidgets);
+    expect(find.text('Vidéo'), findsOneWidget);
+  });
+
+  testWidgets('video tile falls back when thumbnail is absent', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ChroniqueFeedMediaBand(
+          medias: [
+            _media(id: 8, kind: 'video', fileName: 'clip.mp4'),
+          ],
+        ),
+      ),
+    );
+    expect(find.byKey(const ValueKey('chronique-feed-video-thumb')), findsNothing);
+    expect(find.text('Vidéo'), findsOneWidget);
+    expect(find.text('clip.mp4'), findsOneWidget);
+    expect(find.byIcon(Icons.play_circle), findsOneWidget);
+  });
+
+  testWidgets('video tile falls back when thumbnail fails to load', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ChroniqueFeedMediaBand(
+          medias: [
+            _media(
+              id: 8,
+              kind: 'video',
+              fileName: 'clip.mp4',
+              thumbnailUrl: 'https://example.test/missing-thumb.jpg',
+              thumbnailExpiresAt: DateTime.parse('2020-01-01T00:00:00.000Z'),
+            ),
+          ],
+        ),
+      ),
+    );
+    expect(find.byKey(const ValueKey('chronique-feed-video-thumb')), findsNothing);
+    expect(find.text('Vidéo'), findsOneWidget);
+    expect(find.text('clip.mp4'), findsOneWidget);
+  });
+
+  testWidgets('several videos in a mosaic keep play chrome', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ChroniqueFeedMediaBand(
+          medias: [
+            _media(id: 1, kind: 'video', sortOrder: 0, fileName: 'a.mp4'),
+            _media(id: 2, kind: 'video', sortOrder: 1, fileName: 'b.mp4'),
+            _media(id: 3, kind: 'image', sortOrder: 2),
+          ],
+        ),
+      ),
+    );
+    expect(find.byKey(const ValueKey('chronique-feed-media-1')), findsOneWidget);
+    expect(find.byKey(const ValueKey('chronique-feed-media-2')), findsOneWidget);
+    expect(find.byKey(const ValueKey('chronique-feed-media-3')), findsOneWidget);
+    expect(find.text('Vidéo'), findsWidgets);
+    expect(find.byKey(const ValueKey('chronique-feed-video-thumb')), findsNothing);
+  });
+
+  testWidgets('image audio and document tiles are unchanged by video thumbnails', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ChroniqueFeedMediaBand(
+          medias: [
+            _media(id: 1, kind: 'image', sortOrder: 0),
+            _media(id: 2, kind: 'audio', sortOrder: 1, fileName: 'voix.mp3'),
+            _media(id: 3, kind: 'document', sortOrder: 2, fileName: 'note.pdf', byteSize: 2048),
+          ],
+        ),
+      ),
+    );
+    expect(find.byKey(const ValueKey('chronique-feed-video-thumb')), findsNothing);
+    expect(find.text('voix.mp3'), findsOneWidget);
+    expect(find.text('note.pdf'), findsOneWidget);
+    expect(find.byIcon(Icons.description_outlined), findsOneWidget);
   });
 
   testWidgets('document and audio dialogs stay compact', (tester) async {

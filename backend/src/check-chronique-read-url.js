@@ -168,12 +168,23 @@ function createMemory({ publications, media }) {
 
 function createStorageSpy() {
   const signedKeys = [];
+  const headKeys = [];
+  const thumbs = new Set();
   return {
     signedKeys,
+    headKeys,
+    thumbs,
     createDirectUpload() {
       throw new Error('createDirectUpload must not run on GET');
     },
-    async head() {
+    async head(storageKey) {
+      if (typeof storageKey === 'string' && storageKey.endsWith('.thumb.jpg')) {
+        headKeys.push(storageKey);
+        if (thumbs.has(storageKey)) {
+          return { byteSize: 80, contentType: 'image/jpeg' };
+        }
+        return null;
+      }
       throw new Error('head must not run on GET');
     },
     async delete() {
@@ -312,6 +323,9 @@ async function main() {
   const urls = new Set(mix.media.map((item) => item.read_url));
   assert(urls.size === 4, 'distinct read_url');
   assert(mixStorage.signedKeys.length === 4, 'four signatures');
+  const video = mix.media.find((item) => item.kind === 'video');
+  assert(video && !Object.prototype.hasOwnProperty.call(video, 'thumbnail_url'), 'video without object omits thumbnail');
+  assert(mixStorage.headKeys.includes('publications/1/media/vid.thumb.jpg'), 'video thumbnail head');
   console.log('4 OK plusieurs medias ready -> une read_url chacun');
 
   const foreignStorage = createStorageSpy();
@@ -650,6 +664,112 @@ async function main() {
     'Storage is not configured'
   );
   console.log('18 OK panne stockage 503 non masquee');
+
+  const thumbStorage = createStorageSpy();
+  thumbStorage.thumbs.add('publications/1/media/clip.thumb.jpg');
+  const withThumb = await getChroniqueById(OWNER_A, 1, {
+    db: createMemory({
+      publications: [publicationRow()],
+      media: [
+        mediaRow({
+          kind: 'video',
+          source_type: 'gallery',
+          storage_key: 'publications/1/media/clip',
+          content_type: 'video/mp4',
+          original_filename: 'clip.mp4',
+        }),
+      ],
+    }),
+    storage: thumbStorage,
+  });
+  const thumbMedia = withThumb.media[0];
+  assert(thumbMedia.kind === 'video', 'thumb kind');
+  assert(typeof thumbMedia.read_url === 'string' && thumbMedia.read_url.length > 0, 'video still signed');
+  assert(
+    thumbMedia.thumbnail_url ===
+      `https://mock-storage.local/read/${encodeURIComponent('publications/1/media/clip.thumb.jpg')}`,
+    'thumbnail_url signed'
+  );
+  assert(thumbMedia.thumbnail_expires_at === '2026-09-25T10:16:00.000Z', 'thumbnail expires');
+  assertPublicMedia(thumbMedia);
+  assert(!JSON.stringify(thumbMedia).includes('storage_key'), 'no storage_key on thumbnail media');
+  assert(thumbStorage.signedKeys.includes('publications/1/media/clip'), 'signed original');
+  assert(thumbStorage.signedKeys.includes('publications/1/media/clip.thumb.jpg'), 'signed thumbnail');
+  console.log('19 OK video with thumbnail -> thumbnail_url, sans storage_key');
+
+  const noThumbStorage = createStorageSpy();
+  const listedNoThumb = await listChroniques(OWNER_A, { status: 'active' }, {
+    db: createMemory({
+      publications: [publicationRow()],
+      media: [
+        mediaRow({
+          kind: 'video',
+          source_type: 'gallery',
+          storage_key: 'publications/1/media/plain',
+          content_type: 'video/mp4',
+          original_filename: 'plain.mp4',
+        }),
+      ],
+    }),
+    storage: noThumbStorage,
+  });
+  assert(listedNoThumb.items[0].media.length === 1, 'video remains in feed without thumbnail');
+  assert(listedNoThumb.items[0].media[0].kind === 'video', 'feed video kind');
+  assert(listedNoThumb.items[0].media[0].read_url, 'feed video still signed');
+  assert(
+    !Object.prototype.hasOwnProperty.call(listedNoThumb.items[0].media[0], 'thumbnail_url'),
+    'absent thumbnail omitted'
+  );
+  console.log('20 OK video without thumbnail remains in feed');
+
+  const thumbFailStorage = createStorageSpy();
+  thumbFailStorage.thumbs.add('publications/1/media/okvid.thumb.jpg');
+  thumbFailStorage.createReadUrl = async (storageKey) => {
+    thumbFailStorage.signedKeys.push(storageKey);
+    if (storageKey.endsWith('.thumb.jpg')) {
+      throw new Error('thumbnail signature boom');
+    }
+    return {
+      method: 'GET',
+      url: `https://mock-storage.local/read/${encodeURIComponent(storageKey)}`,
+      expires_at: '2026-09-25T10:16:00.000Z',
+    };
+  };
+  const listedThumbFail = await listChroniques(OWNER_A, { status: 'active' }, {
+    db: createMemory({
+      publications: [publicationRow()],
+      media: [
+        mediaRow({
+          kind: 'video',
+          source_type: 'gallery',
+          storage_key: 'publications/1/media/okvid',
+          content_type: 'video/mp4',
+          original_filename: 'ok.mp4',
+        }),
+      ],
+    }),
+    storage: thumbFailStorage,
+  });
+  assert(listedThumbFail.items[0].media.length === 1, 'thumbnail sign failure keeps video');
+  assert(listedThumbFail.items[0].media[0].read_url, 'video url kept');
+  assert(
+    !Object.prototype.hasOwnProperty.call(listedThumbFail.items[0].media[0], 'thumbnail_url'),
+    'failed thumbnail omitted'
+  );
+  console.log('21 OK thumbnail signature failure keeps video in feed');
+
+  const imageNoThumbStorage = createStorageSpy();
+  const listedImage = await listChroniques(OWNER_A, { status: 'active' }, {
+    db: createMemory({
+      publications: [publicationRow()],
+      media: [mediaRow()],
+    }),
+    storage: imageNoThumbStorage,
+  });
+  assert(listedImage.items[0].media[0].kind === 'image', 'image kind');
+  assert(!Object.prototype.hasOwnProperty.call(listedImage.items[0].media[0], 'thumbnail_url'), 'image has no thumbnail');
+  assert(imageNoThumbStorage.headKeys.length === 0, 'image does not head thumbnail');
+  console.log('22 OK non-video media unchanged');
 
   console.log('Chronique read-url check succeeded.');
 }

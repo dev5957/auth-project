@@ -21,6 +21,7 @@ class ChroniqueCard extends StatefulWidget {
     this.showInactiveSocialActions = false,
     this.onMediaSelected,
     this.localMediaPaths = const {},
+    this.localThumbnailPaths = const {},
   });
 
   final Chronique chronique;
@@ -31,6 +32,7 @@ class ChroniqueCard extends StatefulWidget {
   final bool showInactiveSocialActions;
   final ValueChanged<ChroniqueMedia>? onMediaSelected;
   final Map<int, String> localMediaPaths;
+  final Map<int, String> localThumbnailPaths;
 
   @override
   State<ChroniqueCard> createState() => _ChroniqueCardState();
@@ -96,6 +98,7 @@ class _ChroniqueCardState extends State<ChroniqueCard> {
             ChroniqueFeedMediaBand(
               medias: feedMedias,
               localPaths: widget.localMediaPaths,
+              localThumbnailPaths: widget.localThumbnailPaths,
               onSelect: widget.onMediaSelected,
             ),
           ],

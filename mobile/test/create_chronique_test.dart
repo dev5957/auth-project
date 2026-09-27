@@ -16,6 +16,7 @@ import 'package:mobile/features/chronique/media/chronique_local_file_access.dart
 import 'package:mobile/features/chronique/media/chronique_local_media_picker.dart';
 import 'package:mobile/features/chronique/media/chronique_media_limits.dart';
 import 'package:mobile/features/chronique/media/chronique_microphone_recorder.dart';
+import 'package:mobile/features/chronique/media/chronique_video_thumbnail.dart';
 import 'package:mobile/features/chronique/models/chronique.dart';
 import 'package:mobile/features/chronique/models/chronique_assistant_copy.dart';
 import 'package:mobile/features/chronique/models/chronique_date.dart';
@@ -252,6 +253,9 @@ class _AlwaysReadableFileAccess implements ChroniqueLocalFileAccess {
 
   @override
   Future<int> lengthOf(String path) async => 2048;
+
+  @override
+  Future<void> deleteQuietly(String path, {bool Function()? ifStillUnused}) async {}
 }
 
 class _FakeMediaUploadClient extends ChroniqueMediaUploadClient {
@@ -311,6 +315,13 @@ class _FakeMicrophoneRecorder implements ChroniqueMicrophoneRecorder {
 
   @override
   Future<void> dispose() async {}
+}
+
+class _SilentVideoThumbnails implements ChroniqueVideoThumbnailExtractor {
+  const _SilentVideoThumbnails();
+
+  @override
+  Future<String?> extractJpeg({required String videoPath}) async => null;
 }
 
 class _FakeLocalMediaPicker implements ChroniqueLocalMediaPicker {
@@ -397,6 +408,9 @@ Future<ProviderContainer> _pumpHome(
         ),
         chroniqueMediaUploadClientProvider.overrideWithValue(
           _FakeMediaUploadClient(),
+        ),
+        chroniqueVideoThumbnailExtractorProvider.overrideWithValue(
+          const _SilentVideoThumbnails(),
         ),
       ],
       child: const LuminaApp(),

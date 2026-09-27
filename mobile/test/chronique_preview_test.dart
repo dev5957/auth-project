@@ -21,6 +21,7 @@ MediaDraft _draft({
   String? fileName,
   int? byteSize,
   String? localPath,
+  String? localThumbnailPath,
 }) {
   return MediaDraft(
     id: id,
@@ -29,6 +30,7 @@ MediaDraft _draft({
     fileName: fileName,
     byteSize: byteSize,
     localPath: localPath,
+    localThumbnailPath: localThumbnailPath,
   );
 }
 
@@ -171,5 +173,63 @@ void main() {
     expect(chroniquePreviewLocalPaths([
       _draft(id: 8, kind: MediaDraftKind.image, localPath: '/tmp/a.jpg'),
     ])[8], '/tmp/a.jpg');
+  });
+
+  testWidgets('preview with local video thumbnail shows the poster slot', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ChroniquePreview(
+          title: 'Mini',
+          body: 'Le texte de la chronique, d au moins vingt caracteres.',
+          medias: [
+            _draft(
+              id: 2,
+              kind: MediaDraftKind.video,
+              fileName: 'b.mp4',
+              localPath: '/tmp/b.mp4',
+              localThumbnailPath: '/tmp/b.jpg',
+            ),
+          ],
+          schedule: const ChroniqueScheduleDraft(),
+        ),
+      ),
+    );
+    expect(find.byKey(const ValueKey('chronique-feed-video-thumb')), findsOneWidget);
+    expect(find.byIcon(Icons.play_circle), findsWidgets);
+    expect(find.text('Vidéo'), findsOneWidget);
+  });
+
+  test('preview mapping exposes local thumbnail paths without a second extract', () {
+    expect(
+      chroniquePreviewLocalThumbnails([
+        _draft(id: 2, kind: MediaDraftKind.video, localPath: '/tmp/b.mp4', localThumbnailPath: '/tmp/b.jpg'),
+        _draft(id: 3, kind: MediaDraftKind.audio, localPath: '/tmp/c.m4a'),
+      ])[2],
+      '/tmp/b.jpg',
+    );
+    expect(
+      chroniquePreviewLocalThumbnails([
+        _draft(id: 3, kind: MediaDraftKind.audio, localPath: '/tmp/c.m4a'),
+      ]),
+      isEmpty,
+    );
+  });
+
+  testWidgets('preview video without thumbnail uses fallback chrome', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ChroniquePreview(
+          title: 'Mini',
+          body: 'Le texte de la chronique, d au moins vingt caracteres.',
+          medias: [
+            _draft(id: 2, kind: MediaDraftKind.video, fileName: 'b.mp4', localPath: '/tmp/b.mp4'),
+          ],
+          schedule: const ChroniqueScheduleDraft(),
+        ),
+      ),
+    );
+    expect(find.byKey(const ValueKey('chronique-feed-video-thumb')), findsNothing);
+    expect(find.text('Vidéo'), findsOneWidget);
+    expect(find.text('b.mp4'), findsOneWidget);
   });
 }

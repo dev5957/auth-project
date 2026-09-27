@@ -116,6 +116,8 @@ class ChroniqueMedia {
     this.sortOrder,
     this.readUrl,
     this.readExpiresAt,
+    this.thumbnailUrl,
+    this.thumbnailExpiresAt,
   });
 
   final int? id;
@@ -129,6 +131,10 @@ class ChroniqueMedia {
   /// URL GET signée R2, temporaire. Jamais persistée.
   final String? readUrl;
   final DateTime? readExpiresAt;
+
+  /// JPEG de miniature, URL GET signée. Absente si non générée.
+  final String? thumbnailUrl;
+  final DateTime? thumbnailExpiresAt;
 
   factory ChroniqueMedia.fromJson(Map<String, dynamic> json) {
     final kind = json['kind'];
@@ -145,6 +151,8 @@ class ChroniqueMedia {
       sortOrder: _parseByteSize(json['sort_order']),
       readUrl: _parseOptionalUrl(json['read_url']),
       readExpiresAt: parseChroniqueDateTime(json['read_expires_at']),
+      thumbnailUrl: _parseOptionalUrl(json['thumbnail_url']),
+      thumbnailExpiresAt: parseChroniqueDateTime(json['thumbnail_expires_at']),
     );
   }
 }

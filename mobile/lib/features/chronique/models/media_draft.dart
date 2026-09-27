@@ -31,6 +31,7 @@ class MediaDraft {
     this.fileName,
     this.byteSize,
     this.localPath,
+    this.localThumbnailPath,
     this.contentType,
     this.status = MediaDraftStatus.selected,
     this.uploadProgress = 0,
@@ -44,6 +45,7 @@ class MediaDraft {
   final String? fileName;
   final int? byteSize;
   final String? localPath;
+  final String? localThumbnailPath;
   final String? contentType;
   final MediaDraftStatus status;
   final int uploadProgress;
@@ -61,6 +63,7 @@ class MediaDraft {
     String? fileName,
     int? byteSize,
     String? localPath,
+    String? localThumbnailPath,
     String? contentType,
     MediaDraftStatus? status,
     int? uploadProgress,
@@ -68,6 +71,7 @@ class MediaDraft {
     MediaDraftRemoteUpload? remoteUpload,
     bool clearError = false,
     bool clearRemoteUpload = false,
+    bool clearThumbnail = false,
   }) {
     return MediaDraft(
       id: id,
@@ -76,6 +80,7 @@ class MediaDraft {
       fileName: fileName ?? this.fileName,
       byteSize: byteSize ?? this.byteSize,
       localPath: localPath ?? this.localPath,
+      localThumbnailPath: clearThumbnail ? null : (localThumbnailPath ?? this.localThumbnailPath),
       contentType: contentType ?? this.contentType,
       status: status ?? this.status,
       uploadProgress: uploadProgress ?? this.uploadProgress,

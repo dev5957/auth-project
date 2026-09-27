@@ -6,6 +6,7 @@ import '../media/chronique_local_media_picker.dart';
 import '../media/chronique_microphone_recorder.dart';
 import '../media/device_chronique_local_media_picker.dart';
 import '../media/device_chronique_microphone_recorder.dart';
+import '../media/chronique_video_thumbnail.dart';
 import '../repositories/chronique_repository.dart';
 import '../services/chronique_api_service.dart';
 import '../services/chronique_media_upload_client.dart';
@@ -40,4 +41,9 @@ final chroniqueLocalFileAccessProvider = Provider<ChroniqueLocalFileAccess>((ref
 
 final chroniqueMediaUploadClientProvider = Provider<ChroniqueMediaUploadClient>((ref) {
   return ChroniqueMediaUploadClient();
+});
+
+final chroniqueVideoThumbnailExtractorProvider =
+    Provider<ChroniqueVideoThumbnailExtractor>((ref) {
+  return const DeviceChroniqueVideoThumbnailExtractor();
 });

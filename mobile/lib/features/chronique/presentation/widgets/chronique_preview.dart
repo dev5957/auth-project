@@ -31,6 +31,14 @@ Map<int, String> chroniquePreviewLocalPaths(List<MediaDraft> drafts) {
   };
 }
 
+Map<int, String> chroniquePreviewLocalThumbnails(List<MediaDraft> drafts) {
+  return {
+    for (final draft in drafts)
+      if (draft.localThumbnailPath != null && draft.localThumbnailPath!.trim().isNotEmpty)
+        draft.id: draft.localThumbnailPath!.trim(),
+  };
+}
+
 /// Prévisualisation identique à une carte du fil. Aucun GET.
 class ChroniquePreview extends StatelessWidget {
   const ChroniquePreview({
@@ -52,6 +60,7 @@ class ChroniquePreview extends StatelessWidget {
     final trimmedBody = ChroniqueFields.trimmedBody(body);
     final previewMedias = chroniquePreviewMediaFromDrafts(medias);
     final localPaths = chroniquePreviewLocalPaths(medias);
+    final localThumbnails = chroniquePreviewLocalThumbnails(medias);
     final scheduled = schedule.publishMode == ChroniquePublishMode.schedule;
     final expires = schedule.resolvedExpiresLocal();
     return ChroniqueCard(
@@ -69,6 +78,7 @@ class ChroniquePreview extends StatelessWidget {
       showFeedMedia: true,
       showInactiveSocialActions: true,
       localMediaPaths: localPaths,
+      localThumbnailPaths: localThumbnails,
       onMediaSelected: (media) => openChroniqueFeedMedia(
         context,
         media,

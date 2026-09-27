@@ -8,6 +8,10 @@ class ChroniqueMediaUploadSession {
     required this.url,
     required this.headers,
     this.expiresAt,
+    this.thumbnailMethod,
+    this.thumbnailUrl,
+    this.thumbnailHeaders,
+    this.thumbnailExpiresAt,
   });
 
   final ChroniqueMedia media;
@@ -15,6 +19,10 @@ class ChroniqueMediaUploadSession {
   final String url;
   final Map<String, String> headers;
   final String? expiresAt;
+  final String? thumbnailMethod;
+  final String? thumbnailUrl;
+  final Map<String, String>? thumbnailHeaders;
+  final String? thumbnailExpiresAt;
 
   factory ChroniqueMediaUploadSession.fromJson(Map<String, dynamic> json) {
     final mediaRaw = json['media'];
@@ -42,12 +50,41 @@ class ChroniqueMediaUploadSession {
       }
     }
     final expires = uploadRaw['expires_at'];
+    final thumbRaw = json['thumbnail_upload'];
+    String? thumbMethod;
+    String? thumbUrl;
+    Map<String, String>? thumbHeaders;
+    String? thumbExpires;
+    if (thumbRaw is Map) {
+      final methodValue = thumbRaw['method'];
+      final urlValue = thumbRaw['url'];
+      if (methodValue is String &&
+          methodValue.trim().isNotEmpty &&
+          urlValue is String &&
+          urlValue.trim().isNotEmpty) {
+        thumbMethod = methodValue.trim();
+        thumbUrl = urlValue.trim();
+        thumbHeaders = <String, String>{};
+        final headersRawThumb = thumbRaw['headers'];
+        if (headersRawThumb is Map) {
+          for (final entry in headersRawThumb.entries) {
+            thumbHeaders['${entry.key}'] = '${entry.value}';
+          }
+        }
+        final thumbExp = thumbRaw['expires_at'];
+        thumbExpires = thumbExp is String ? thumbExp : null;
+      }
+    }
     return ChroniqueMediaUploadSession(
       media: media,
       method: methodRaw.trim(),
       url: urlRaw.trim(),
       headers: headers,
       expiresAt: expires is String ? expires : null,
+      thumbnailMethod: thumbMethod,
+      thumbnailUrl: thumbUrl,
+      thumbnailHeaders: thumbHeaders,
+      thumbnailExpiresAt: thumbExpires,
     );
   }
 }
@@ -61,6 +98,11 @@ class MediaDraftRemoteUpload {
     required this.headers,
     this.expiresAt,
     this.putCompleted = false,
+    this.thumbnailMethod,
+    this.thumbnailUrl,
+    this.thumbnailHeaders,
+    this.thumbnailExpiresAt,
+    this.thumbnailPutCompleted = false,
   });
 
   final int mediaId;
@@ -69,9 +111,15 @@ class MediaDraftRemoteUpload {
   final Map<String, String> headers;
   final String? expiresAt;
   final bool putCompleted;
+  final String? thumbnailMethod;
+  final String? thumbnailUrl;
+  final Map<String, String>? thumbnailHeaders;
+  final String? thumbnailExpiresAt;
+  final bool thumbnailPutCompleted;
 
   MediaDraftRemoteUpload copyWith({
     bool? putCompleted,
+    bool? thumbnailPutCompleted,
   }) {
     return MediaDraftRemoteUpload(
       mediaId: mediaId,
@@ -80,6 +128,11 @@ class MediaDraftRemoteUpload {
       headers: headers,
       expiresAt: expiresAt,
       putCompleted: putCompleted ?? this.putCompleted,
+      thumbnailMethod: thumbnailMethod,
+      thumbnailUrl: thumbnailUrl,
+      thumbnailHeaders: thumbnailHeaders,
+      thumbnailExpiresAt: thumbnailExpiresAt,
+      thumbnailPutCompleted: thumbnailPutCompleted ?? this.thumbnailPutCompleted,
     );
   }
 }

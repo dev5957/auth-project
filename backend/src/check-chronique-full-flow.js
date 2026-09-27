@@ -505,7 +505,7 @@ async function main() {
       lastChronique = complete.json.chronique;
       uploaded.push({ ...spec, id: init.json.media.id, storageKey });
     }
-    assert(storageCalls.createDirectUpload === 3, `uploads ${storageCalls.createDirectUpload}`);
+    assert(storageCalls.createDirectUpload === 4, `uploads ${storageCalls.createDirectUpload}`);
     assert(storageCalls.head === 3, `heads ${storageCalls.head}`);
     console.log('B OK 3 medias pending -> ready via MockStorage');
 
@@ -629,7 +629,7 @@ async function main() {
     assert(deleted.status === 200, `delete media ${deleted.status} ${deleted.raw}`);
     assert(!deleted.json.chronique.media.some((item) => item.id === removedId), 'media gone');
     assert(mockStorage.getObject(removedKey) == null, 'mock object deleted');
-    assert(storageCalls.delete === 1, `delete calls ${storageCalls.delete}`);
+    assert(storageCalls.delete === 2, `delete calls ${storageCalls.delete}`);
     console.log('F OK DELETE media + MockStorage.delete');
 
     const archived = await httpRequest({
@@ -663,10 +663,10 @@ async function main() {
     assert(otherArchive.status === 404, `other archive ${otherArchive.status}`);
     console.log('G OK archive apres medias + refus post-archive');
 
-    assert(storageCalls.createDirectUpload === 3, 'no extra upload after refusals');
-    assert(storageCalls.head === 3, 'no extra head');
-    assert(storageCalls.delete === 1, 'single mock delete');
-    console.log('H OK MockStorage appels attendus (3 upload, 3 head, 1 delete)');
+    assert(storageCalls.createDirectUpload === 4, 'no extra upload after refusals');
+    assert(storageCalls.head === 5, 'no extra head');
+    assert(storageCalls.delete === 2, 'video delete original and thumbnail');
+    console.log('H OK MockStorage appels attendus (4 upload, 5 head, 2 delete)');
   } finally {
     await new Promise((resolve) => server.close(resolve));
     mockStorage.createDirectUpload = origCreate;

@@ -47,6 +47,28 @@ void main() {
     expect(chroniqueMediaIsDisplayableVideo(media), isTrue);
   });
 
+  test('video JSON maps optional thumbnail_url without requiring it for display', () {
+    final media = ChroniqueMedia.fromJson({
+      'id': 4,
+      'kind': 'video',
+      'status': 'ready',
+      'read_url': 'https://example.test/clip.mp4',
+      'thumbnail_url': 'https://example.test/clip.jpg',
+      'thumbnail_expires_at': '2026-09-25T10:16:00.000Z',
+    });
+    expect(media.thumbnailUrl, 'https://example.test/clip.jpg');
+    expect(media.thumbnailExpiresAt, DateTime.parse('2026-09-25T10:16:00.000Z'));
+    expect(chroniqueMediaIsDisplayableVideo(media), isTrue);
+    final plain = ChroniqueMedia.fromJson({
+      'id': 5,
+      'kind': 'video',
+      'status': 'ready',
+      'read_url': 'https://example.test/clip.mp4',
+    });
+    expect(plain.thumbnailUrl, isNull);
+    expect(chroniqueMediaIsDisplayableVideo(plain), isTrue);
+  });
+
   test('B video ready without read_url is not displayable', () {
     final media = ChroniqueMedia.fromJson({
       'id': 5,
