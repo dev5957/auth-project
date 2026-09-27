@@ -77,7 +77,10 @@ class ChroniqueMediaViewerPage extends StatelessWidget {
                   ),
                 ],
               ),
-              _body(colors, maxWidth, maxHeight),
+              Flexible(
+                fit: FlexFit.loose,
+                child: _body(colors),
+              ),
             ],
           ),
         ),
@@ -100,7 +103,7 @@ class ChroniqueMediaViewerPage extends StatelessWidget {
     return path != null && path.isNotEmpty;
   }
 
-  Widget _body(LuminaColors colors, double maxWidth, double maxHeight) {
+  Widget _body(LuminaColors colors) {
     final usableRemote = chroniqueFeedHasUsableReadUrl(media);
     if (!usableRemote && !_hasLocalFile && media.kind != 'document') {
       return Text(
@@ -113,23 +116,30 @@ class ChroniqueMediaViewerPage extends StatelessWidget {
     final url = media.readUrl?.trim() ?? '';
     final filePath = localPath?.trim() ?? '';
     return switch (media.kind) {
-      'image' => ConstrainedBox(
-          constraints: BoxConstraints(maxHeight: maxHeight * 0.7),
-          child: InteractiveViewer(
-            minScale: 0.8,
-            maxScale: 4,
-            child: _hasLocalFile
-                ? Image.file(
-                    File(filePath),
-                    fit: BoxFit.contain,
-                    errorBuilder: (context, error, stackTrace) => _unavailable(colors),
-                  )
-                : Image.network(
-                    url,
-                    fit: BoxFit.contain,
-                    errorBuilder: (context, error, stackTrace) => _unavailable(colors),
-                  ),
-          ),
+      'image' => LayoutBuilder(
+          builder: (context, constraints) {
+            final maxImageHeight = constraints.maxHeight.isFinite
+                ? constraints.maxHeight
+                : MediaQuery.sizeOf(context).height * 0.7;
+            return ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: maxImageHeight),
+              child: InteractiveViewer(
+                minScale: 0.8,
+                maxScale: 4,
+                child: _hasLocalFile
+                    ? Image.file(
+                        File(filePath),
+                        fit: BoxFit.contain,
+                        errorBuilder: (context, error, stackTrace) => _unavailable(colors),
+                      )
+                    : Image.network(
+                        url,
+                        fit: BoxFit.contain,
+                        errorBuilder: (context, error, stackTrace) => _unavailable(colors),
+                      ),
+              ),
+            );
+          },
         ),
       'video' => KeyedSubtree(
           key: const ValueKey('chronique-media-viewer-video'),

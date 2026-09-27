@@ -373,6 +373,103 @@ void main() {
     );
   });
 
+  test('portrait video surface shrinks to the available height', () {
+    final size = chroniqueVideoSurfaceSize(
+      aspectRatio: 9 / 16,
+      maxWidth: 320,
+      maxHeight: 200,
+    );
+    expect(size.height, 200);
+    expect(size.width, closeTo(200 * 9 / 16, 0.001));
+    expect(size.width, lessThan(320));
+  });
+
+  test('landscape video keeps width when height allows', () {
+    final size = chroniqueVideoSurfaceSize(
+      aspectRatio: 16 / 9,
+      maxWidth: 320,
+      maxHeight: 400,
+    );
+    expect(size.width, 320);
+    expect(size.height, closeTo(320 * 9 / 16, 0.001));
+  });
+
+  test('video surface uses 16:9 when the ratio is invalid', () {
+    final size = chroniqueVideoSurfaceSize(
+      aspectRatio: 0,
+      maxWidth: 320,
+      maxHeight: 400,
+    );
+    expect(size.width, 320);
+    expect(size.height, closeTo(320 * 9 / 16, 0.001));
+  });
+
+  testWidgets('document dialog does not overflow on a short phone', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(360, 640));
+    addTearDown(() async {
+      await tester.binding.setSurfaceSize(null);
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(extensions: const [LuminaColors.light]),
+        home: Builder(
+          builder: (context) {
+            return Scaffold(
+              body: TextButton(
+                onPressed: () => openChroniqueFeedMedia(
+                  context,
+                  _media(
+                    id: 9,
+                    kind: 'document',
+                    fileName: 'compte-rendu-assemblee-generale-annuelle-tres-long.pdf',
+                    byteSize: 2048,
+                  ),
+                ),
+                child: const Text('open'),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const ValueKey('chronique-media-viewer-document')), findsOneWidget);
+    expect(find.text('Ouvrir'), findsOneWidget);
+    expect(
+      tester.getSize(find.byKey(const ValueKey('chronique-media-viewer-sheet'))).height,
+      lessThan(640 * 0.5),
+    );
+  });
+
+  testWidgets('video dialog stays within a short phone without overflow', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(360, 640));
+    addTearDown(() async {
+      await tester.binding.setSurfaceSize(null);
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(extensions: const [LuminaColors.light]),
+        home: const ChroniqueMediaViewerPage(
+          media: ChroniqueMedia(
+            id: 8,
+            kind: 'video',
+            status: 'ready',
+            readUrl: 'https://example.test/clip.mp4',
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const ValueKey('chronique-media-viewer-video')), findsOneWidget);
+    expect(find.byType(ChroniqueReadyVideoPlayer), findsOneWidget);
+    final sheet = tester.getSize(find.byKey(const ValueKey('chronique-media-viewer-sheet')));
+    expect(sheet.height, lessThanOrEqualTo(640 * 0.78 + 1));
+  });
+
   test('keepExistingMedia retains previous media when the PATCH payload omits them', () {
     const previous = Chronique(
       id: 1,

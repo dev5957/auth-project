@@ -204,11 +204,13 @@ class _ChroniqueReadyDocumentCardState extends State<ChroniqueReadyDocumentCard>
       child: Padding(
         padding: const EdgeInsets.fromLTRB(AppSpacing.md, AppSpacing.md, AppSpacing.sm, AppSpacing.md),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Icon(Icons.description_outlined, color: colors.textSecondary),
             const SizedBox(width: AppSpacing.md),
             Expanded(
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(

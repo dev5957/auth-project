@@ -69,6 +69,29 @@ String formatChroniqueVideoClock(Duration duration) {
   return '$mm:$ss';
 }
 
+/// Hauteur réservée à la rangée horloge + slider, hors la vidéo elle-même.
+const double kChroniqueVideoControlsHeight = 48;
+
+/// Calcule la surface de lecture pour tenir dans [maxWidth] × [maxHeight]
+/// sans écrêter : la vidéo portrait rétrécit pour laisser la place aux commandes.
+Size chroniqueVideoSurfaceSize({
+  required double aspectRatio,
+  required double maxWidth,
+  required double maxHeight,
+}) {
+  final ratio = aspectRatio <= 0 ? 16 / 9 : aspectRatio;
+  if (!maxWidth.isFinite || maxWidth <= 0) {
+    return Size.zero;
+  }
+  var width = maxWidth;
+  var height = width / ratio;
+  if (maxHeight.isFinite && maxHeight > 0 && height > maxHeight) {
+    height = maxHeight;
+    width = height * ratio;
+  }
+  return Size(width, height);
+}
+
 double chroniqueVideoSliderValue({
   required Duration position,
   required Duration duration,
@@ -255,26 +278,40 @@ class _ChroniqueReadyVideoPlayerState extends State<ChroniqueReadyVideoPlayer> {
   Widget build(BuildContext context) {
     final colors = context.luminaColors;
     if (_failed || _controller == null && !_loading) {
-      return SizedBox(
-        height: 72,
-        child: Center(
-          child: Text(
-            'Vidéo indisponible',
-            textAlign: TextAlign.center,
-            style: AppTextTheme.labelSmall.copyWith(color: colors.danger),
-          ),
-        ),
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          final height = constraints.maxHeight.isFinite
+              ? constraints.maxHeight.clamp(0.0, 72.0)
+              : 72.0;
+          return SizedBox(
+            height: height,
+            child: Center(
+              child: Text(
+                'Vidéo indisponible',
+                textAlign: TextAlign.center,
+                style: AppTextTheme.labelSmall.copyWith(color: colors.danger),
+              ),
+            ),
+          );
+        },
       );
     }
     if (_loading || _controller == null || !_controller!.value.isInitialized) {
-      return SizedBox(
-        height: 180,
-        child: Center(
-          child: CircularProgressIndicator(
-            color: colors.primary,
-            strokeWidth: 2,
-          ),
-        ),
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          final height = constraints.maxHeight.isFinite
+              ? constraints.maxHeight.clamp(0.0, 180.0)
+              : 180.0;
+          return SizedBox(
+            height: height,
+            child: Center(
+              child: CircularProgressIndicator(
+                color: colors.primary,
+                strokeWidth: 2,
+              ),
+            ),
+          );
+        },
       );
     }
 
@@ -294,76 +331,96 @@ class _ChroniqueReadyVideoPlayerState extends State<ChroniqueReadyVideoPlayer> {
         ? Duration(milliseconds: _scrubMilliseconds!.round())
         : value.position;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    final controls = Row(
       children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(AppSpacing.lg),
-          child: AspectRatio(
-            aspectRatio: ratio <= 0 ? 16 / 9 : ratio,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                VideoPlayer(controller),
-                Material(
-                  color: const Color(0x40000000),
-                  child: IconButton(
-                    key: const ValueKey('chronique-video-play-pause'),
-                    tooltip: showPause ? 'Pause' : 'Lecture',
-                    onPressed: _togglePlay,
-                    icon: Icon(
-                      showPause ? Icons.pause_circle : Icons.play_circle,
-                      color: colors.textOnPrimary,
-                      size: 48,
-                    ),
-                  ),
-                ),
-              ],
+        Text(
+          formatChroniqueVideoClock(displayPosition),
+          key: const ValueKey('chronique-video-position'),
+          style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
+        ),
+        Expanded(
+          child: SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              trackHeight: 2,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+            ),
+            child: Slider(
+              key: const ValueKey('chronique-video-progress'),
+              min: 0,
+              max: durationMs > 0 ? durationMs : 1,
+              value: durationMs > 0 ? sliderValue : 0,
+              activeColor: colors.primary,
+              inactiveColor: colors.border,
+              onChanged: durationMs > 0
+                  ? (next) {
+                      setState(() {
+                        _scrubbing = true;
+                        _scrubMilliseconds = next;
+                      });
+                    }
+                  : null,
+              onChangeEnd: durationMs > 0 ? _seekTo : null,
             ),
           ),
         ),
-        const SizedBox(height: AppSpacing.sm),
-        Row(
+        Text(
+          formatChroniqueVideoClock(duration),
+          key: const ValueKey('chronique-video-duration'),
+          style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
+        ),
+      ],
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxSurfaceHeight = constraints.maxHeight.isFinite
+            ? (constraints.maxHeight - AppSpacing.sm - kChroniqueVideoControlsHeight)
+                .clamp(0.0, double.infinity)
+            : double.infinity;
+        final surface = chroniqueVideoSurfaceSize(
+          aspectRatio: ratio <= 0 ? 16 / 9 : ratio,
+          maxWidth: constraints.maxWidth,
+          maxHeight: maxSurfaceHeight,
+        );
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              formatChroniqueVideoClock(displayPosition),
-              key: const ValueKey('chronique-video-position'),
-              style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
-            ),
-            Expanded(
-              child: SliderTheme(
-                data: SliderTheme.of(context).copyWith(
-                  trackHeight: 2,
-                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
-                ),
-                child: Slider(
-                  key: const ValueKey('chronique-video-progress'),
-                  min: 0,
-                  max: durationMs > 0 ? durationMs : 1,
-                  value: durationMs > 0 ? sliderValue : 0,
-                  activeColor: colors.primary,
-                  inactiveColor: colors.border,
-                  onChanged: durationMs > 0
-                      ? (next) {
-                          setState(() {
-                            _scrubbing = true;
-                            _scrubMilliseconds = next;
-                          });
-                        }
-                      : null,
-                  onChangeEnd: durationMs > 0 ? _seekTo : null,
+            Center(
+              child: SizedBox(
+                width: surface.width,
+                height: surface.height,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(AppSpacing.lg),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    alignment: Alignment.center,
+                    children: [
+                      VideoPlayer(controller),
+                      Material(
+                        color: const Color(0x40000000),
+                        child: IconButton(
+                          key: const ValueKey('chronique-video-play-pause'),
+                          tooltip: showPause ? 'Pause' : 'Lecture',
+                          onPressed: _togglePlay,
+                          icon: Icon(
+                            showPause ? Icons.pause_circle : Icons.play_circle,
+                            color: colors.textOnPrimary,
+                            size: 48,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
-            Text(
-              formatChroniqueVideoClock(duration),
-              key: const ValueKey('chronique-video-duration'),
-              style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
-            ),
+            const SizedBox(height: AppSpacing.sm),
+            controls,
           ],
-        ),
-      ],
+        );
+      },
     );
   }
 }
