@@ -228,6 +228,224 @@ void main() {
     expect(second.top, lessThan(third.top));
   });
 
+  testWidgets('four media keep a single left hero and three stacked right tiles', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ChroniqueFeedMediaBand(
+          medias: [
+            for (var i = 1; i <= 4; i++)
+              _media(id: i, kind: 'image', sortOrder: i - 1),
+          ],
+        ),
+      ),
+    );
+    final band = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-band')));
+    final first = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-1')));
+    final second = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2')));
+    final third = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-3')));
+    final fourth = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-4')));
+    expect(first.left, lessThan(second.left));
+    expect(second.left, closeTo(third.left, 0.5));
+    expect(third.left, closeTo(fourth.left, 0.5));
+    expect(second.top, lessThan(third.top));
+    expect(third.top, lessThan(fourth.top));
+    expect(first.height, closeTo(band.height, 1));
+    expect(second.height, lessThan(first.height));
+  });
+
+  testWidgets('five media use two left heroes and three stacked right tiles', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ChroniqueFeedMediaBand(
+          medias: [
+            for (var i = 1; i <= 5; i++)
+              _media(id: i, kind: 'image', sortOrder: i - 1),
+          ],
+        ),
+      ),
+    );
+    final first = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-1')));
+    final second = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2')));
+    final third = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-3')));
+    final fourth = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-4')));
+    final fifth = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-5')));
+    expect(first.left, closeTo(second.left, 0.5));
+    expect(first.top, lessThan(second.top));
+    expect(first.left, lessThan(third.left));
+    expect(third.left, closeTo(fourth.left, 0.5));
+    expect(fourth.left, closeTo(fifth.left, 0.5));
+    expect(third.top, lessThan(fourth.top));
+    expect(fourth.top, lessThan(fifth.top));
+    expect(first.height, closeTo(second.height, 1));
+    expect(third.height, closeTo(fourth.height, 1));
+    expect(first.height, greaterThan(third.height));
+  });
+
+  testWidgets('mixed four and five media mosaics do not overflow', (tester) async {
+    Future<void> pumpBand(List<ChroniqueMedia> medias, {double width = 390}) async {
+      await tester.pumpWidget(_wrap(ChroniqueFeedMediaBand(medias: medias), width: width));
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const ValueKey('chronique-feed-media-band')), findsOneWidget);
+    }
+
+    await pumpBand([
+      _media(id: 1, kind: 'image', sortOrder: 0),
+      _media(id: 2, kind: 'image', sortOrder: 1),
+      _media(id: 3, kind: 'video', sortOrder: 2, fileName: 'a.mp4'),
+      _media(id: 4, kind: 'video', sortOrder: 3, fileName: 'b.mp4'),
+    ]);
+    expect(find.text('Vidéo'), findsWidgets);
+
+    await pumpBand([
+      _media(id: 1, kind: 'image', sortOrder: 0),
+      _media(id: 2, kind: 'image', sortOrder: 1),
+      _media(id: 3, kind: 'video', sortOrder: 2, fileName: 'a.mp4'),
+      _media(id: 4, kind: 'video', sortOrder: 3, fileName: 'b.mp4'),
+      _media(id: 5, kind: 'audio', sortOrder: 4, fileName: 'voix.mp3'),
+    ]);
+    expect(find.text('voix.mp3'), findsOneWidget);
+
+    await pumpBand([
+      _media(id: 1, kind: 'image', sortOrder: 0),
+      _media(id: 2, kind: 'image', sortOrder: 1),
+      _media(id: 3, kind: 'video', sortOrder: 2, fileName: 'a.mp4'),
+      _media(id: 4, kind: 'video', sortOrder: 3, fileName: 'b.mp4'),
+      _media(id: 5, kind: 'document', sortOrder: 4, fileName: 'note.pdf', byteSize: 2048),
+    ]);
+    expect(find.byIcon(Icons.description_outlined), findsOneWidget);
+
+    await pumpBand([
+      _media(id: 1, kind: 'image', sortOrder: 0),
+      _media(id: 2, kind: 'image', sortOrder: 1),
+      _media(id: 3, kind: 'video', sortOrder: 2, fileName: 'a.mp4'),
+      _media(id: 4, kind: 'video', sortOrder: 3, fileName: 'b.mp4'),
+      _media(id: 5, kind: 'audio', sortOrder: 4, fileName: 'voix.mp3'),
+    ], width: 294);
+    expect(find.byKey(const ValueKey('chronique-feed-media-5')), findsOneWidget);
+  });
+
+  testWidgets('five media mosaic stays within a narrow phone band', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ChroniqueFeedMediaBand(
+          medias: [
+            _media(id: 1, kind: 'image', sortOrder: 0),
+            _media(id: 2, kind: 'video', sortOrder: 1, fileName: 'clip.mp4'),
+            _media(id: 3, kind: 'video', sortOrder: 2, fileName: 'other.mp4'),
+            _media(
+              id: 4,
+              kind: 'document',
+              sortOrder: 3,
+              fileName: 'compte-rendu-assemblee-generale-annuelle-tres-long.pdf',
+              byteSize: 2048,
+            ),
+            _media(id: 5, kind: 'audio', sortOrder: 4, fileName: 'voix.mp3'),
+          ],
+        ),
+        width: 294,
+      ),
+    );
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    final band = tester.getSize(find.byKey(const ValueKey('chronique-feed-media-band')));
+    expect(band.width, 294);
+    expect(band.height, closeTo(chroniqueFeedMediaBandHeight(count: 5, width: 294), 0.5));
+    expect(find.byIcon(Icons.play_circle), findsWidgets);
+    expect(find.byIcon(Icons.description_outlined), findsOneWidget);
+    expect(find.byIcon(Icons.graphic_eq), findsOneWidget);
+  });
+
+  testWidgets('five media mosaic with large text scale does not overflow', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(extensions: const [LuminaColors.light]),
+        builder: (context, child) {
+          return MediaQuery(
+            data: MediaQuery.of(context).copyWith(textScaler: const TextScaler.linear(1.3)),
+            child: child!,
+          );
+        },
+        home: const Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 294,
+              child: ChroniqueFeedMediaBand(
+                medias: [
+                  ChroniqueMedia(
+                    id: 1,
+                    kind: 'image',
+                    sortOrder: 0,
+                    status: 'ready',
+                    readUrl: 'https://example.test/file',
+                  ),
+                  ChroniqueMedia(
+                    id: 2,
+                    kind: 'image',
+                    sortOrder: 1,
+                    status: 'ready',
+                    readUrl: 'https://example.test/file',
+                  ),
+                  ChroniqueMedia(
+                    id: 3,
+                    kind: 'video',
+                    sortOrder: 2,
+                    status: 'ready',
+                    originalFilename: 'a.mp4',
+                    readUrl: 'https://example.test/file',
+                  ),
+                  ChroniqueMedia(
+                    id: 4,
+                    kind: 'video',
+                    sortOrder: 3,
+                    status: 'ready',
+                    originalFilename: 'b.mp4',
+                    readUrl: 'https://example.test/file',
+                  ),
+                  ChroniqueMedia(
+                    id: 5,
+                    kind: 'document',
+                    sortOrder: 4,
+                    status: 'ready',
+                    originalFilename: 'compte-rendu-assemblee-generale-annuelle-tres-long.pdf',
+                    byteSize: 4096,
+                    readUrl: 'https://example.test/file',
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(find.byIcon(Icons.description_outlined), findsOneWidget);
+  });
+
+  testWidgets('tapping the fifth mosaic tile selects that media', (tester) async {
+    ChroniqueMedia? selected;
+    await tester.pumpWidget(
+      _wrap(
+        ChroniqueFeedMediaBand(
+          medias: [
+            _media(id: 1, kind: 'image', sortOrder: 0),
+            _media(id: 2, kind: 'image', sortOrder: 1),
+            _media(id: 3, kind: 'video', sortOrder: 2),
+            _media(id: 4, kind: 'video', sortOrder: 3),
+            _media(id: 5, kind: 'audio', sortOrder: 4, fileName: 'voix.mp3'),
+          ],
+          onSelect: (media) => selected = media,
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('chronique-feed-media-5')));
+    await tester.pump();
+    expect(selected?.id, 5);
+    expect(selected?.kind, 'audio');
+  });
+
+
   testWidgets('document tile shows name and size without inventing a preview', (tester) async {
     await tester.pumpWidget(
       _wrap(

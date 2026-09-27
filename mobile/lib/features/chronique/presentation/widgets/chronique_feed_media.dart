@@ -134,6 +134,15 @@ class ChroniqueFeedMediaBand extends StatelessWidget {
         ],
       );
     }
+    if (items.length == 5) {
+      return Row(
+        children: [
+          Expanded(child: _stack(context, items.sublist(0, 2), 0)),
+          const SizedBox(width: kChroniqueFeedMediaGap),
+          Expanded(child: _stack(context, items.sublist(2, 5), 2)),
+        ],
+      );
+    }
     return Row(
       children: [
         Expanded(child: _tile(context, items[0], 0)),
@@ -148,6 +157,17 @@ class ChroniqueFeedMediaBand extends StatelessWidget {
             ],
           ),
         ),
+      ],
+    );
+  }
+
+  Widget _stack(BuildContext context, List<ChroniqueMedia> items, int startIndex) {
+    return Column(
+      children: [
+        for (var i = 0; i < items.length; i++) ...[
+          if (i > 0) const SizedBox(height: kChroniqueFeedMediaGap),
+          Expanded(child: _tile(context, items[i], startIndex + i)),
+        ],
       ],
     );
   }
@@ -254,129 +274,164 @@ class ChroniqueFeedMediaTile extends StatelessWidget {
       );
     }
     final name = media.originalFilename?.trim();
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        ColoredBox(color: colors.bgRaised),
-        const ColoredBox(color: Color(0x59000000)),
-        Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.play_circle,
-                color: colors.textOnPrimary,
-                size: 40,
-              ),
-              const SizedBox(height: AppSpacing.xs),
-              Text(
-                'Vidéo',
-                key: const ValueKey('chronique-feed-video-label'),
-                style: AppTextTheme.labelSmall.copyWith(color: colors.textOnPrimary),
-              ),
-              if (name != null && name.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(AppSpacing.sm, 2, AppSpacing.sm, 0),
-                  child: Text(
-                    name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: AppTextTheme.labelSmall.copyWith(color: colors.textOnPrimary),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final height = constraints.maxHeight;
+        final showName = name != null && name.isNotEmpty && height >= 78;
+        final showLabel = height >= 48;
+        final iconSize = height >= 70 ? 40.0 : (height >= 36 ? 28.0 : 20.0);
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            ColoredBox(color: colors.bgRaised),
+            const ColoredBox(color: Color(0x59000000)),
+            Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.play_circle,
+                    color: colors.textOnPrimary,
+                    size: iconSize,
                   ),
-                ),
-            ],
-          ),
-        ),
-      ],
+                  if (showLabel) ...[
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      'Vidéo',
+                      key: const ValueKey('chronique-feed-video-label'),
+                      style: AppTextTheme.labelSmall.copyWith(color: colors.textOnPrimary),
+                    ),
+                  ],
+                  if (showName)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(AppSpacing.sm, 2, AppSpacing.sm, 0),
+                      child: Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: AppTextTheme.labelSmall.copyWith(color: colors.textOnPrimary),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
   Widget _audio(LuminaColors colors) {
     final name = media.originalFilename?.trim();
-    return Padding(
-      padding: const EdgeInsets.all(AppSpacing.sm),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxHeight < 74;
+        final padding = compact ? AppSpacing.xs : AppSpacing.sm;
+        final playSize = compact ? 24.0 : 36.0;
+        final eqSize = compact ? 20.0 : 28.0;
+        return Padding(
+          padding: EdgeInsets.all(padding),
+          child: Column(
+            mainAxisSize: compact ? MainAxisSize.min : MainAxisSize.max,
+            mainAxisAlignment: compact ? MainAxisAlignment.center : MainAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Icon(Icons.graphic_eq, color: colors.primary, size: 28),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: Text(
-                  (name == null || name.isEmpty) ? 'Audio' : name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTextTheme.labelSmall.copyWith(color: colors.textPrimary),
-                ),
-              ),
-              Icon(
-                Icons.play_circle,
-                color: colors.primary,
-                size: 36,
-              ),
-            ],
-          ),
-          const Spacer(),
-          ExcludeSemantics(
-            child: SizedBox(
-              height: 22,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
+              Row(
                 children: [
-                  for (final height in kChroniqueFeedAudioDecorHeights) ...[
-                    Expanded(
-                      child: Align(
-                        alignment: Alignment.bottomCenter,
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: colors.border,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                          child: SizedBox(height: height, width: double.infinity),
-                        ),
-                      ),
+                  Icon(Icons.graphic_eq, color: colors.primary, size: eqSize),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Text(
+                      (name == null || name.isEmpty) ? 'Audio' : name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTextTheme.labelSmall.copyWith(color: colors.textPrimary),
                     ),
-                    const SizedBox(width: 2),
-                  ],
+                  ),
+                  Icon(
+                    Icons.play_circle,
+                    color: colors.primary,
+                    size: playSize,
+                  ),
                 ],
               ),
-            ),
+              if (!compact) ...[
+                const Spacer(),
+                ExcludeSemantics(
+                  child: SizedBox(
+                    height: 22,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        for (final barHeight in kChroniqueFeedAudioDecorHeights) ...[
+                          Expanded(
+                            child: Align(
+                              alignment: Alignment.bottomCenter,
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: colors.border,
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                                child: SizedBox(height: barHeight, width: double.infinity),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 2),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
   Widget _document(LuminaColors colors) {
     final name = media.originalFilename?.trim();
     final size = chroniqueFeedSizeLabel(media.byteSize);
-    return Padding(
-      padding: const EdgeInsets.all(AppSpacing.sm),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.description_outlined, color: colors.primary),
-          const SizedBox(height: AppSpacing.xs),
-          Text(
-            (name == null || name.isEmpty) ? 'Document' : name,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: AppTextTheme.labelSmall.copyWith(color: colors.textPrimary),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final height = constraints.maxHeight;
+        final padding = height >= 56 ? AppSpacing.sm : AppSpacing.xs;
+        final inner = height - padding * 2;
+        final showSize = size != null && inner >= 78;
+        final showName = inner >= 36;
+        final nameLines = inner >= 64 ? 2 : 1;
+        return Padding(
+          padding: EdgeInsets.all(padding),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.description_outlined, color: colors.primary),
+              if (showName) ...[
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  (name == null || name.isEmpty) ? 'Document' : name,
+                  maxLines: nameLines,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: AppTextTheme.labelSmall.copyWith(color: colors.textPrimary),
+                ),
+              ],
+              if (showSize) ...[
+                const SizedBox(height: 2),
+                Text(
+                  size,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
+                ),
+              ],
+            ],
           ),
-          if (size != null) ...[
-            const SizedBox(height: 2),
-            Text(
-              size,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
-            ),
-          ],
-        ],
-      ),
+        );
+      },
     );
   }
 

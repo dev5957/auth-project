@@ -112,6 +112,34 @@ void main() {
     expect(find.text('2 Ko'), findsOneWidget);
   });
 
+  testWidgets('preview with five drafts uses two left heroes', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ChroniquePreview(
+          title: 'Cinq',
+          body: 'Le texte de la chronique, d au moins vingt caracteres.',
+          medias: [
+            _draft(id: 1, kind: MediaDraftKind.image, fileName: 'a.jpg', localPath: '/tmp/a.jpg'),
+            _draft(id: 2, kind: MediaDraftKind.image, fileName: 'b.jpg', localPath: '/tmp/b.jpg'),
+            _draft(id: 3, kind: MediaDraftKind.video, fileName: 'c.mp4', localPath: '/tmp/c.mp4'),
+            _draft(id: 4, kind: MediaDraftKind.video, fileName: 'd.mp4', localPath: '/tmp/d.mp4'),
+            _draft(id: 5, kind: MediaDraftKind.audio, fileName: 'e.m4a', localPath: '/tmp/e.m4a'),
+          ],
+          schedule: const ChroniqueScheduleDraft(),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    final first = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-1')));
+    final second = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2')));
+    final third = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-3')));
+    expect(first.left, closeTo(second.left, 0.5));
+    expect(first.top, lessThan(second.top));
+    expect(first.left, lessThan(third.left));
+    expect(find.text('e.m4a'), findsOneWidget);
+  });
+
   testWidgets('preview audio tap opens a compact dialog', (tester) async {
     await tester.pumpWidget(
       _wrap(
