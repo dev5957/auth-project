@@ -165,29 +165,43 @@ class ChroniqueFeedMediaBand extends StatelessWidget {
         ],
       );
     }
-    if (items.length == 5) {
-      return Row(
+    if (items.length == 3) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(child: _stack(context, items.sublist(0, 2), 0)),
-          const SizedBox(width: kChroniqueFeedMediaGap),
-          Expanded(child: _stack(context, items.sublist(2, 5), 2)),
+          for (var i = 0; i < 3; i++) ...[
+            if (i > 0) const SizedBox(height: kChroniqueFeedMediaGap),
+            Expanded(child: _filledTile(context, items[i], i)),
+          ],
+        ],
+      );
+    }
+    if (items.length == 4) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(child: _pair(context, items, 0)),
+          const SizedBox(height: kChroniqueFeedMediaGap),
+          Expanded(child: _pair(context, items, 2)),
         ],
       );
     }
     return Row(
       children: [
-        Expanded(child: _tile(context, items[0], 0)),
+        Expanded(child: _stack(context, items.sublist(0, 2), 0)),
         const SizedBox(width: kChroniqueFeedMediaGap),
-        Expanded(
-          child: Column(
-            children: [
-              for (var i = 1; i < items.length; i++) ...[
-                if (i > 1) const SizedBox(height: kChroniqueFeedMediaGap),
-                Expanded(child: _tile(context, items[i], i)),
-              ],
-            ],
-          ),
-        ),
+        Expanded(child: _stack(context, items.sublist(2, 5), 2)),
+      ],
+    );
+  }
+
+  Widget _pair(BuildContext context, List<ChroniqueMedia> items, int startIndex) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(child: _filledTile(context, items[startIndex], startIndex)),
+        const SizedBox(width: kChroniqueFeedMediaGap),
+        Expanded(child: _filledTile(context, items[startIndex + 1], startIndex + 1)),
       ],
     );
   }
@@ -201,6 +215,10 @@ class ChroniqueFeedMediaBand extends StatelessWidget {
         ],
       ],
     );
+  }
+
+  Widget _filledTile(BuildContext context, ChroniqueMedia media, int index) {
+    return SizedBox.expand(child: _tile(context, media, index));
   }
 
   Widget _tile(BuildContext context, ChroniqueMedia media, int index) {

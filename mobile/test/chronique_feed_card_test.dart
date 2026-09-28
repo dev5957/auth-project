@@ -209,9 +209,15 @@ void main() {
         ),
       ),
     );
-    final left = tester.getTopLeft(find.byKey(const ValueKey('chronique-feed-media-1')));
-    final right = tester.getTopLeft(find.byKey(const ValueKey('chronique-feed-media-2')));
-    expect(left.dx, lessThan(right.dx));
+    final band = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-band')));
+    final left = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-1')));
+    final right = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2')));
+    expect(band.height, closeTo(219, 0.5));
+    expect(left.left, lessThan(right.left));
+    expect(left.top, closeTo(right.top, 0.5));
+    expect(left.height, closeTo(band.height, 1));
+    expect(right.height, closeTo(band.height, 1));
+    expect(left.width, closeTo(right.width, 1));
   });
 
   testWidgets('expired image shows a fallback instead of disappearing', (tester) async {
@@ -257,7 +263,7 @@ void main() {
     expect(mediaTaps, 1);
   });
 
-  testWidgets('three media keep the first tile on the left', (tester) async {
+  testWidgets('three media stack as equal full-width rows', (tester) async {
     await tester.pumpWidget(
       _wrap(
         ChroniqueFeedMediaBand(
@@ -269,15 +275,132 @@ void main() {
         ),
       ),
     );
+    final band = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-band')));
     final first = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-1')));
     final second = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2')));
     final third = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-3')));
-    expect(first.left, lessThan(second.left));
-    expect(second.left, closeTo(third.left, 0.5));
+    expect(band.height, closeTo(260, 0.5));
+    expect(first.left, closeTo(band.left, 0.5));
+    expect(second.left, closeTo(band.left, 0.5));
+    expect(third.left, closeTo(band.left, 0.5));
+    expect(first.width, closeTo(band.width, 1));
+    expect(second.width, closeTo(band.width, 1));
+    expect(third.width, closeTo(band.width, 1));
+    expect(first.height, closeTo(second.height, 1));
+    expect(second.height, closeTo(third.height, 1));
+    expect(
+      first.height,
+      closeTo((band.height - 2 * kChroniqueFeedMediaGap) / 3, 1),
+    );
+    expect(first.top, lessThan(second.top));
     expect(second.top, lessThan(third.top));
+    expect(first.right, closeTo(second.right, 0.5));
   });
 
-  testWidgets('four media keep a single left hero and three stacked right tiles', (tester) async {
+  testWidgets('three audios fill stacked cells independently of content', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ChroniqueFeedMediaBand(
+          medias: [
+            _media(id: 1, kind: 'audio', sortOrder: 0, fileName: 'a.mp3'),
+            _media(id: 2, kind: 'audio', sortOrder: 1, fileName: 'b-nom-de-fichier-audio-tres-long.mp3'),
+            _media(id: 3, kind: 'audio', sortOrder: 2),
+          ],
+        ),
+      ),
+    );
+    final band = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-band')));
+    final first = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-1')));
+    final second = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2')));
+    final third = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-3')));
+    expect(first.width, closeTo(band.width, 1));
+    expect(first.height, closeTo(second.height, 1));
+    expect(second.height, closeTo(third.height, 1));
+    expect(first.height, closeTo((band.height - 2 * kChroniqueFeedMediaGap) / 3, 1));
+    expect(find.byKey(const ValueKey('chronique-feed-audio-play')), findsNWidgets(3));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('three documents fill stacked cells independently of content', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ChroniqueFeedMediaBand(
+          medias: [
+            _media(
+              id: 1,
+              kind: 'document',
+              sortOrder: 0,
+              fileName: 'a.pdf',
+              contentType: 'application/pdf',
+              byteSize: 2048,
+            ),
+            _media(
+              id: 2,
+              kind: 'document',
+              sortOrder: 1,
+              fileName: 'b.doc',
+              contentType: 'application/msword',
+            ),
+            _media(
+              id: 3,
+              kind: 'document',
+              sortOrder: 2,
+              fileName: 'c.txt',
+              contentType: 'text/plain',
+            ),
+          ],
+        ),
+      ),
+    );
+    final band = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-band')));
+    final first = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-1')));
+    final second = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2')));
+    final third = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-3')));
+    expect(first.height, closeTo(second.height, 1));
+    expect(second.height, closeTo(third.height, 1));
+    expect(first.width, closeTo(band.width, 1));
+    expect(find.text('PDF'), findsOneWidget);
+    expect(find.text('DOC'), findsOneWidget);
+    expect(find.text('TXT'), findsOneWidget);
+    expect(find.text('2 Ko'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('three mixed media keep stacked full-width cells and taps', (tester) async {
+    ChroniqueMedia? selected;
+    await tester.pumpWidget(
+      _wrap(
+        ChroniqueFeedMediaBand(
+          medias: [
+            _media(id: 1, kind: 'image', sortOrder: 0),
+            _media(id: 2, kind: 'audio', sortOrder: 1, fileName: 'voix.mp3'),
+            _media(
+              id: 3,
+              kind: 'document',
+              sortOrder: 2,
+              fileName: 'note.pdf',
+              contentType: 'application/pdf',
+            ),
+          ],
+          onSelect: (media) => selected = media,
+        ),
+      ),
+    );
+    final image = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-1')));
+    final audio = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2')));
+    final document = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-3')));
+    expect(image.height, closeTo(audio.height, 1));
+    expect(audio.height, closeTo(document.height, 1));
+    expect(image.width, closeTo(audio.width, 1));
+    expect(find.byKey(const ValueKey('chronique-feed-audio-play')), findsOneWidget);
+    expect(find.text('PDF'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('chronique-feed-media-3')));
+    expect(selected?.id, 3);
+    await tester.tap(find.byKey(const ValueKey('chronique-feed-media-2')));
+    expect(selected?.id, 2);
+  });
+
+  testWidgets('four media form a regular two-by-two grid', (tester) async {
     await tester.pumpWidget(
       _wrap(
         ChroniqueFeedMediaBand(
@@ -293,13 +416,192 @@ void main() {
     final second = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2')));
     final third = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-3')));
     final fourth = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-4')));
+    expect(band.height, closeTo(310, 0.5));
     expect(first.left, lessThan(second.left));
-    expect(second.left, closeTo(third.left, 0.5));
-    expect(third.left, closeTo(fourth.left, 0.5));
-    expect(second.top, lessThan(third.top));
-    expect(third.top, lessThan(fourth.top));
-    expect(first.height, closeTo(band.height, 1));
-    expect(second.height, lessThan(first.height));
+    expect(first.top, closeTo(second.top, 0.5));
+    expect(third.left, lessThan(fourth.left));
+    expect(third.top, closeTo(fourth.top, 0.5));
+    expect(first.left, closeTo(third.left, 0.5));
+    expect(second.left, closeTo(fourth.left, 0.5));
+    expect(first.top, lessThan(third.top));
+    expect(first.width, closeTo(second.width, 1));
+    expect(first.width, closeTo(third.width, 1));
+    expect(first.width, closeTo(fourth.width, 1));
+    expect(first.height, closeTo(second.height, 1));
+    expect(first.height, closeTo(third.height, 1));
+    expect(first.height, closeTo(fourth.height, 1));
+    expect(first.width, closeTo((band.width - kChroniqueFeedMediaGap) / 2, 1));
+    expect(first.height, closeTo((band.height - kChroniqueFeedMediaGap) / 2, 1));
+  });
+
+  testWidgets('four audio and document tiles fill the two-by-two cells', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ChroniqueFeedMediaBand(
+          medias: [
+            _media(id: 1, kind: 'audio', sortOrder: 0, fileName: 'a.mp3'),
+            _media(id: 2, kind: 'document', sortOrder: 1, fileName: 'b.pdf', contentType: 'application/pdf'),
+            _media(id: 3, kind: 'audio', sortOrder: 2),
+            _media(
+              id: 4,
+              kind: 'document',
+              sortOrder: 3,
+              fileName: 'compte-rendu-assemblee-generale-annuelle-tres-long.txt',
+              contentType: 'text/plain',
+            ),
+          ],
+        ),
+      ),
+    );
+    final band = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-band')));
+    final tiles = [
+      tester.getRect(find.byKey(const ValueKey('chronique-feed-media-1'))),
+      tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2'))),
+      tester.getRect(find.byKey(const ValueKey('chronique-feed-media-3'))),
+      tester.getRect(find.byKey(const ValueKey('chronique-feed-media-4'))),
+    ];
+    for (final tile in tiles) {
+      expect(tile.width, closeTo((band.width - kChroniqueFeedMediaGap) / 2, 1));
+      expect(tile.height, closeTo((band.height - kChroniqueFeedMediaGap) / 2, 1));
+    }
+    expect(find.byKey(const ValueKey('chronique-feed-audio-play')), findsNWidgets(2));
+    expect(find.text('PDF'), findsOneWidget);
+    expect(find.text('TXT'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('four mixed media keep a two-by-two grid and taps', (tester) async {
+    ChroniqueMedia? selected;
+    await tester.pumpWidget(
+      _wrap(
+        ChroniqueFeedMediaBand(
+          medias: [
+            _media(id: 1, kind: 'image', sortOrder: 0),
+            _media(id: 2, kind: 'video', sortOrder: 1, fileName: 'clip.mp4'),
+            _media(id: 3, kind: 'audio', sortOrder: 2, fileName: 'voix.mp3'),
+            _media(
+              id: 4,
+              kind: 'document',
+              sortOrder: 3,
+              fileName: 'note.pdf',
+              contentType: 'application/pdf',
+              byteSize: 2048,
+            ),
+          ],
+          onSelect: (media) => selected = media,
+        ),
+      ),
+    );
+    final band = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-band')));
+    final image = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-1')));
+    final video = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2')));
+    final audio = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-3')));
+    final document = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-4')));
+    expect(image.height, closeTo(video.height, 1));
+    expect(image.height, closeTo(audio.height, 1));
+    expect(image.height, closeTo(document.height, 1));
+    expect(image.width, closeTo(audio.width, 1));
+    expect(image.top, closeTo(video.top, 0.5));
+    expect(audio.top, closeTo(document.top, 0.5));
+    expect(image.height, closeTo((band.height - kChroniqueFeedMediaGap) / 2, 1));
+    expect(find.byIcon(Icons.play_circle), findsWidgets);
+    expect(find.byKey(const ValueKey('chronique-feed-audio-play')), findsOneWidget);
+    expect(find.text('PDF'), findsOneWidget);
+    expect(find.text('2 Ko'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('chronique-feed-media-4')));
+    expect(selected?.kind, 'document');
+    await tester.tap(find.byKey(const ValueKey('chronique-feed-media-3')));
+    expect(selected?.kind, 'audio');
+  });
+
+  testWidgets('three and four mosaics keep geometry on a 294 pt band', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ChroniqueFeedMediaBand(
+          medias: [
+            _media(id: 1, kind: 'image', sortOrder: 0),
+            _media(id: 2, kind: 'audio', sortOrder: 1, fileName: 'voix.mp3'),
+            _media(id: 3, kind: 'document', sortOrder: 2, fileName: 'note.pdf', contentType: 'application/pdf'),
+          ],
+        ),
+        width: 294,
+      ),
+    );
+    var band = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-band')));
+    expect(band.width, 294);
+    expect(band.height, closeTo(chroniqueFeedMediaBandHeight(count: 3, width: 294), 0.5));
+    final stacked = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2')));
+    expect(stacked.width, closeTo(294, 1));
+    expect(stacked.height, closeTo((band.height - 2 * kChroniqueFeedMediaGap) / 3, 1));
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(
+      _wrap(
+        ChroniqueFeedMediaBand(
+          medias: [
+            _media(id: 1, kind: 'image', sortOrder: 0),
+            _media(id: 2, kind: 'video', sortOrder: 1, fileName: 'clip.mp4'),
+            _media(id: 3, kind: 'audio', sortOrder: 2, fileName: 'voix.mp3'),
+            _media(id: 4, kind: 'document', sortOrder: 3, fileName: 'note.pdf', contentType: 'application/pdf'),
+          ],
+        ),
+        width: 294,
+      ),
+    );
+    band = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-band')));
+    expect(band.height, closeTo(chroniqueFeedMediaBandHeight(count: 4, width: 294), 0.5));
+    final audio = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-3')));
+    expect(audio.width, closeTo((band.width - kChroniqueFeedMediaGap) / 2, 1));
+    expect(audio.height, closeTo((band.height - kChroniqueFeedMediaGap) / 2, 1));
+    expect(find.byKey(const ValueKey('chronique-feed-audio-play')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('three and four mosaics do not overflow with large text scale', (tester) async {
+    Future<void> pumpScale(double scale, List<ChroniqueMedia> medias, {double width = 294}) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(extensions: const [LuminaColors.light]),
+          builder: (context, child) {
+            return MediaQuery(
+              data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(scale)),
+              child: child!,
+            );
+          },
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: width,
+                child: ChroniqueFeedMediaBand(medias: medias),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    }
+
+    final three = [
+      _media(id: 1, kind: 'audio', sortOrder: 0, fileName: 'un-nom-audio-volontairement-tres-long.mp3'),
+      _media(id: 2, kind: 'document', sortOrder: 1, fileName: 'note.pdf', contentType: 'application/pdf'),
+      _media(id: 3, kind: 'image', sortOrder: 2),
+    ];
+    final four = [
+      _media(id: 1, kind: 'image', sortOrder: 0),
+      _media(id: 2, kind: 'video', sortOrder: 1, fileName: 'clip.mp4'),
+      _media(id: 3, kind: 'audio', sortOrder: 2, fileName: 'voix.mp3'),
+      _media(id: 4, kind: 'document', sortOrder: 3, fileName: 'note.pdf', contentType: 'application/pdf'),
+    ];
+    await pumpScale(1.3, three);
+    expect(find.byKey(const ValueKey('chronique-feed-audio-play')), findsOneWidget);
+    await pumpScale(1.6, three);
+    expect(find.byKey(const ValueKey('chronique-feed-audio-play')), findsOneWidget);
+    await pumpScale(1.3, four);
+    expect(find.byKey(const ValueKey('chronique-feed-audio-play')), findsOneWidget);
+    await pumpScale(1.6, four, width: 390);
+    expect(find.byKey(const ValueKey('chronique-feed-audio-play')), findsOneWidget);
+    expect(find.byIcon(Icons.play_circle), findsWidgets);
   });
 
   testWidgets('five media use two left heroes and three stacked right tiles', (tester) async {
@@ -325,9 +627,15 @@ void main() {
     expect(fourth.left, closeTo(fifth.left, 0.5));
     expect(third.top, lessThan(fourth.top));
     expect(fourth.top, lessThan(fifth.top));
+    final band = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-band')));
+    expect(band.height, closeTo(360, 0.5));
     expect(first.height, closeTo(second.height, 1));
     expect(third.height, closeTo(fourth.height, 1));
     expect(first.height, greaterThan(third.height));
+    expect(first.height, closeTo((band.height - kChroniqueFeedMediaGap) / 2, 1));
+    expect(third.height, closeTo((band.height - 2 * kChroniqueFeedMediaGap) / 3, 1));
+    expect(first.width, closeTo((band.width - kChroniqueFeedMediaGap) / 2, 1));
+    expect(third.width, closeTo(first.width, 1));
   });
 
   testWidgets('mixed four and five media mosaics do not overflow', (tester) async {
@@ -854,8 +1162,26 @@ void main() {
     expect(find.text('DOC'), findsOneWidget);
     expect(find.text('TXT'), findsOneWidget);
     expect(find.text('a.pdf'), findsOneWidget);
-    expect(find.text('2 Ko'), findsOneWidget);
+    expect(find.text('2 Ko'), findsNothing);
+    expect(find.text('4 Ko'), findsNothing);
     expect(find.text('c.txt'), findsOneWidget);
+    await tester.pumpWidget(
+      _wrap(
+        ChroniqueFeedMediaBand(
+          medias: [
+            _media(
+              id: 9,
+              kind: 'document',
+              fileName: 'seul.pdf',
+              contentType: 'application/pdf',
+              byteSize: 2048,
+            ),
+          ],
+        ),
+      ),
+    );
+    expect(find.text('PDF'), findsOneWidget);
+    expect(find.text('2 Ko'), findsOneWidget);
     await tester.pumpWidget(
       _wrap(
         ChroniqueFeedMediaBand(
@@ -894,6 +1220,10 @@ void main() {
         byteSize: 2048,
       ),
     ]);
+    var band = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-band')));
+    final stackedAudio = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2')));
+    expect(stackedAudio.width, closeTo(band.width, 1));
+    expect(stackedAudio.height, closeTo((band.height - 2 * kChroniqueFeedMediaGap) / 3, 1));
     expect(find.byKey(const ValueKey('chronique-feed-audio-play')), findsOneWidget);
     expect(find.byIcon(Icons.play_circle), findsWidgets);
     expect(find.text('PDF'), findsOneWidget);
@@ -905,6 +1235,10 @@ void main() {
       _media(id: 3, kind: 'document', sortOrder: 2, fileName: 'note.pdf', contentType: 'application/pdf'),
       _media(id: 4, kind: 'document', sortOrder: 3, fileName: 'notes.txt', contentType: 'text/plain'),
     ]);
+    band = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-band')));
+    final gridAudio = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2')));
+    expect(gridAudio.width, closeTo((band.width - kChroniqueFeedMediaGap) / 2, 1));
+    expect(gridAudio.height, closeTo((band.height - kChroniqueFeedMediaGap) / 2, 1));
     expect(find.byKey(const ValueKey('chronique-feed-audio-play')), findsOneWidget);
     expect(find.text('PDF'), findsOneWidget);
     expect(find.text('TXT'), findsOneWidget);

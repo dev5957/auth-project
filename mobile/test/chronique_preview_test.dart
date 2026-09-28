@@ -144,6 +144,59 @@ void main() {
     expect(find.text('e.m4a'), findsOneWidget);
   });
 
+  testWidgets('preview with three drafts stacks equal full-width tiles', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ChroniquePreview(
+          title: 'Trois',
+          body: 'Le texte de la chronique, d au moins vingt caracteres.',
+          medias: [
+            _draft(id: 1, kind: MediaDraftKind.image, fileName: 'a.jpg', localPath: '/tmp/a.jpg'),
+            _draft(id: 2, kind: MediaDraftKind.audio, fileName: 'b.m4a', localPath: '/tmp/b.m4a'),
+            _draft(id: 3, kind: MediaDraftKind.document, fileName: 'c.pdf'),
+          ],
+          schedule: const ChroniqueScheduleDraft(),
+        ),
+      ),
+    );
+    final band = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-band')));
+    final first = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-1')));
+    final second = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2')));
+    final third = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-3')));
+    expect(first.width, closeTo(band.width, 1));
+    expect(first.height, closeTo(second.height, 1));
+    expect(second.height, closeTo(third.height, 1));
+    expect(first.top, lessThan(second.top));
+    expect(second.top, lessThan(third.top));
+  });
+
+  testWidgets('preview with four drafts uses a two-by-two grid', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ChroniquePreview(
+          title: 'Quatre',
+          body: 'Le texte de la chronique, d au moins vingt caracteres.',
+          medias: [
+            _draft(id: 1, kind: MediaDraftKind.image, fileName: 'a.jpg', localPath: '/tmp/a.jpg'),
+            _draft(id: 2, kind: MediaDraftKind.video, fileName: 'b.mp4', localPath: '/tmp/b.mp4'),
+            _draft(id: 3, kind: MediaDraftKind.audio, fileName: 'c.m4a', localPath: '/tmp/c.m4a'),
+            _draft(id: 4, kind: MediaDraftKind.document, fileName: 'd.pdf'),
+          ],
+          schedule: const ChroniqueScheduleDraft(),
+        ),
+      ),
+    );
+    final first = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-1')));
+    final second = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2')));
+    final third = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-3')));
+    final fourth = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-4')));
+    expect(first.top, closeTo(second.top, 0.5));
+    expect(third.top, closeTo(fourth.top, 0.5));
+    expect(first.left, closeTo(third.left, 0.5));
+    expect(first.height, closeTo(third.height, 1));
+    expect(first.width, closeTo(second.width, 1));
+  });
+
   testWidgets('preview audio tap opens a compact dialog', (tester) async {
     await tester.pumpWidget(
       _wrap(
