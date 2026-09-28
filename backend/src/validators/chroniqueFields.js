@@ -18,6 +18,8 @@ const LIST_STATUSES = [
   CHRONIQUE_STATUS.ARCHIVED,
   CHRONIQUE_STATUS.EXPIRED,
 ];
+/** Rétention consultable après expiration. Aligné sur `purge_after` / jobs. */
+const PURGE_DELAY_DAYS = 30;
 const PUBLISH_MODES = ['draft', 'now', 'schedule'];
 const FORBIDDEN_CREATE_FIELDS = [
   'user_id',
@@ -339,6 +341,7 @@ module.exports = {
   TITLE_MAX,
   CHRONIQUE_STATUS,
   LIST_STATUSES,
+  PURGE_DELAY_DAYS,
   parseCreateInput,
   parsePatchInput,
   parseRestoreInput,

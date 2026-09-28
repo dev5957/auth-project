@@ -1,4 +1,5 @@
 const { getChroniqueById, listChroniques } = require('./services/chroniqueService');
+const { PURGE_DELAY_DAYS } = require('./validators/chroniqueFields');
 const AppError = require('./errors/AppError');
 
 const OWNER_A = 11;
@@ -82,6 +83,19 @@ function createMemory({ publications, media }) {
           Number(item.user_id) === Number(params[1]) &&
           item.status !== 'deleted'
       );
+      if (row && row.status === 'expired' && key.includes('COALESCE(PURGE_AFTER')) {
+        const nowMs = Date.now();
+        const purgeAfter = row.purge_after ? new Date(row.purge_after).getTime() : null;
+        const deadline =
+          purgeAfter != null
+            ? purgeAfter
+            : row.expired_at
+              ? new Date(row.expired_at).getTime() + PURGE_DELAY_DAYS * 24 * 60 * 60 * 1000
+              : null;
+        if (deadline == null || deadline <= nowMs) {
+          return { rows: [], rowCount: 0 };
+        }
+      }
       return { rows: row ? [{ ...row }] : [], rowCount: row ? 1 : 0 };
     }
 

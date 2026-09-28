@@ -24,6 +24,9 @@ abstract final class AppRoutes {
   /// Archives volontaires.
   static const String archives = '/archives';
 
+  /// Chroniques éphémères expirées (rétention).
+  static const String expired = '/expired';
+
   /// Publications programmées.
   static const String upcoming = '/upcoming';
 
@@ -39,6 +42,7 @@ abstract final class AppRoutes {
         location == create ||
         location == explore ||
         location == archives ||
+        location == expired ||
         location == upcoming ||
         _exploreDetailLocation.hasMatch(location) ||
         _exploreEditLocation.hasMatch(location);

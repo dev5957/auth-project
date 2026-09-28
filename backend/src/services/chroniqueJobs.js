@@ -1,9 +1,8 @@
 const pool = require('../db');
 const AppError = require('../errors/AppError');
 const { toPublicChronique } = require('./chroniqueService');
-const { CHRONIQUE_STATUS } = require('../validators/chroniqueFields');
+const { CHRONIQUE_STATUS, PURGE_DELAY_DAYS } = require('../validators/chroniqueFields');
 
-const PURGE_DELAY_DAYS = 30;
 const DEFAULT_LIMIT = 100;
 
 function requireDatabase() {

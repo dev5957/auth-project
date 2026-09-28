@@ -177,3 +177,37 @@ String? formatOptionalChroniqueDate(DateTime? date) {
   }
   return ChroniqueDateHelper.formatLocal(date);
 }
+
+/// Aligné sur le backend `PURGE_DELAY_DAYS` si `purge_after` est absent.
+const int kChroniqueExpiredRetentionDays = 30;
+
+DateTime? chroniquePurgeDeadline(Chronique chronique) {
+  if (chronique.purgeAfter != null) {
+    return chronique.purgeAfter;
+  }
+  final expiredAt = chronique.expiredAt;
+  if (expiredAt == null) {
+    return null;
+  }
+  return expiredAt.add(const Duration(days: kChroniqueExpiredRetentionDays));
+}
+
+/// Exemple : `Suppression définitive dans 12 jours`.
+String? chroniqueDefinitiveDeletionLabel(Chronique chronique, {DateTime? now}) {
+  final deadline = chroniquePurgeDeadline(chronique);
+  if (deadline == null) {
+    return null;
+  }
+  final remaining = deadline.difference(now ?? DateTime.now());
+  if (remaining.isNegative || remaining == Duration.zero) {
+    return 'Suppression définitive imminente';
+  }
+  final days = remaining.inDays;
+  if (days < 1) {
+    return 'Suppression définitive dans moins d’un jour';
+  }
+  if (days == 1) {
+    return 'Suppression définitive dans 1 jour';
+  }
+  return 'Suppression définitive dans $days jours';
+}

@@ -62,6 +62,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         }
         context.push(AppRoutes.archives);
       },
+      onExpired: () {
+        if (!mounted) {
+          return;
+        }
+        context.push(AppRoutes.expired);
+      },
       onLogout: _logout,
     );
   }

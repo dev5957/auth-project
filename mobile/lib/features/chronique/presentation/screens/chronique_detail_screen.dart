@@ -330,6 +330,18 @@ class _ChroniqueDetailScreenState extends ConsumerState<ChroniqueDetailScreen> {
                       ),
                       const SizedBox(height: AppSpacing.lg),
                     ],
+                    if (resolved.status == 'expired') ...[
+                      if (chroniqueDefinitiveDeletionLabel(resolved) case final remaining?) ...[
+                        Text(
+                          remaining,
+                          key: const ValueKey('chronique-expired-remaining'),
+                          style: AppTextTheme.labelSmall.copyWith(
+                            color: colors.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                      ],
+                    ],
                     if (title != null && title.isNotEmpty) ...[
                       Text(
                         title,

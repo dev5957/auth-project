@@ -25,6 +25,7 @@
     "test:chronique-media": "node src/check-chronique-media.js",
     "test:chronique-full-flow": "node src/check-chronique-full-flow.js",
     "test:chronique-read-url": "node src/check-chronique-read-url.js",
+    "test:chronique-expired-list": "node src/check-chronique-expired-list.js",
     "test:storage-r2": "node src/check-storage-r2.js",
     "test:storage-r2-live": "node src/check-storage-r2-live.js",
     "test:chronique-full-flow-r2-live": "node src/check-chronique-full-flow-r2-live.js",

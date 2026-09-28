@@ -1,5 +1,17 @@
+const { PURGE_DELAY_DAYS } = require('./validators/chroniqueFields');
+
 function sqlKey(sql) {
   return String(sql).replace(/\s+/g, ' ').trim().toUpperCase();
+}
+
+function isExpiredWithinRetention(row, nowMs = Date.now()) {
+  if (row.purge_after) {
+    return new Date(row.purge_after).getTime() > nowMs;
+  }
+  if (!row.expired_at) {
+    return false;
+  }
+  return new Date(row.expired_at).getTime() + PURGE_DELAY_DAYS * 24 * 60 * 60 * 1000 > nowMs;
 }
 
 function cloneRow(row) {
@@ -55,6 +67,14 @@ function createPublicationsMemory(initialRows = []) {
           Number(item.user_id) === Number(params[1]) &&
           item.status !== 'deleted'
       );
+      if (
+        row &&
+        row.status === 'expired' &&
+        key.includes('COALESCE(PURGE_AFTER') &&
+        !isExpiredWithinRetention(row)
+      ) {
+        return { rows: [], rowCount: 0 };
+      }
       return { rows: row ? [cloneRow(row)] : [], rowCount: row ? 1 : 0 };
     }
 
@@ -76,6 +96,9 @@ function createPublicationsMemory(initialRows = []) {
       let rows = state.rows.filter(
         (item) => Number(item.user_id) === Number(userId) && item.status === status
       );
+      if (status === 'expired' && key.includes('COALESCE(PURGE_AFTER')) {
+        rows = rows.filter((item) => isExpiredWithinRetention(item));
+      }
       const sortColumn =
         status === 'active'
           ? 'published_at'

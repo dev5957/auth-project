@@ -13,6 +13,7 @@ class Chronique {
     this.scheduledAt,
     this.expiresAt,
     this.expiredAt,
+    this.purgeAfter,
     this.isTimeLimited = false,
     this.media = const [],
   });
@@ -29,6 +30,7 @@ class Chronique {
   final DateTime? scheduledAt;
   final DateTime? expiresAt;
   final DateTime? expiredAt;
+  final DateTime? purgeAfter;
   final bool isTimeLimited;
   final List<ChroniqueMedia> media;
 
@@ -45,6 +47,7 @@ class Chronique {
     DateTime? scheduledAt,
     DateTime? expiresAt,
     DateTime? expiredAt,
+    DateTime? purgeAfter,
     bool? isTimeLimited,
     List<ChroniqueMedia>? media,
     bool clearTitle = false,
@@ -62,6 +65,7 @@ class Chronique {
       scheduledAt: scheduledAt ?? this.scheduledAt,
       expiresAt: expiresAt ?? this.expiresAt,
       expiredAt: expiredAt ?? this.expiredAt,
+      purgeAfter: purgeAfter ?? this.purgeAfter,
       isTimeLimited: isTimeLimited ?? this.isTimeLimited,
       media: media ?? this.media,
     );
@@ -98,6 +102,7 @@ class Chronique {
       scheduledAt: parseChroniqueDateTime(json['scheduled_at']),
       expiresAt: parseChroniqueDateTime(json['expires_at']),
       expiredAt: parseChroniqueDateTime(json['expired_at']),
+      purgeAfter: parseChroniqueDateTime(json['purge_after']),
       isTimeLimited: json['is_time_limited'] == true,
       media: parseChroniqueMediaList(json['media']),
     );

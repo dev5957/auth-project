@@ -9,6 +9,7 @@ const {
   parseListQuery,
   parseChroniqueId,
   CHRONIQUE_STATUS,
+  PURGE_DELAY_DAYS,
 } = require('../validators/chroniqueFields');
 
 const SORT_COLUMN = {
@@ -18,6 +19,9 @@ const SORT_COLUMN = {
   [CHRONIQUE_STATUS.SCHEDULED]: 'scheduled_at',
   [CHRONIQUE_STATUS.DRAFT]: 'updated_at',
 };
+
+/** Liste et détail : même échéance (`purge_after` sinon `expired_at` + PURGE_DELAY_DAYS). */
+const EXPIRED_WITHIN_RETENTION_SQL = `COALESCE(purge_after, expired_at + INTERVAL '${PURGE_DELAY_DAYS} days') > NOW()`;
 
 const DISPLAYABLE_MEDIA_KINDS = Object.freeze(['image', 'video', 'audio', 'document']);
 const DISPLAYABLE_MEDIA_KIND_SET = new Set(DISPLAYABLE_MEDIA_KINDS);
@@ -302,6 +306,11 @@ async function listChroniques(userId, query, deps = {}) {
   const column = SORT_COLUMN[status];
   const params = [userId, status];
   let cursorSql = '';
+  let retentionSql = '';
+
+  if (status === CHRONIQUE_STATUS.EXPIRED) {
+    retentionSql = `AND ${EXPIRED_WITHIN_RETENTION_SQL}`;
+  }
 
   if (beforeAt != null) {
     params.push(beforeAt.toISOString(), beforeId);
@@ -325,6 +334,7 @@ async function listChroniques(userId, query, deps = {}) {
      FROM publications
      WHERE user_id = $1
        AND status = $2
+       ${retentionSql}
        ${cursorSql}
      ORDER BY ${orderSql}
      LIMIT ${limitPlaceholder}`,
@@ -364,6 +374,7 @@ async function getChroniqueById(userId, rawId, deps = {}) {
      WHERE id = $1
        AND user_id = $2
        AND status <> '${CHRONIQUE_STATUS.DELETED}'
+       AND (status <> '${CHRONIQUE_STATUS.EXPIRED}' OR ${EXPIRED_WITHIN_RETENTION_SQL})
      LIMIT 1`,
     [id, userId]
   );

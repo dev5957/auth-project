@@ -9,7 +9,7 @@ import '../../models/chronique_date.dart';
 import 'chronique_card_menu.dart';
 import 'chronique_feed_media.dart';
 
-/// Carte d’une chronique (fil, archives, à venir).
+/// Carte d’une chronique (fil, archives, expirées, à venir).
 class ChroniqueCard extends StatefulWidget {
   const ChroniqueCard({
     super.key,
@@ -203,6 +203,17 @@ class _ChroniqueCardState extends State<ChroniqueCard> {
         lines.add(const SizedBox(height: AppSpacing.xs));
       }
       lines.add(Text('Expirée', style: style));
+      final remaining = chroniqueDefinitiveDeletionLabel(widget.chronique);
+      if (remaining != null && remaining.isNotEmpty) {
+        lines.add(const SizedBox(height: AppSpacing.xs));
+        lines.add(
+          Text(
+            remaining,
+            key: const ValueKey('chronique-expired-remaining'),
+            style: style,
+          ),
+        );
+      }
     }
     if (lines.isEmpty &&
         (widget.chronique.title == null || widget.chronique.title!.trim().isEmpty)) {

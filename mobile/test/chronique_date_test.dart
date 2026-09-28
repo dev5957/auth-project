@@ -116,8 +116,43 @@ void main() {
       publishedAt: '2026-09-20T10:00:00.000Z',
       isTimeLimited: true,
       expiresAt: DateTime.parse('2026-09-21T10:00:00.000Z'),
+      expiredAt: DateTime.parse('2026-09-21T10:00:00.000Z'),
     );
     expect(chroniqueDateLabel(expired), isNotEmpty);
+  });
+
+  test('definitive deletion label uses purge_after not a hardcoded window', () {
+    final now = DateTime.utc(2026, 9, 27, 12);
+    final chronique = Chronique(
+      id: 5,
+      body: 'Le texte de la chronique, d au moins vingt caracteres.',
+      status: 'expired',
+      expiredAt: DateTime.utc(2026, 9, 20, 12),
+      purgeAfter: DateTime.utc(2026, 10, 9, 12),
+    );
+    expect(
+      chroniqueDefinitiveDeletionLabel(chronique, now: now),
+      'Suppression définitive dans 12 jours',
+    );
+    expect(
+      chroniquePurgeDeadline(chronique),
+      DateTime.utc(2026, 10, 9, 12),
+    );
+
+    final fallback = Chronique(
+      id: 6,
+      body: 'Le texte de la chronique, d au moins vingt caracteres.',
+      status: 'expired',
+      expiredAt: DateTime.utc(2026, 9, 20, 12),
+    );
+    expect(
+      chroniquePurgeDeadline(fallback),
+      DateTime.utc(2026, 9, 20, 12).add(const Duration(days: kChroniqueExpiredRetentionDays)),
+    );
+    expect(
+      chroniqueDefinitiveDeletionLabel(fallback, now: now),
+      'Suppression définitive dans 23 jours',
+    );
   });
 
   test('quick expiration is computed from scheduled activation not now', () {
