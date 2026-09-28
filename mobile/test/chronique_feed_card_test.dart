@@ -129,7 +129,13 @@ void main() {
     );
     expect(find.byKey(const ValueKey('chronique-feed-media-band')), findsNothing);
     expect(find.byKey(const ValueKey('chronique-share')), findsOneWidget);
-    expect(find.byKey(const ValueKey('chronique-like')), findsOneWidget);
+    expect(find.byIcon(Icons.share), findsOneWidget);
+    expect(find.byIcon(Icons.ios_share), findsNothing);
+    expect(tester.widget<IconButton>(find.byKey(const ValueKey('chronique-share'))).onPressed, isNull);
+    expect(find.byTooltip('Partager'), findsOneWidget);
+    expect(find.byKey(const ValueKey('chronique-like')), findsNothing);
+    expect(find.byIcon(Icons.favorite_border), findsNothing);
+    expect(find.byTooltip('Aimer'), findsNothing);
   });
 
   testWidgets('title can be omitted while keeping the menu header', (tester) async {

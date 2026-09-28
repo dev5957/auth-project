@@ -51,6 +51,7 @@ void main() {
     expect(find.byKey(const ValueKey('chronique-card-title')), findsOneWidget);
     expect(find.byKey(const ValueKey('chronique-feed-media-band')), findsNothing);
     expect(find.byKey(const ValueKey('chronique-share')), findsOneWidget);
+    expect(find.byKey(const ValueKey('chronique-like')), findsNothing);
   });
 
   testWidgets('preview omits title and keeps the compact header', (tester) async {
