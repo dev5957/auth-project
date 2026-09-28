@@ -5,19 +5,24 @@ import '../../models/chronique.dart';
 
 enum ChroniqueCardMenuAction { edit, archive, delete }
 
-/// Menu ⋮ d’une carte : active → Modifier/Archiver/Supprimer ; scheduled → Modifier/Supprimer.
+/// Menu ⋮ : active → Modifier/Archiver/Supprimer ; scheduled → Modifier/Supprimer ;
+/// archived → Supprimer.
 class ChroniqueCardMenu extends StatelessWidget {
   const ChroniqueCardMenu({
     super.key,
     required this.chronique,
     required this.onSelected,
+    this.enabled = true,
   });
 
   final Chronique chronique;
   final ValueChanged<ChroniqueCardMenuAction> onSelected;
+  final bool enabled;
 
   static bool isAvailable(Chronique chronique) {
-    return chronique.status == 'active' || chronique.status == 'scheduled';
+    return chronique.status == 'active' ||
+        chronique.status == 'scheduled' ||
+        chronique.status == 'archived';
   }
 
   @override
@@ -26,9 +31,18 @@ class ChroniqueCardMenu extends StatelessWidget {
     return PopupMenuButton<ChroniqueCardMenuAction>(
       key: ValueKey('chronique-card-menu-${chronique.id}'),
       tooltip: 'Actions',
+      enabled: enabled,
       icon: Icon(Icons.more_vert, color: colors.textSecondary),
       onSelected: onSelected,
       itemBuilder: (context) {
+        if (chronique.status == 'archived') {
+          return const [
+            PopupMenuItem(
+              value: ChroniqueCardMenuAction.delete,
+              child: Text('Supprimer'),
+            ),
+          ];
+        }
         if (chronique.status == 'scheduled') {
           return const [
             PopupMenuItem(

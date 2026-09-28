@@ -30,18 +30,23 @@ Future<bool> confirmArchiveChronique(BuildContext context) async {
 Future<bool> confirmDeleteChronique(
   BuildContext context, {
   required bool scheduled,
+  bool fromArchives = false,
 }) async {
   final confirmed = await showDialog<bool>(
     context: context,
     builder: (context) {
       return AlertDialog(
         title: Text(
-          scheduled
+          fromArchives
+              ? 'Supprimer cette Chronique ?'
+              : scheduled
               ? 'Supprimer cette chronique programmée ?'
               : 'Supprimer cette chronique ?',
         ),
         content: Text(
-          scheduled
+          fromArchives
+              ? 'Cette action supprimera cette publication de vos Archives. Elle ne pourra pas être récupérée.'
+              : scheduled
               ? 'Elle sera retirée de À venir.'
               : 'Elle sera retirée de Mon Fil.',
         ),

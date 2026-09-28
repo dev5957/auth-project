@@ -16,6 +16,7 @@ class ChroniqueCard extends StatefulWidget {
     required this.chronique,
     this.onTap,
     this.onMenuSelected,
+    this.menuEnabled = true,
     this.excerpt,
     this.showFeedMedia = false,
     this.showInactiveSocialActions = false,
@@ -27,6 +28,7 @@ class ChroniqueCard extends StatefulWidget {
   final Chronique chronique;
   final VoidCallback? onTap;
   final ValueChanged<ChroniqueCardMenuAction>? onMenuSelected;
+  final bool menuEnabled;
   final String? excerpt;
   final bool showFeedMedia;
   final bool showInactiveSocialActions;
@@ -70,6 +72,7 @@ class _ChroniqueCardState extends State<ChroniqueCard> {
               if (showMenu)
                 ChroniqueCardMenu(
                   chronique: widget.chronique,
+                  enabled: widget.menuEnabled,
                   onSelected: widget.onMenuSelected!,
                 ),
             ],
