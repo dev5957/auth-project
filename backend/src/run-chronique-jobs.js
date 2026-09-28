@@ -25,7 +25,7 @@ async function main() {
     console.error(
       'Refusing to run Chronique jobs. Re-run with --confirm. ' +
         'Jobs: publish (scheduled→active), expire (active→expired), ' +
-        'purge (expired→deleted logique). No hard delete.'
+        'purge (expired due: hard delete R2 + Neon).'
     );
     process.exitCode = 1;
     return;
