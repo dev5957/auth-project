@@ -50,6 +50,15 @@ ChroniqueMedia _media({
   );
 }
 
+void _expectEqualStackedCells(Rect first, Rect second, Rect third, Rect band) {
+  expect(first.width, closeTo(band.width, 1));
+  expect(second.width, closeTo(band.width, 1));
+  expect(third.width, closeTo(band.width, 1));
+  expect(first.height, closeTo(second.height, 1));
+  expect(second.height, closeTo(third.height, 1));
+  expect(first.height, closeTo((band.height - 2 * kChroniqueFeedMediaGap) / 3, 1));
+}
+
 class _NoDownloadClient extends ChroniqueDocumentReadClient {
   int calls = 0;
 
@@ -398,6 +407,114 @@ void main() {
     expect(selected?.id, 3);
     await tester.tap(find.byKey(const ValueKey('chronique-feed-media-2')));
     expect(selected?.id, 2);
+  });
+
+  testWidgets('three mixed image document audio keep equal cells and image cover', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ChroniqueFeedMediaBand(
+          medias: [
+            _media(id: 1, kind: 'image', sortOrder: 0),
+            _media(
+              id: 2,
+              kind: 'document',
+              sortOrder: 1,
+              fileName: 'note.pdf',
+              contentType: 'application/pdf',
+            ),
+            _media(id: 3, kind: 'audio', sortOrder: 2, fileName: 'voix.mp3'),
+          ],
+        ),
+      ),
+    );
+    final band = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-band')));
+    final image = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-1')));
+    final document = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2')));
+    final audio = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-3')));
+    _expectEqualStackedCells(image, document, audio, band);
+    final imageWidget = tester.widget<Image>(find.byType(Image).first);
+    expect(imageWidget.fit, BoxFit.cover);
+    expect(imageWidget.alignment, Alignment.center);
+    final painted = tester.getRect(find.byType(Image).first);
+    expect(painted.width, closeTo(image.width, 1));
+    expect(painted.height, closeTo(image.height, 1));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('three mixed video document audio keep equal cells and poster cover', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ChroniqueFeedMediaBand(
+          medias: [
+            _media(
+              id: 1,
+              kind: 'video',
+              sortOrder: 0,
+              fileName: 'clip.mp4',
+              thumbnailUrl: 'https://example.test/thumb.jpg',
+            ),
+            _media(
+              id: 2,
+              kind: 'document',
+              sortOrder: 1,
+              fileName: 'note.pdf',
+              contentType: 'application/pdf',
+            ),
+            _media(id: 3, kind: 'audio', sortOrder: 2, fileName: 'voix.mp3'),
+          ],
+        ),
+      ),
+    );
+    final band = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-band')));
+    final video = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-1')));
+    final document = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2')));
+    final audio = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-3')));
+    _expectEqualStackedCells(video, document, audio, band);
+    final poster = tester.getRect(find.byKey(const ValueKey('chronique-feed-video-thumb')));
+    expect(poster.width, closeTo(video.width, 1));
+    expect(poster.height, closeTo(video.height, 1));
+    expect(find.byIcon(Icons.play_circle), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('tapping a stacked audio tile opens a compact player', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() async {
+      await tester.binding.setSurfaceSize(null);
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(extensions: const [LuminaColors.light]),
+        home: Builder(
+          builder: (context) {
+            return Scaffold(
+              body: Center(
+                child: SizedBox(
+                  width: 390,
+                  child: ChroniqueFeedMediaBand(
+                    medias: [
+                      _media(id: 1, kind: 'image', sortOrder: 0),
+                      _media(id: 2, kind: 'document', sortOrder: 1, fileName: 'n.pdf', contentType: 'application/pdf'),
+                      _media(id: 3, kind: 'audio', sortOrder: 2, fileName: 'voix.mp3'),
+                    ],
+                    onSelect: (media) => openChroniqueFeedMedia(context, media),
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('chronique-feed-media-3')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.byKey(const ValueKey('chronique-media-viewer-audio')), findsOneWidget);
+    expect(find.text('Audio'), findsWidgets);
+    expect(find.byKey(const ValueKey('chronique-media-viewer-close')), findsOneWidget);
+    final sheet = tester.getSize(find.byKey(const ValueKey('chronique-media-viewer-sheet')));
+    expect(sheet.height, lessThan(844 * 0.45));
+    expect(find.byKey(const ValueKey('chronique-media-viewer-audio')), findsOneWidget);
   });
 
   testWidgets('four media form a regular two-by-two grid', (tester) async {
@@ -1024,9 +1141,10 @@ void main() {
 
     await openKind(_media(id: 8, kind: 'audio', readUrl: 'https://example.test/clip.m4a'));
     expect(find.byKey(const ValueKey('chronique-media-viewer-audio')), findsOneWidget);
+    expect(find.text('Audio'), findsWidgets);
     expect(
       tester.getSize(find.byKey(const ValueKey('chronique-media-viewer-sheet'))).height,
-      lessThan(tester.getSize(find.byType(Scaffold)).height * 0.5),
+      lessThan(tester.getSize(find.byType(Scaffold)).height * 0.45),
     );
 
     await tester.pumpWidget(const SizedBox.shrink());

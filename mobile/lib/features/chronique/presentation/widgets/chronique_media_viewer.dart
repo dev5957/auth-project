@@ -77,10 +77,13 @@ class ChroniqueMediaViewerPage extends StatelessWidget {
                   ),
                 ],
               ),
-              Flexible(
-                fit: FlexFit.loose,
-                child: _body(colors),
-              ),
+              if (media.kind == 'audio')
+                _body(colors)
+              else
+                Flexible(
+                  fit: FlexFit.loose,
+                  child: _body(colors),
+                ),
             ],
           ),
         ),

@@ -359,6 +359,8 @@ class _ChroniqueReadyAudioPlayerState extends State<ChroniqueReadyAudioPlayer> {
             ),
             Expanded(
               child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   SliderTheme(
                     data: SliderTheme.of(context).copyWith(

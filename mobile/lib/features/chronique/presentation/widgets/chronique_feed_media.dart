@@ -258,7 +258,9 @@ class ChroniqueFeedMediaTile extends StatelessWidget {
         key: ValueKey('chronique-feed-media-${media.id ?? index}'),
         onTap: onTap,
         child: ClipRect(
-          child: _content(context, colors),
+          child: SizedBox.expand(
+            child: _content(context, colors),
+          ),
         ),
       ),
     );
@@ -282,14 +284,9 @@ class ChroniqueFeedMediaTile extends StatelessWidget {
   Widget _image(LuminaColors colors) {
     final path = localPath?.trim();
     if (path != null && path.isNotEmpty) {
-      return Image.file(
-        File(path),
-        fit: BoxFit.cover,
-        width: double.infinity,
-        height: double.infinity,
-        errorBuilder: (context, error, stackTrace) {
-          return _fallback(colors, label: 'Média indisponible');
-        },
+      return _coverImage(
+        filePath: path,
+        fallback: _fallback(colors, label: 'Média indisponible'),
       );
     }
     if (!chroniqueFeedHasUsableReadUrl(media)) {
@@ -300,14 +297,34 @@ class ChroniqueFeedMediaTile extends StatelessWidget {
             : 'Média indisponible',
       );
     }
-    return Image.network(
-      media.readUrl!.trim(),
-      fit: BoxFit.cover,
-      width: double.infinity,
-      height: double.infinity,
-      errorBuilder: (context, error, stackTrace) {
-        return _fallback(colors, label: 'Média indisponible');
-      },
+    return _coverImage(
+      networkUrl: media.readUrl!.trim(),
+      fallback: _fallback(colors, label: 'Média indisponible'),
+    );
+  }
+
+  Widget _coverImage({
+    String? filePath,
+    String? networkUrl,
+    required Widget fallback,
+    Key? key,
+  }) {
+    return SizedBox.expand(
+      child: filePath != null
+          ? Image.file(
+              File(filePath),
+              key: key,
+              fit: BoxFit.cover,
+              alignment: Alignment.center,
+              errorBuilder: (context, error, stackTrace) => fallback,
+            )
+          : Image.network(
+              networkUrl!,
+              key: key,
+              fit: BoxFit.cover,
+              alignment: Alignment.center,
+              errorBuilder: (context, error, stackTrace) => fallback,
+            ),
     );
   }
 
@@ -325,11 +342,13 @@ class ChroniqueFeedMediaTile extends StatelessWidget {
             : 'Média indisponible',
       );
     }
-    return _ChroniqueFeedVideoBody(
-      chrome: _videoChrome(colors),
-      overlay: _videoPlayOverlay(colors),
-      localThumbnailPath: localThumbnailPath,
-      networkThumbnailUrl: chroniqueFeedHasUsableThumbnail(media) ? media.thumbnailUrl : null,
+    return SizedBox.expand(
+      child: _ChroniqueFeedVideoBody(
+        chrome: _videoChrome(colors),
+        overlay: _videoPlayOverlay(colors),
+        localThumbnailPath: localThumbnailPath,
+        networkThumbnailUrl: chroniqueFeedHasUsableThumbnail(media) ? media.thumbnailUrl : null,
+      ),
     );
   }
 
@@ -676,8 +695,7 @@ class _ChroniqueFeedVideoBodyState extends State<_ChroniqueFeedVideoBody> {
         File(filePath),
         key: key,
         fit: BoxFit.cover,
-        width: double.infinity,
-        height: double.infinity,
+        alignment: Alignment.center,
         errorBuilder: (context, error, stackTrace) {
           _markFailed();
           return fallback;
@@ -688,8 +706,7 @@ class _ChroniqueFeedVideoBodyState extends State<_ChroniqueFeedVideoBody> {
       networkUrl!,
       key: key,
       fit: BoxFit.cover,
-      width: double.infinity,
-      height: double.infinity,
+      alignment: Alignment.center,
       errorBuilder: (context, error, stackTrace) {
         _markFailed();
         return fallback;
