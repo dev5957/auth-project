@@ -57,6 +57,45 @@ void _expectEqualStackedCells(Rect first, Rect second, Rect third, Rect band) {
   expect(first.height, closeTo(second.height, 1));
   expect(second.height, closeTo(third.height, 1));
   expect(first.height, closeTo((band.height - 2 * kChroniqueFeedMediaGap) / 3, 1));
+  expect(first.height, greaterThanOrEqualTo(kChroniqueFeedTileStandardMinHeight - 0.5));
+}
+
+void _expectEqualVisualColumns(Rect first, Rect second, Rect third, Rect band) {
+  expect(first.height, closeTo(band.height, 1));
+  expect(second.height, closeTo(band.height, 1));
+  expect(third.height, closeTo(band.height, 1));
+  expect(first.width, closeTo(second.width, 1));
+  expect(second.width, closeTo(third.width, 1));
+  expect(first.width, closeTo((band.width - 2 * kChroniqueFeedMediaGap) / 3, 1));
+  expect(first.left, lessThan(second.left));
+  expect(second.left, lessThan(third.left));
+  expect(first.top, closeTo(second.top, 0.5));
+  expect(second.top, closeTo(third.top, 0.5));
+}
+
+void _expectVisualColumnWithChromeStack(Rect visual, Rect chromeA, Rect chromeB, Rect band) {
+  expect(visual.height, closeTo(band.height, 1));
+  expect(visual.width, closeTo((band.width - kChroniqueFeedMediaGap) / 2, 1));
+  expect(chromeA.width, closeTo(visual.width, 1));
+  expect(chromeB.width, closeTo(visual.width, 1));
+  expect(chromeA.height, closeTo(chromeB.height, 1));
+  expect(chromeA.height, closeTo((band.height - kChroniqueFeedMediaGap) / 2, 1));
+  expect(chromeA.height, greaterThanOrEqualTo(kChroniqueFeedTileStandardMinHeight - 0.5));
+  expect(visual.left, lessThan(chromeA.left));
+  expect(chromeA.left, closeTo(chromeB.left, 0.5));
+  expect(chromeA.top, lessThan(chromeB.top));
+}
+
+void _expectTwoVisualsWithChromeStrip(Rect first, Rect second, Rect chrome, Rect band) {
+  expect(first.height, closeTo(second.height, 1));
+  expect(first.width, closeTo(second.width, 1));
+  expect(first.top, closeTo(second.top, 0.5));
+  expect(first.left, lessThan(second.left));
+  expect(first.height, closeTo(chroniqueFeedMediaBandHeight(count: 2, width: band.width), 1));
+  expect(chrome.width, closeTo(band.width, 1));
+  expect(chrome.height, closeTo(chroniqueFeedThreeChromeTileHeight(band.width), 1));
+  expect(chrome.height, greaterThanOrEqualTo(kChroniqueFeedTileStandardMinHeight - 0.5));
+  expect(chrome.top, greaterThan(first.bottom - 1));
 }
 
 class _NoDownloadClient extends ChroniqueDocumentReadClient {
@@ -93,9 +132,23 @@ void main() {
     expect(chroniqueFeedMediaBandHeight(count: 1, width: 390), closeTo(390 * 9 / 16, 0.001));
     expect(chroniqueFeedMediaBandHeight(count: 2, width: 390), 219);
     expect(chroniqueFeedMediaBandHeight(count: 3, width: 390), 260);
+    expect(chroniqueFeedMediaBandHeight(count: 3, width: 390, visualCount: 3), 260);
+    expect(chroniqueFeedMediaBandHeight(count: 3, width: 390, visualCount: 1), 260);
+    expect(chroniqueFeedMediaBandHeight(count: 3, width: 390, visualCount: 0), 260);
+    expect(
+      chroniqueFeedMediaBandHeight(count: 3, width: 390, visualCount: 2),
+      closeTo(219 + kChroniqueFeedMediaGap + chroniqueFeedThreeChromeTileHeight(390), 0.001),
+    );
+    expect(chroniqueFeedMediaBandHeight(count: 3, width: 294, visualCount: 3), closeTo(294 * 260 / 390, 0.001));
+    expect(
+      chroniqueFeedMediaBandHeight(count: 3, width: 294, visualCount: 0),
+      3 * kChroniqueFeedTileStandardMinHeight + 2 * kChroniqueFeedMediaGap,
+    );
     expect(chroniqueFeedMediaBandHeight(count: 4, width: 390), 310);
     expect(chroniqueFeedMediaBandHeight(count: 5, width: 390), 360);
     expect(chroniqueFeedMediaBandHeight(count: 2, width: 195), 109.5);
+    expect(chroniqueFeedThreeChromeTileHeight(390), closeTo((260 - 2 * kChroniqueFeedMediaGap) / 3, 0.001));
+    expect(chroniqueFeedThreeChromeTileHeight(294), kChroniqueFeedTileStandardMinHeight);
   });
 
   test('tile density follows the shared height contract', () {
@@ -190,7 +243,10 @@ void main() {
       expect(find.byKey(const ValueKey('chronique-feed-media-band')), findsOneWidget);
       expect(find.byKey(ValueKey('chronique-feed-media-${count * 10}')), findsOneWidget);
       final band = tester.getSize(find.byKey(const ValueKey('chronique-feed-media-band')));
-      expect(band.height, closeTo(chroniqueFeedMediaBandHeight(count: count, width: band.width), 0.5));
+      expect(
+        band.height,
+        closeTo(chroniqueFeedMediaBandHeightForItems(items: medias, width: band.width), 0.5),
+      );
     }
   });
 
@@ -278,13 +334,13 @@ void main() {
     expect(mediaTaps, 1);
   });
 
-  testWidgets('three media stack as equal full-width rows', (tester) async {
+  testWidgets('three visuals use equal columns in API order', (tester) async {
     await tester.pumpWidget(
       _wrap(
         ChroniqueFeedMediaBand(
           medias: [
             _media(id: 1, kind: 'image', sortOrder: 0),
-            _media(id: 2, kind: 'image', sortOrder: 1),
+            _media(id: 2, kind: 'video', sortOrder: 1, fileName: 'clip.mp4'),
             _media(id: 3, kind: 'image', sortOrder: 2),
           ],
         ),
@@ -295,21 +351,8 @@ void main() {
     final second = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2')));
     final third = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-3')));
     expect(band.height, closeTo(260, 0.5));
-    expect(first.left, closeTo(band.left, 0.5));
-    expect(second.left, closeTo(band.left, 0.5));
-    expect(third.left, closeTo(band.left, 0.5));
-    expect(first.width, closeTo(band.width, 1));
-    expect(second.width, closeTo(band.width, 1));
-    expect(third.width, closeTo(band.width, 1));
-    expect(first.height, closeTo(second.height, 1));
-    expect(second.height, closeTo(third.height, 1));
-    expect(
-      first.height,
-      closeTo((band.height - 2 * kChroniqueFeedMediaGap) / 3, 1),
-    );
-    expect(first.top, lessThan(second.top));
-    expect(second.top, lessThan(third.top));
-    expect(first.right, closeTo(second.right, 0.5));
+    _expectEqualVisualColumns(first, second, third, band);
+    expect(first.width / first.height, lessThan(1));
   });
 
   testWidgets('three audios fill stacked cells independently of content', (tester) async {
@@ -328,10 +371,8 @@ void main() {
     final first = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-1')));
     final second = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2')));
     final third = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-3')));
-    expect(first.width, closeTo(band.width, 1));
-    expect(first.height, closeTo(second.height, 1));
-    expect(second.height, closeTo(third.height, 1));
-    expect(first.height, closeTo((band.height - 2 * kChroniqueFeedMediaGap) / 3, 1));
+    expect(band.height, closeTo(260, 0.5));
+    _expectEqualStackedCells(first, second, third, band);
     expect(find.byKey(const ValueKey('chronique-feed-audio-play')), findsNWidgets(3));
     expect(tester.takeException(), isNull);
   });
@@ -371,9 +412,8 @@ void main() {
     final first = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-1')));
     final second = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2')));
     final third = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-3')));
-    expect(first.height, closeTo(second.height, 1));
-    expect(second.height, closeTo(third.height, 1));
-    expect(first.width, closeTo(band.width, 1));
+    expect(band.height, closeTo(260, 0.5));
+    _expectEqualStackedCells(first, second, third, band);
     expect(find.text('PDF'), findsOneWidget);
     expect(find.text('DOC'), findsOneWidget);
     expect(find.text('TXT'), findsOneWidget);
@@ -381,7 +421,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('three mixed media keep stacked full-width cells and taps', (tester) async {
+  testWidgets('three mixed media give the visual a tall cell and keep taps', (tester) async {
     ChroniqueMedia? selected;
     await tester.pumpWidget(
       _wrap(
@@ -401,12 +441,11 @@ void main() {
         ),
       ),
     );
+    final band = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-band')));
     final image = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-1')));
     final audio = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2')));
     final document = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-3')));
-    expect(image.height, closeTo(audio.height, 1));
-    expect(audio.height, closeTo(document.height, 1));
-    expect(image.width, closeTo(audio.width, 1));
+    _expectVisualColumnWithChromeStack(image, audio, document, band);
     expect(find.byKey(const ValueKey('chronique-feed-audio-play')), findsOneWidget);
     expect(find.text('PDF'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('chronique-feed-media-3')));
@@ -437,7 +476,7 @@ void main() {
     final image = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-1')));
     final document = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2')));
     final audio = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-3')));
-    _expectEqualStackedCells(image, document, audio, band);
+    _expectVisualColumnWithChromeStack(image, document, audio, band);
     final imageWidget = tester.widget<Image>(find.byType(Image).first);
     expect(imageWidget.fit, BoxFit.cover);
     expect(imageWidget.alignment, Alignment.center);
@@ -475,7 +514,7 @@ void main() {
     final video = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-1')));
     final document = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2')));
     final audio = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-3')));
-    _expectEqualStackedCells(video, document, audio, band);
+    _expectVisualColumnWithChromeStack(video, document, audio, band);
     final poster = tester.getRect(find.byKey(const ValueKey('chronique-feed-video-thumb')));
     expect(poster.width, closeTo(video.width, 1));
     expect(poster.height, closeTo(video.height, 1));
@@ -521,6 +560,141 @@ void main() {
     final sheet = tester.getSize(find.byKey(const ValueKey('chronique-media-viewer-sheet')));
     expect(sheet.height, lessThan(844 * 0.45));
     expect(find.byKey(const ValueKey('chronique-media-viewer-audio')), findsOneWidget);
+  });
+
+  testWidgets('one visual plus two chrome keeps the same geometry for every permutation', (tester) async {
+    final orders = [
+      [
+        _media(id: 1, kind: 'image', sortOrder: 0),
+        _media(id: 2, kind: 'audio', sortOrder: 1, fileName: 'voix.mp3'),
+        _media(id: 3, kind: 'document', sortOrder: 2, fileName: 'note.pdf', contentType: 'application/pdf'),
+      ],
+      [
+        _media(id: 2, kind: 'audio', sortOrder: 0, fileName: 'voix.mp3'),
+        _media(id: 1, kind: 'image', sortOrder: 1),
+        _media(id: 3, kind: 'document', sortOrder: 2, fileName: 'note.pdf', contentType: 'application/pdf'),
+      ],
+      [
+        _media(id: 2, kind: 'audio', sortOrder: 0, fileName: 'voix.mp3'),
+        _media(id: 3, kind: 'document', sortOrder: 1, fileName: 'note.pdf', contentType: 'application/pdf'),
+        _media(id: 1, kind: 'image', sortOrder: 2),
+      ],
+    ];
+    for (final medias in orders) {
+      ChroniqueMedia? selected;
+      await tester.pumpWidget(
+        _wrap(
+          ChroniqueFeedMediaBand(
+            medias: medias,
+            onSelect: (media) => selected = media,
+          ),
+        ),
+      );
+      final band = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-band')));
+      final visual = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-1')));
+      final audio = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2')));
+      final document = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-3')));
+      _expectVisualColumnWithChromeStack(visual, audio, document, band);
+      await tester.tap(find.byKey(const ValueKey('chronique-feed-media-1')));
+      expect(selected?.id, 1);
+      expect(tester.takeException(), isNull);
+    }
+  });
+
+  testWidgets('two visuals plus one chrome stay equal and keep permutations', (tester) async {
+    final orders = [
+      [
+        _media(id: 1, kind: 'image', sortOrder: 0),
+        _media(id: 2, kind: 'video', sortOrder: 1, fileName: 'clip.mp4'),
+        _media(id: 3, kind: 'audio', sortOrder: 2, fileName: 'voix.mp3'),
+      ],
+      [
+        _media(id: 3, kind: 'audio', sortOrder: 0, fileName: 'voix.mp3'),
+        _media(id: 1, kind: 'image', sortOrder: 1),
+        _media(id: 2, kind: 'video', sortOrder: 2, fileName: 'clip.mp4'),
+      ],
+      [
+        _media(id: 1, kind: 'image', sortOrder: 0),
+        _media(id: 3, kind: 'document', sortOrder: 1, fileName: 'note.pdf', contentType: 'application/pdf'),
+        _media(id: 2, kind: 'image', sortOrder: 2),
+      ],
+    ];
+    for (final medias in orders) {
+      ChroniqueMedia? selected;
+      await tester.pumpWidget(
+        _wrap(
+          ChroniqueFeedMediaBand(
+            medias: medias,
+            onSelect: (media) => selected = media,
+          ),
+        ),
+      );
+      final band = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-band')));
+      expect(
+        band.height,
+        closeTo(chroniqueFeedMediaBandHeightForItems(items: medias, width: band.width), 0.5),
+      );
+      final visualIds = [
+        for (final media in medias)
+          if (chroniqueFeedMediaIsVisual(media)) media.id,
+      ];
+      final chrome = medias.firstWhere((media) => !chroniqueFeedMediaIsVisual(media));
+      final firstVisual = tester.getRect(find.byKey(ValueKey('chronique-feed-media-${visualIds[0]}')));
+      final secondVisual = tester.getRect(find.byKey(ValueKey('chronique-feed-media-${visualIds[1]}')));
+      final chromeRect = tester.getRect(find.byKey(ValueKey('chronique-feed-media-${chrome.id}')));
+      _expectTwoVisualsWithChromeStrip(firstVisual, secondVisual, chromeRect, band);
+      await tester.tap(find.byKey(ValueKey('chronique-feed-media-${medias.first.id}')));
+      expect(selected?.id, medias.first.id);
+      expect(tester.takeException(), isNull);
+    }
+  });
+
+  testWidgets('three chrome mosaics keep standard density on a 294 pt band', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ChroniqueFeedMediaBand(
+          medias: [
+            _media(id: 1, kind: 'audio', sortOrder: 0, fileName: 'a.mp3'),
+            _media(id: 2, kind: 'document', sortOrder: 1, fileName: 'note.pdf', contentType: 'application/pdf'),
+            _media(id: 3, kind: 'audio', sortOrder: 2, fileName: 'b.mp3'),
+          ],
+        ),
+        width: 294,
+      ),
+    );
+    final band = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-band')));
+    final first = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-1')));
+    final second = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2')));
+    final third = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-3')));
+    expect(band.height, closeTo(3 * kChroniqueFeedTileStandardMinHeight + 2 * kChroniqueFeedMediaGap, 0.5));
+    _expectEqualStackedCells(first, second, third, band);
+    expect(find.byKey(const ValueKey('chronique-feed-audio-play')), findsNWidgets(2));
+    expect(find.text('PDF'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('three visuals stay equal columns on a 294 pt band', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ChroniqueFeedMediaBand(
+          medias: [
+            _media(id: 1, kind: 'image', sortOrder: 0),
+            _media(id: 2, kind: 'image', sortOrder: 1),
+            _media(id: 3, kind: 'video', sortOrder: 2, fileName: 'clip.mp4'),
+          ],
+        ),
+        width: 294,
+      ),
+    );
+    final band = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-band')));
+    _expectEqualVisualColumns(
+      tester.getRect(find.byKey(const ValueKey('chronique-feed-media-1'))),
+      tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2'))),
+      tester.getRect(find.byKey(const ValueKey('chronique-feed-media-3'))),
+      band,
+    );
+    expect(band.height, closeTo(294 * 260 / 390, 0.5));
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('four media form a regular two-by-two grid', (tester) async {
@@ -652,10 +826,34 @@ void main() {
     );
     var band = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-band')));
     expect(band.width, 294);
-    expect(band.height, closeTo(chroniqueFeedMediaBandHeight(count: 3, width: 294), 0.5));
+    expect(band.height, closeTo(chroniqueFeedMediaBandHeight(count: 3, width: 294, visualCount: 1), 0.5));
+    final visual = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-1')));
     final stacked = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2')));
-    expect(stacked.width, closeTo(294, 1));
-    expect(stacked.height, closeTo((band.height - 2 * kChroniqueFeedMediaGap) / 3, 1));
+    expect(visual.height, closeTo(band.height, 1));
+    expect(stacked.width, closeTo((band.width - kChroniqueFeedMediaGap) / 2, 1));
+    expect(stacked.height, closeTo((band.height - kChroniqueFeedMediaGap) / 2, 1));
+    expect(stacked.height, greaterThanOrEqualTo(kChroniqueFeedTileStandardMinHeight - 0.5));
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(
+      _wrap(
+        ChroniqueFeedMediaBand(
+          medias: [
+            _media(id: 1, kind: 'image', sortOrder: 0),
+            _media(id: 2, kind: 'video', sortOrder: 1, fileName: 'clip.mp4'),
+            _media(id: 3, kind: 'audio', sortOrder: 2, fileName: 'voix.mp3'),
+          ],
+        ),
+        width: 294,
+      ),
+    );
+    band = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-band')));
+    _expectTwoVisualsWithChromeStrip(
+      tester.getRect(find.byKey(const ValueKey('chronique-feed-media-1'))),
+      tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2'))),
+      tester.getRect(find.byKey(const ValueKey('chronique-feed-media-3'))),
+      band,
+    );
     expect(tester.takeException(), isNull);
 
     await tester.pumpWidget(
@@ -1346,8 +1544,9 @@ void main() {
     ]);
     var band = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-band')));
     final stackedAudio = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2')));
-    expect(stackedAudio.width, closeTo(band.width, 1));
-    expect(stackedAudio.height, closeTo((band.height - 2 * kChroniqueFeedMediaGap) / 3, 1));
+    expect(stackedAudio.width, closeTo((band.width - kChroniqueFeedMediaGap) / 2, 1));
+    expect(stackedAudio.height, closeTo((band.height - kChroniqueFeedMediaGap) / 2, 1));
+    expect(stackedAudio.height, greaterThanOrEqualTo(kChroniqueFeedTileStandardMinHeight - 0.5));
     expect(find.byKey(const ValueKey('chronique-feed-audio-play')), findsOneWidget);
     expect(find.byIcon(Icons.play_circle), findsWidgets);
     expect(find.text('PDF'), findsOneWidget);

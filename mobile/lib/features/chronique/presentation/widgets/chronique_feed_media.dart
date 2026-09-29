@@ -12,6 +12,7 @@ const double kChroniqueFeedReferenceWidth = 390;
 const double kChroniqueFeedMediaGap = 2;
 const double kChroniqueFeedTileComfortMinHeight = 130;
 const double kChroniqueFeedTileStandardMinHeight = 78;
+const double kChroniqueFeedChromeTileMaxHeight = 100;
 
 enum ChroniqueFeedTileDensity { comfort, standard, compact }
 
@@ -50,9 +51,41 @@ List<ChroniqueMedia> chroniqueFeedMediaItems(Iterable<ChroniqueMedia> medias) {
   return items.sublist(0, 5);
 }
 
+bool chroniqueFeedMediaIsVisual(ChroniqueMedia media) {
+  return media.kind == 'image' || media.kind == 'video';
+}
+
+int chroniqueFeedVisualCount(Iterable<ChroniqueMedia> medias) {
+  var count = 0;
+  for (final media in medias) {
+    if (chroniqueFeedMediaIsVisual(media)) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+/// Hauteur d'une rangée audio/document dans une mosaïque de 3, au moins
+/// [kChroniqueFeedTileStandardMinHeight], plafonnée pour éviter des bandes vides.
+double chroniqueFeedThreeChromeTileHeight(double width) {
+  if (width <= 0) {
+    return 0;
+  }
+  final scaledBand = width * (kChroniqueFeedMediaReferenceHeights[3] ?? 260) / kChroniqueFeedReferenceWidth;
+  final fromScaled = (scaledBand - 2 * kChroniqueFeedMediaGap) / 3;
+  if (fromScaled < kChroniqueFeedTileStandardMinHeight) {
+    return kChroniqueFeedTileStandardMinHeight;
+  }
+  if (fromScaled > kChroniqueFeedChromeTileMaxHeight) {
+    return kChroniqueFeedChromeTileMaxHeight;
+  }
+  return fromScaled;
+}
+
 double chroniqueFeedMediaBandHeight({
   required int count,
   required double width,
+  int? visualCount,
 }) {
   if (count <= 0 || width <= 0) {
     return 0;
@@ -60,9 +93,37 @@ double chroniqueFeedMediaBandHeight({
   if (count == 1) {
     return width * 9 / 16;
   }
+  if (count == 3) {
+    return _threeMediaBandHeight(width: width, visualCount: visualCount ?? 3);
+  }
   final capped = count > 5 ? 5 : count;
   final reference = kChroniqueFeedMediaReferenceHeights[capped] ?? 360;
   return width * reference / kChroniqueFeedReferenceWidth;
+}
+
+double chroniqueFeedMediaBandHeightForItems({
+  required List<ChroniqueMedia> items,
+  required double width,
+}) {
+  return chroniqueFeedMediaBandHeight(
+    count: items.length,
+    width: width,
+    visualCount: chroniqueFeedVisualCount(items),
+  );
+}
+
+double _threeMediaBandHeight({
+  required double width,
+  required int visualCount,
+}) {
+  if (visualCount <= 0) {
+    return 3 * chroniqueFeedThreeChromeTileHeight(width) + 2 * kChroniqueFeedMediaGap;
+  }
+  if (visualCount == 2) {
+    final visualRow = width * (kChroniqueFeedMediaReferenceHeights[2] ?? 219) / kChroniqueFeedReferenceWidth;
+    return visualRow + kChroniqueFeedMediaGap + chroniqueFeedThreeChromeTileHeight(width);
+  }
+  return width * (kChroniqueFeedMediaReferenceHeights[3] ?? 260) / kChroniqueFeedReferenceWidth;
 }
 
 bool chroniqueFeedReadUrlExpired(ChroniqueMedia media, [DateTime? now]) {
@@ -136,7 +197,7 @@ class ChroniqueFeedMediaBand extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
-        final height = chroniqueFeedMediaBandHeight(count: items.length, width: width);
+        final height = chroniqueFeedMediaBandHeightForItems(items: items, width: width);
         return SizedBox(
           key: const ValueKey('chronique-feed-media-band'),
           width: width,
@@ -166,15 +227,7 @@ class ChroniqueFeedMediaBand extends StatelessWidget {
       );
     }
     if (items.length == 3) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (var i = 0; i < 3; i++) ...[
-            if (i > 0) const SizedBox(height: kChroniqueFeedMediaGap),
-            Expanded(child: _filledTile(context, items[i], i)),
-          ],
-        ],
-      );
+      return _layoutThree(context, items, width);
     }
     if (items.length == 4) {
       return Column(
@@ -191,6 +244,72 @@ class ChroniqueFeedMediaBand extends StatelessWidget {
         Expanded(child: _stack(context, items.sublist(0, 2), 0)),
         const SizedBox(width: kChroniqueFeedMediaGap),
         Expanded(child: _stack(context, items.sublist(2, 5), 2)),
+      ],
+    );
+  }
+
+  Widget _layoutThree(BuildContext context, List<ChroniqueMedia> items, double width) {
+    final visuals = [for (final media in items) if (chroniqueFeedMediaIsVisual(media)) media];
+    final chrome = [for (final media in items) if (!chroniqueFeedMediaIsVisual(media)) media];
+    if (visuals.length == 3) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < 3; i++) ...[
+            if (i > 0) const SizedBox(width: kChroniqueFeedMediaGap),
+            Expanded(child: _filledTile(context, items[i], i)),
+          ],
+        ],
+      );
+    }
+    if (visuals.isEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < 3; i++) ...[
+            if (i > 0) const SizedBox(height: kChroniqueFeedMediaGap),
+            Expanded(child: _filledTile(context, items[i], i)),
+          ],
+        ],
+      );
+    }
+    if (visuals.length == 1) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(child: _filledTile(context, visuals[0], items.indexOf(visuals[0]))),
+          const SizedBox(width: kChroniqueFeedMediaGap),
+          Expanded(
+            child: Column(
+              children: [
+                Expanded(child: _filledTile(context, chrome[0], items.indexOf(chrome[0]))),
+                const SizedBox(height: kChroniqueFeedMediaGap),
+                Expanded(child: _filledTile(context, chrome[1], items.indexOf(chrome[1]))),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+    final chromeHeight = chroniqueFeedThreeChromeTileHeight(width);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: _filledTile(context, visuals[0], items.indexOf(visuals[0]))),
+              const SizedBox(width: kChroniqueFeedMediaGap),
+              Expanded(child: _filledTile(context, visuals[1], items.indexOf(visuals[1]))),
+            ],
+          ),
+        ),
+        const SizedBox(height: kChroniqueFeedMediaGap),
+        SizedBox(
+          height: chromeHeight,
+          child: _filledTile(context, chrome[0], items.indexOf(chrome[0])),
+        ),
       ],
     );
   }

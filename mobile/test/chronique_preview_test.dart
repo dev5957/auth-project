@@ -145,7 +145,7 @@ void main() {
     expect(find.text('e.m4a'), findsOneWidget);
   });
 
-  testWidgets('preview with three drafts stacks equal full-width tiles', (tester) async {
+  testWidgets('preview with three mixed drafts gives the visual a tall cell', (tester) async {
     await tester.pumpWidget(
       _wrap(
         ChroniquePreview(
@@ -164,11 +164,41 @@ void main() {
     final first = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-1')));
     final second = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2')));
     final third = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-3')));
-    expect(first.width, closeTo(band.width, 1));
-    expect(first.height, closeTo(second.height, 1));
+    expect(first.height, closeTo(band.height, 1));
+    expect(first.width, closeTo((band.width - 2) / 2, 2));
+    expect(second.width, closeTo(first.width, 1));
+    expect(third.width, closeTo(second.width, 1));
     expect(second.height, closeTo(third.height, 1));
-    expect(first.top, lessThan(second.top));
+    expect(first.left, lessThan(second.left));
     expect(second.top, lessThan(third.top));
+  });
+
+  testWidgets('preview with three visual drafts uses equal columns', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ChroniquePreview(
+          title: 'Trois visuels',
+          body: 'Le texte de la chronique, d au moins vingt caracteres.',
+          medias: [
+            _draft(id: 1, kind: MediaDraftKind.image, fileName: 'a.jpg', localPath: '/tmp/a.jpg'),
+            _draft(id: 2, kind: MediaDraftKind.video, fileName: 'b.mp4', localPath: '/tmp/b.mp4'),
+            _draft(id: 3, kind: MediaDraftKind.image, fileName: 'c.jpg', localPath: '/tmp/c.jpg'),
+          ],
+          schedule: const ChroniqueScheduleDraft(),
+        ),
+      ),
+    );
+    final band = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-band')));
+    final first = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-1')));
+    final second = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-2')));
+    final third = tester.getRect(find.byKey(const ValueKey('chronique-feed-media-3')));
+    expect(first.height, closeTo(band.height, 1));
+    expect(second.height, closeTo(band.height, 1));
+    expect(third.height, closeTo(band.height, 1));
+    expect(first.width, closeTo(second.width, 1));
+    expect(second.width, closeTo(third.width, 1));
+    expect(first.left, lessThan(second.left));
+    expect(second.left, lessThan(third.left));
   });
 
   testWidgets('preview with four drafts uses a two-by-two grid', (tester) async {
