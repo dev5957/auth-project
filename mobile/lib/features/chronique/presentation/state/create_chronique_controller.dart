@@ -111,6 +111,8 @@ class CreateChroniqueController extends AutoDisposeNotifier<ChroniqueDraft> {
     ];
     final protected = _sourcePathsOf(state.medias);
     _thumbnailTasks.clear();
+    // Miniatures non envoyées (PUT échoué ou extract tardif) : suppression ici.
+    // Un PUT réussi a déjà appelé `_releaseLocalThumbnailAfterPut`.
     // Ne jamais réinitialiser `_nextMediaId` : une extraction obsolète
     // ne doit pas pouvoir cibler un nouveau média par collision d’id.
     state = const ChroniqueDraft();
@@ -390,6 +392,16 @@ class CreateChroniqueController extends AutoDisposeNotifier<ChroniqueDraft> {
         _replaceMedia(current.id, current);
       }
 
+      // JPEG déjà extrait (cas Preview) : PUT miniature tant que l’URL signée
+      // vient d’être émise, avant le PUT vidéo éventuellement long.
+      await _awaitVideoThumbnailExtraction(media.id);
+      current = _mediaById(media.id);
+      final jpegReadyBeforeVideo = current.kind == MediaDraftKind.video &&
+          (current.localThumbnailPath?.trim().isNotEmpty ?? false);
+      await _putVideoThumbnailIfReady(media.id);
+      current = _mediaById(media.id);
+      session = current.remoteUpload ?? session;
+
       if (!session.putCompleted) {
         final path = current.localPath;
         final byteSize = current.byteSize;
@@ -428,7 +440,9 @@ class CreateChroniqueController extends AutoDisposeNotifier<ChroniqueDraft> {
             mediaId: session.mediaId,
           );
 
-      await _putVideoThumbnailIfReady(media.id);
+      if (!jpegReadyBeforeVideo) {
+        await _putVideoThumbnailIfReady(media.id);
+      }
 
       _replaceMedia(
         media.id,
@@ -450,6 +464,15 @@ class CreateChroniqueController extends AutoDisposeNotifier<ChroniqueDraft> {
           errorMessage: message,
         ),
       );
+    }
+  }
+
+  static const int _kVideoThumbnailPutAttempts = 3;
+
+  Future<void> _awaitVideoThumbnailExtraction(int mediaId) async {
+    final pending = _thumbnailTasks[mediaId];
+    if (pending != null) {
+      await pending;
     }
   }
 
@@ -512,66 +535,85 @@ class CreateChroniqueController extends AutoDisposeNotifier<ChroniqueDraft> {
     if (current.kind != MediaDraftKind.video) {
       return;
     }
+    await _awaitVideoThumbnailExtraction(mediaId);
+    try {
+      current = _mediaById(mediaId);
+    } catch (_) {
+      return;
+    }
     final session = current.remoteUpload;
     final thumbUrl = session?.thumbnailUrl?.trim();
     final thumbMethod = session?.thumbnailMethod?.trim();
+    if (session?.thumbnailPutCompleted == true) {
+      return;
+    }
     if (thumbUrl == null ||
         thumbUrl.isEmpty ||
         thumbMethod == null ||
-        thumbMethod.isEmpty ||
-        session?.thumbnailPutCompleted == true) {
+        thumbMethod.isEmpty) {
+      debugPrint('[chronique-video-thumb] skip put: no signed thumbnail url');
       return;
-    }
-    final pending = _thumbnailTasks[mediaId];
-    if (pending != null) {
-      await pending;
-      try {
-        current = _mediaById(mediaId);
-      } catch (_) {
-        return;
-      }
     }
     final jpegPath = current.localThumbnailPath?.trim();
     if (jpegPath == null || jpegPath.isEmpty) {
       return;
     }
-    try {
-      final file = File(jpegPath);
-      if (!file.existsSync()) {
-        return;
-      }
-      final byteSize = file.lengthSync();
-      if (byteSize < 1) {
-        return;
-      }
-      await _uploadClient.putFile(
-        url: thumbUrl,
-        method: thumbMethod,
-        headers: session?.thumbnailHeaders ?? const {'Content-Type': 'image/jpeg'},
-        localPath: jpegPath,
-        byteSize: byteSize,
-      );
-      try {
-        current = _mediaById(mediaId);
-        final remote = current.remoteUpload;
-        if (remote != null) {
-          _replaceMedia(
-            mediaId,
-            current.copyWith(
-              remoteUpload: remote.copyWith(thumbnailPutCompleted: true),
-            ),
-          );
-        }
-      } catch (_) {
-        // Média retiré pendant le PUT : le JPEG est quand même relâché plus bas.
-      }
-    } catch (error) {
-      debugPrint('[chronique-video-thumb] put failed');
-    } finally {
-      await _releaseLocalThumbnailAfterPut(mediaId, jpegPath);
+    final file = File(jpegPath);
+    if (!file.existsSync()) {
+      debugPrint('[chronique-video-thumb] skip put: jpeg missing');
+      return;
     }
+    final byteSize = file.lengthSync();
+    if (byteSize < 1) {
+      debugPrint('[chronique-video-thumb] skip put: jpeg empty');
+      return;
+    }
+    Object? lastError;
+    for (var attempt = 1; attempt <= _kVideoThumbnailPutAttempts; attempt++) {
+      try {
+        await _uploadClient.putFile(
+          url: thumbUrl,
+          method: thumbMethod,
+          headers: session?.thumbnailHeaders ?? const {'Content-Type': 'image/jpeg'},
+          localPath: jpegPath,
+          byteSize: byteSize,
+        );
+        try {
+          current = _mediaById(mediaId);
+          final remote = current.remoteUpload;
+          if (remote != null) {
+            _replaceMedia(
+              mediaId,
+              current.copyWith(
+                remoteUpload: remote.copyWith(thumbnailPutCompleted: true),
+              ),
+            );
+          }
+        } catch (_) {
+          // Média retiré pendant le PUT : libérer le JPEG s’il n’est plus attaché.
+        }
+        await _releaseLocalThumbnailAfterPut(mediaId, jpegPath);
+        return;
+      } catch (error) {
+        lastError = error;
+        final status = error is ApiException ? error.statusCode : null;
+        debugPrint(
+          '[chronique-video-thumb] put failed attempt=$attempt/$_kVideoThumbnailPutAttempts'
+          '${status != null ? ' status=$status' : ''} '
+          'message=${error is ApiException ? error.message : error}',
+        );
+      }
+    }
+    debugPrint(
+      '[chronique-video-thumb] put abandoned after $_kVideoThumbnailPutAttempts attempts'
+      '${lastError == null ? '' : ' last=$lastError'}',
+    );
   }
 
+  /// Libère le JPEG seulement après un PUT miniature réussi.
+  /// Échec PUT : le fichier reste attaché pour une nouvelle tentative dans
+  /// le même `publish`. `clearDraft` / `removeMediaDraft` le suppriment ensuite
+  /// (temporaires OS si le processus est tué).
   Future<void> _releaseLocalThumbnailAfterPut(int mediaId, String jpegPath) async {
     try {
       final current = _mediaById(mediaId);

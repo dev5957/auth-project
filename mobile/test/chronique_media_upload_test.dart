@@ -82,6 +82,7 @@ class _PutClient extends ChroniqueMediaUploadClient {
   final List<Map<String, String>> headers = [];
   ApiException? failWith;
   int? failAt;
+  String? failUrlContains;
   int progressLast = 0;
 
   @override
@@ -99,8 +100,36 @@ class _PutClient extends ChroniqueMediaUploadClient {
     onSendProgress?.call((byteSize / 2).floor(), byteSize);
     onSendProgress?.call(byteSize, byteSize);
     progressLast = 100;
-    if (failWith != null && (failAt == null || putCalls == failAt)) {
+    final matchesUrl = failUrlContains != null && url.contains(failUrlContains!);
+    if (failWith != null &&
+        (matchesUrl || (failUrlContains == null && (failAt == null || putCalls == failAt)))) {
       throw failWith!;
+    }
+  }
+}
+
+class _ThumbFailThenSucceedPut extends ChroniqueMediaUploadClient {
+  _ThumbFailThenSucceedPut({required this.failThumbTimes});
+
+  final int failThumbTimes;
+  int _thumbAttempts = 0;
+  final List<String> urls = [];
+
+  @override
+  Future<void> putFile({
+    required String url,
+    required String method,
+    required Map<String, String> headers,
+    required String localPath,
+    required int byteSize,
+    ProgressCallback? onSendProgress,
+  }) async {
+    urls.add(url);
+    if (url.contains('/thumb/')) {
+      _thumbAttempts += 1;
+      if (_thumbAttempts <= failThumbTimes) {
+        throw const ApiException(message: 'expired', statusCode: 403);
+      }
     }
   }
 }
@@ -212,7 +241,7 @@ class _Api extends ChroniqueApiService {
 
 ProviderContainer _container({
   required _Api api,
-  _PutClient? put,
+  ChroniqueMediaUploadClient? put,
   _FileAccess? files,
   ChroniqueVideoThumbnailExtractor? thumbs,
 }) {
@@ -816,7 +845,7 @@ void main() {
   test('video thumbnail PUT is optional and does not fail the media', () async {
     final api = _Api();
     final put = _PutClient()
-      ..failAt = 2
+      ..failUrlContains = '/thumb/'
       ..failWith = const ApiException(message: 'thumb put failed', statusCode: 400);
     final file = File('${Directory.systemTemp.path}/chronique-unit-thumb.png');
     await file.writeAsBytes(const [1, 2, 3, 4]);
@@ -843,11 +872,15 @@ void main() {
     );
     await controller.publish(body: body);
     expect(api.completeCalls, 1);
-    expect(put.putCalls, 2);
-    expect(put.urls.last, startsWith('https://signed.example/thumb/'));
+    expect(put.urls.where((url) => url.contains('/thumb/')), hasLength(3));
+    expect(put.urls.last, startsWith('https://signed.example/object/'));
     expect(
       container.read(createChroniqueControllerProvider).medias.single.status,
       MediaDraftStatus.uploaded,
+    );
+    expect(
+      container.read(createChroniqueControllerProvider).medias.single.localThumbnailPath,
+      file.path,
     );
   });
 
@@ -891,6 +924,8 @@ void main() {
     _add(controller, _video(id: 0, thumbnailPath: file.path));
     await controller.publish(body: body);
     expect(put.putCalls, 2);
+    expect(put.urls.first, startsWith('https://signed.example/thumb/'));
+    expect(put.urls.last, startsWith('https://signed.example/object/'));
     expect(files.deleted, contains(file.path));
     expect(files.deleted, isNot(contains('/tmp/clip.mp4')));
     expect(
@@ -903,10 +938,10 @@ void main() {
     );
   });
 
-  test('JPEG thumbnail is deleted after a failed thumbnail PUT', () async {
+  test('JPEG thumbnail is kept after a failed thumbnail PUT', () async {
     final api = _Api();
     final put = _PutClient()
-      ..failAt = 2
+      ..failUrlContains = '/thumb/'
       ..failWith = const ApiException(message: 'thumb put failed', statusCode: 400);
     final files = _FileAccess();
     final file = File('${Directory.systemTemp.path}/chronique-thumb-fail.jpg');
@@ -921,11 +956,78 @@ void main() {
     final controller = container.read(createChroniqueControllerProvider.notifier);
     _add(controller, _video(id: 0, thumbnailPath: file.path));
     await controller.publish(body: body);
-    expect(put.putCalls, 2);
-    expect(files.deleted, contains(file.path));
+    expect(put.urls.where((url) => url.contains('/thumb/')), hasLength(3));
+    expect(files.deleted, isNot(contains(file.path)));
+    expect(
+      container.read(createChroniqueControllerProvider).medias.single.localThumbnailPath,
+      file.path,
+    );
     expect(
       container.read(createChroniqueControllerProvider).medias.single.status,
       MediaDraftStatus.uploaded,
+    );
+    controller.clearDraft();
+    await _flushMicrotasks();
+    expect(files.deleted, contains(file.path));
+  });
+
+  test('video thumbnail PUT is retried then succeeds before the video PUT', () async {
+    final api = _Api();
+    final files = _FileAccess();
+    final file = File('${Directory.systemTemp.path}/chronique-thumb-retry.jpg');
+    await file.writeAsBytes(const [1, 2, 3, 4]);
+    addTearDown(() {
+      if (file.existsSync()) {
+        file.deleteSync();
+      }
+    });
+    final counting = _ThumbFailThenSucceedPut(failThumbTimes: 2);
+    final container = _container(api: api, put: counting, files: files);
+    addTearDown(container.dispose);
+    final controller = container.read(createChroniqueControllerProvider.notifier);
+    _add(controller, _video(id: 0, thumbnailPath: file.path));
+    await controller.publish(body: body);
+    expect(counting.urls.where((url) => url.contains('/thumb/')), hasLength(3));
+    expect(counting.urls.last, startsWith('https://signed.example/object/'));
+    expect(files.deleted, contains(file.path));
+    expect(
+      container.read(createChroniqueControllerProvider).medias.single.localThumbnailPath,
+      isNull,
+    );
+  });
+
+  test('two videos upload distinct thumbnails before each video object', () async {
+    final api = _Api();
+    final put = _PutClient();
+    final files = _FileAccess();
+    final first = File('${Directory.systemTemp.path}/chronique-thumb-a.jpg');
+    final second = File('${Directory.systemTemp.path}/chronique-thumb-b.jpg');
+    await first.writeAsBytes(const [1, 2]);
+    await second.writeAsBytes(const [3, 4]);
+    addTearDown(() {
+      if (first.existsSync()) {
+        first.deleteSync();
+      }
+      if (second.existsSync()) {
+        second.deleteSync();
+      }
+    });
+    final container = _container(api: api, put: put, files: files);
+    addTearDown(container.dispose);
+    final controller = container.read(createChroniqueControllerProvider.notifier);
+    _add(controller, _video(id: 0, name: 'a.mp4', path: '/tmp/a.mp4', thumbnailPath: first.path));
+    _add(controller, _video(id: 0, name: 'b.mp4', path: '/tmp/b.mp4', thumbnailPath: second.path));
+    await controller.publish(body: body);
+    expect(put.urls, hasLength(4));
+    expect(put.urls[0], startsWith('https://signed.example/thumb/'));
+    expect(put.urls[1], startsWith('https://signed.example/object/'));
+    expect(put.urls[2], startsWith('https://signed.example/thumb/'));
+    expect(put.urls[3], startsWith('https://signed.example/object/'));
+    expect(put.urls[0], isNot(put.urls[2]));
+    expect(files.deleted, containsAll([first.path, second.path]));
+    expect(
+      container.read(createChroniqueControllerProvider).medias.every((m) => m.isUploaded),
+      isTrue,
     );
   });
 
