@@ -11,6 +11,7 @@ try {
 const express = require('express');
 const authRoutes = require('./routes/auth');
 const chroniqueRoutes = require('./routes/chroniques');
+const communityRoutes = require('./routes/communities');
 const errorHandler = require('./middleware/errorHandler');
 const { corsMiddleware } = require('./middleware/cors');
 const { startChroniqueScheduler } = require('./services/chroniqueScheduler');
@@ -30,6 +31,7 @@ app.get('/health', (req, res) => {
 
 app.use('/auth', authRoutes);
 app.use('/chroniques', chroniqueRoutes);
+app.use('/communities', communityRoutes);
 
 app.use(errorHandler);
 

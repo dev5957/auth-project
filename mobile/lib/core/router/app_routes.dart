@@ -30,12 +30,24 @@ abstract final class AppRoutes {
   /// Publications programmées.
   static const String upcoming = '/upcoming';
 
+  /// Liste des communautés dont l’utilisateur est membre.
+  static const String communities = '/communities';
+
+  /// Création d’une communauté.
+  static const String communitiesCreate = '/communities/create';
+
+  /// Détail d’une communauté. `:communityId` numérique.
+  static const String communityDetailPath = '/communities/:communityId';
+
   static String chroniqueDetail(int id) => '/explore/$id';
 
   static String chroniqueEdit(int id) => '/explore/$id/edit';
 
+  static String communityDetail(int id) => '/communities/$id';
+
   static final RegExp _exploreDetailLocation = RegExp(r'^/explore/\d+$');
   static final RegExp _exploreEditLocation = RegExp(r'^/explore/\d+/edit$');
+  static final RegExp _communityDetailLocation = RegExp(r'^/communities/\d+$');
 
   static bool isAuthenticatedLocation(String location) {
     return location == home ||
@@ -44,7 +56,10 @@ abstract final class AppRoutes {
         location == archives ||
         location == expired ||
         location == upcoming ||
+        location == communities ||
+        location == communitiesCreate ||
         _exploreDetailLocation.hasMatch(location) ||
-        _exploreEditLocation.hasMatch(location);
+        _exploreEditLocation.hasMatch(location) ||
+        _communityDetailLocation.hasMatch(location);
   }
 }

@@ -18,6 +18,9 @@ import '../../features/chronique/presentation/screens/edit_chronique_screen.dart
 import '../../features/chronique/presentation/screens/expired_chroniques_screen.dart';
 import '../../features/chronique/presentation/screens/mon_fil_screen.dart';
 import '../../features/chronique/presentation/screens/upcoming_chroniques_screen.dart';
+import '../../features/community/presentation/screens/community_detail_screen.dart';
+import '../../features/community/presentation/screens/community_list_screen.dart';
+import '../../features/community/presentation/screens/create_community_screen.dart';
 import '../../features/home/presentation/screens/home_screen.dart';
 import 'app_routes.dart';
 import 'session_splash_screen.dart';
@@ -134,6 +137,22 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.upcoming,
         builder: (context, state) => const UpcomingChroniquesScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.communitiesCreate,
+        builder: (context, state) => const CreateCommunityScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.communityDetailPath,
+        builder: (context, state) {
+          final rawId = state.pathParameters['communityId'];
+          final id = int.tryParse(rawId ?? '') ?? 0;
+          return CommunityDetailScreen(communityId: id);
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.communities,
+        builder: (context, state) => const CommunityListScreen(),
       ),
       GoRoute(
         path: AppRoutes.exploreEdit,
