@@ -487,6 +487,17 @@ async function main() {
       assert(init.json.media.kind === spec.kind, `${spec.kind} kind`);
       assert(init.json.media.source_type === spec.source_type, `${spec.kind} source`);
       assert(init.json.upload.method === 'PUT', 'upload method');
+      if (spec.kind === 'video') {
+        const thumb = init.json.thumbnail_upload;
+        assert(thumb && typeof thumb.method === 'string' && thumb.method.trim() !== '', 'video thumbnail method');
+        assert(thumb && typeof thumb.url === 'string' && thumb.url.trim() !== '', 'video thumbnail url');
+        assert(thumb.url !== init.json.upload.url, 'thumbnail url distinct from video upload url');
+      } else {
+        assert(
+          !Object.prototype.hasOwnProperty.call(init.json, 'thumbnail_upload'),
+          `${spec.kind} HTTP response omits thumbnail_upload`
+        );
+      }
       assertNoSecrets(init.json, init.raw);
 
       const storageKey = storageKeyFromUploadUrl(init.json.upload.url);

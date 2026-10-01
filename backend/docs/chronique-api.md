@@ -709,6 +709,35 @@ Statuts : `draft`, `scheduled`, `active`. Interdit : `archived`, `expired`, `del
 
 `upload.url` : URL **signée**, courte durée (ex. 15 min), produite par `StorageService`. Envoi **direct** client → stockage. URL et headers **non persistés**.
 
+`thumbnail_upload` : objet **optionnel**, présent **uniquement** pour `kind: "video"` lorsque le service a pu signer une cible JPEG distincte (`{storage_key}.thumb.jpg`). Même forme que `upload` (`method`, `url`, `headers`, `expires_at`). `thumbnail_upload.url` est **distinct** de `upload.url`. Le client PUT le JPEG **avant** (ou indépendamment de) l’objet vidéo. Le champ est **omis** (pas `null`) pour image, audio, document, et si la signature miniature échoue : l’init vidéo reste valide.
+
+Exemple vidéo (`201`) — extraits :
+
+```json
+{
+  "message": "Upload created",
+  "media": {
+    "id": 8,
+    "kind": "video",
+    "status": "pending_upload"
+  },
+  "upload": {
+    "method": "PUT",
+    "url": "https://signed-upload.example/video-object",
+    "headers": { "Content-Type": "video/mp4" },
+    "expires_at": "2026-09-22T10:15:00.000Z"
+  },
+  "thumbnail_upload": {
+    "method": "PUT",
+    "url": "https://signed-upload.example/video-object.thumb.jpg",
+    "headers": { "Content-Type": "image/jpeg" },
+    "expires_at": "2026-09-22T10:15:00.000Z"
+  }
+}
+```
+
+Les URL d’exemple ci-dessus sont fictives ; le serveur renvoie des URL signées réelles, non persistées.
+
 Fichier envoyé = **original**, sans transformation serveur V1.
 
 #### Erreurs
