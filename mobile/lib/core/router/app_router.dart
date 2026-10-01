@@ -20,6 +20,7 @@ import '../../features/chronique/presentation/screens/mon_fil_screen.dart';
 import '../../features/chronique/presentation/screens/upcoming_chroniques_screen.dart';
 import '../../features/community/presentation/screens/community_detail_screen.dart';
 import '../../features/community/presentation/screens/community_list_screen.dart';
+import '../../features/community/presentation/screens/community_search_screen.dart';
 import '../../features/community/presentation/screens/create_community_screen.dart';
 import '../../features/home/presentation/screens/home_screen.dart';
 import 'app_routes.dart';
@@ -141,6 +142,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.communitiesCreate,
         builder: (context, state) => const CreateCommunityScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.communitiesSearch,
+        builder: (context, state) => const CommunitySearchScreen(),
       ),
       GoRoute(
         path: AppRoutes.communityDetailPath,

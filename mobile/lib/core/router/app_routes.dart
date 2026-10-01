@@ -36,6 +36,9 @@ abstract final class AppRoutes {
   /// Création d’une communauté.
   static const String communitiesCreate = '/communities/create';
 
+  /// Recherche de communautés par nom (aperçu limité).
+  static const String communitiesSearch = '/communities/search';
+
   /// Détail d’une communauté. `:communityId` numérique.
   static const String communityDetailPath = '/communities/:communityId';
 
@@ -58,6 +61,7 @@ abstract final class AppRoutes {
         location == upcoming ||
         location == communities ||
         location == communitiesCreate ||
+        location == communitiesSearch ||
         _exploreDetailLocation.hasMatch(location) ||
         _exploreEditLocation.hasMatch(location) ||
         _communityDetailLocation.hasMatch(location);

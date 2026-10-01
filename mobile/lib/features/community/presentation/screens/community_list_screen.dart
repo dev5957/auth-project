@@ -24,6 +24,13 @@ class CommunityListScreen extends ConsumerWidget {
       backgroundColor: colors.bgBase,
       appBar: AppBar(
         title: const Text('Mes communautés'),
+        actions: [
+          TextButton(
+            key: const ValueKey('community-search-open'),
+            onPressed: () => context.push(AppRoutes.communitiesSearch),
+            child: const Text('Rechercher'),
+          ),
+        ],
       ),
       body: SafeArea(
         child: switch (state) {
