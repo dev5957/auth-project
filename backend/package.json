@@ -25,6 +25,8 @@
     "test:chronique-media": "node src/check-chronique-media.js",
     "test:community-schema": "node src/check-community-schema.js",
     "test:community": "node src/check-community.js",
+    "test:community-invitation-schema": "node src/check-community-invitation-schema.js",
+    "test:community-invitations": "node src/check-community-invitations.js",
     "test:user-search": "node src/check-user-search.js",
     "test:chronique-full-flow": "node src/check-chronique-full-flow.js",
     "test:chronique-read-url": "node src/check-chronique-read-url.js",

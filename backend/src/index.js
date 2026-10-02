@@ -12,6 +12,7 @@ const express = require('express');
 const authRoutes = require('./routes/auth');
 const chroniqueRoutes = require('./routes/chroniques');
 const communityRoutes = require('./routes/communities');
+const invitationRoutes = require('./routes/invitations');
 const userRoutes = require('./routes/users');
 const errorHandler = require('./middleware/errorHandler');
 const { corsMiddleware } = require('./middleware/cors');
@@ -33,6 +34,7 @@ app.get('/health', (req, res) => {
 app.use('/auth', authRoutes);
 app.use('/chroniques', chroniqueRoutes);
 app.use('/communities', communityRoutes);
+app.use('/invitations', invitationRoutes);
 app.use('/users', userRoutes);
 
 app.use(errorHandler);
