@@ -1,6 +1,7 @@
 const {
   createInvitation,
   listReceivedInvitations,
+  listSentInvitations,
   acceptInvitation,
   declineInvitation,
   cancelInvitation,
@@ -17,6 +18,15 @@ async function create(req, res, next) {
       message: 'Invitation created',
       invitation,
     });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function listSent(req, res, next) {
+  try {
+    const result = await listSentInvitations(req.user.userId, req.params.id);
+    res.status(200).json(result);
   } catch (err) {
     next(err);
   }
@@ -60,6 +70,7 @@ async function cancel(req, res, next) {
 
 module.exports = {
   create,
+  listSent,
   listReceived,
   accept,
   decline,

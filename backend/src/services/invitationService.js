@@ -69,6 +69,17 @@ function toInboxInvitation(row) {
   };
 }
 
+function toSentInvitation(row) {
+  const login = row.invitee_login;
+  return {
+    id: formatId(row.id),
+    invitee_login: typeof login === 'string' && login.trim() ? login : null,
+    status: row.status,
+    created_at: toIso(row.created_at),
+    declined_at: row.status === 'declined' ? toIso(row.declined_at) : null,
+  };
+}
+
 function isUniqueViolation(err) {
   return err && (err.code === '23505' || err.constraint === 'community_invitations_one_pending_per_pair_key');
 }
@@ -245,6 +256,45 @@ async function listReceivedInvitations(actorUserId, deps = {}) {
   );
   return {
     items: result.rows.map(toInboxInvitation),
+  };
+}
+
+async function listSentInvitations(actorUserId, rawCommunityId, deps = {}) {
+  const communityId = parseCommunityId(rawCommunityId);
+  requireDatabase();
+  const db = deps.db || pool;
+  const access = await db.query(
+    `SELECT m.role
+     FROM communities c
+     INNER JOIN community_members m
+       ON m.community_id = c.id
+      AND m.user_id = $1
+     WHERE c.id = $2
+     LIMIT 1`,
+    [actorUserId, communityId]
+  );
+  if (!access.rows[0] || access.rows[0].role !== 'owner') {
+    throw new AppError(404, NOT_FOUND);
+  }
+
+  const result = await db.query(
+    `SELECT i.id,
+            u.login AS invitee_login,
+            i.status,
+            i.created_at,
+            CASE
+              WHEN i.status = 'declined' THEN i.updated_at
+              ELSE NULL
+            END AS declined_at
+     FROM community_invitations i
+     INNER JOIN users u ON u.id = i.invitee_user_id
+     WHERE i.community_id = $1
+       AND i.status IN ('pending', 'accepted', 'declined')
+     ORDER BY i.created_at DESC, i.id DESC`,
+    [communityId]
+  );
+  return {
+    items: result.rows.map(toSentInvitation),
   };
 }
 
@@ -473,6 +523,7 @@ module.exports = {
   DECLINE_LIMIT,
   createInvitation,
   listReceivedInvitations,
+  listSentInvitations,
   acceptInvitation,
   declineInvitation,
   cancelInvitation,

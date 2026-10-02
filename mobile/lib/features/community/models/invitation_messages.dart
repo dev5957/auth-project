@@ -8,6 +8,11 @@ abstract final class InvitationMessages {
   static const declined = 'Invitation refusée.';
   static const unavailable = 'Cette invitation n’est plus disponible.';
   static const emptyInbox = 'Aucune invitation en attente';
+  static const sentSectionTitle = 'Invitations envoyées';
+  static const sentEmpty = 'Aucune invitation envoyée';
+  static const statusPending = 'En attente';
+  static const statusDeclined = 'Refusée';
+  static const statusAccepted = 'Acceptée';
   static const genericRetry = 'Impossible de terminer l’action. Réessayez.';
   static const unknown = 'Une erreur est survenue. Veuillez réessayer.';
 
@@ -34,6 +39,19 @@ abstract final class InvitationMessages {
         return unavailable;
       case 'Network error':
         return genericRetry;
+      default:
+        return unknown;
+    }
+  }
+
+  static String sentStatusLabel(String status) {
+    switch (status) {
+      case 'pending':
+        return statusPending;
+      case 'declined':
+        return statusDeclined;
+      case 'accepted':
+        return statusAccepted;
       default:
         return unknown;
     }

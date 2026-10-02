@@ -142,6 +142,24 @@ class CommunityApiService {
     );
   }
 
+  Future<List<SentCommunityInvitation>> listSentInvitations({
+    required String accessToken,
+    required int communityId,
+  }) async {
+    final json = await _send(
+      'GET',
+      '/communities/$communityId/invitations',
+      accessToken: accessToken,
+    );
+    final items = json['items'];
+    if (items is! List) {
+      throw const FormatException('Invalid sent invitation list payload');
+    }
+    return [
+      for (final item in items) SentCommunityInvitation.fromJson(_asMap(item)),
+    ];
+  }
+
   Future<List<CommunityMember>> listMembers({
     required String accessToken,
     required int id,

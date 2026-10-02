@@ -7,7 +7,10 @@ const {
   listMembers,
   patchMemberRole,
 } = require('../controllers/communityController');
-const { create: createInvitation } = require('../controllers/invitationController');
+const {
+  create: createInvitation,
+  listSent: listSentInvitations,
+} = require('../controllers/invitationController');
 const { requireAuth } = require('../middleware/authMiddleware');
 const { createRateLimiter } = require('../middleware/rateLimit');
 
@@ -27,6 +30,7 @@ router.get('/', communityRateLimit.read, list);
 router.get('/search', communityRateLimit.read, search);
 router.get('/:id/members', communityRateLimit.read, listMembers);
 router.patch('/:id/members/:userId', communityRateLimit.write, patchMemberRole);
+router.get('/:id/invitations', communityRateLimit.read, listSentInvitations);
 router.post('/:id/invitations', communityRateLimit.write, createInvitation);
 router.get('/:id', communityRateLimit.read, getOne);
 

@@ -294,3 +294,61 @@ class ReceivedCommunityInvitation {
     return '${two(local.day)}/${two(local.month)}/${local.year}';
   }
 }
+
+class SentCommunityInvitation {
+  const SentCommunityInvitation({
+    required this.id,
+    required this.status,
+    this.inviteeLogin,
+    this.createdAt,
+    this.declinedAt,
+  });
+
+  final int id;
+  final String status;
+  final String? inviteeLogin;
+  final String? createdAt;
+  final String? declinedAt;
+
+  factory SentCommunityInvitation.fromJson(Map<String, dynamic> json) {
+    _rejectInvitationLeaks(json);
+    if (json.containsKey('phone') ||
+        json.containsKey('phone_number') ||
+        json.containsKey('email') ||
+        json.containsKey('invitee_user_id')) {
+      throw const FormatException('Invitation payload leaked private fields');
+    }
+    final status = json['status'];
+    if (status is! String || status.isEmpty) {
+      throw const FormatException('Invalid sent invitation payload');
+    }
+    if (status != 'pending' && status != 'accepted' && status != 'declined') {
+      throw const FormatException('Invalid sent invitation payload');
+    }
+    final login = json['invitee_login'];
+    return SentCommunityInvitation(
+      id: parseChroniqueId(json['id']),
+      status: status,
+      inviteeLogin: login is String && login.trim().isNotEmpty ? login : null,
+      createdAt: json['created_at'] is String ? json['created_at'] as String : null,
+      declinedAt: json['declined_at'] is String ? json['declined_at'] as String : null,
+    );
+  }
+
+  String get declinedOnLabel {
+    if (status != 'declined') {
+      return '';
+    }
+    final raw = declinedAt;
+    if (raw == null || raw.isEmpty) {
+      return '';
+    }
+    final parsed = DateTime.tryParse(raw);
+    if (parsed == null) {
+      return raw;
+    }
+    final local = parsed.toLocal();
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${two(local.day)}/${two(local.month)}/${local.year}';
+  }
+}

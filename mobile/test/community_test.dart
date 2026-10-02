@@ -19,6 +19,7 @@ import 'package:mobile/features/community/models/invitation_messages.dart';
 import 'package:mobile/features/community/presentation/screens/community_detail_screen.dart';
 import 'package:mobile/features/community/presentation/screens/community_list_screen.dart';
 import 'package:mobile/core/widgets/app_card.dart';
+import 'package:mobile/core/widgets/app_loading.dart';
 import 'package:mobile/features/community/presentation/screens/community_search_screen.dart';
 import 'package:mobile/features/community/presentation/screens/create_community_screen.dart';
 import 'package:mobile/features/community/presentation/screens/invitation_inbox_screen.dart';
@@ -118,6 +119,12 @@ class _FakeCommunityApi extends CommunityApiService {
   final List<int> acceptedInvitationIds = <int>[];
   final List<int> declinedInvitationIds = <int>[];
   int listInvitationsCalls = 0;
+  int listSentInvitationsCalls = 0;
+  List<SentCommunityInvitation> sentInvitations = const [];
+  ApiException? failListSentInvitations;
+  bool holdListSentInvitations = false;
+  final List<Completer<List<SentCommunityInvitation>>> listSentHolds =
+      <Completer<List<SentCommunityInvitation>>>[];
   int getCalls = 0;
   int listMembersCalls = 0;
   bool holdGet = false;
@@ -312,6 +319,24 @@ class _FakeCommunityApi extends CommunityApiService {
     }
     declinedInvitationIds.add(invitationId);
     invitations = invitations.where((item) => item.id != invitationId).toList();
+  }
+
+  @override
+  Future<List<SentCommunityInvitation>> listSentInvitations({
+    required String accessToken,
+    required int communityId,
+  }) async {
+    listSentInvitationsCalls += 1;
+    networkOps.add('GET /communities/$communityId/invitations');
+    if (holdListSentInvitations) {
+      final hold = Completer<List<SentCommunityInvitation>>();
+      listSentHolds.add(hold);
+      return hold.future;
+    }
+    if (failListSentInvitations != null) {
+      throw failListSentInvitations!;
+    }
+    return List<SentCommunityInvitation>.from(sentInvitations);
   }
 }
 
@@ -945,7 +970,7 @@ void main() {
     await tester.pumpAndSettle();
     final opsAfterSearch = List<String>.from(api.networkOps);
     expect(opsAfterSearch.where((op) => op == 'GET /users/search'), hasLength(1));
-    expect(opsAfterSearch.where((op) => op.contains('invite')), isEmpty);
+    expect(opsAfterSearch.where((op) => op.startsWith('POST')), isEmpty);
     await tester.tap(find.byKey(const ValueKey('user-search-select-25')));
     await tester.pump();
     expect(find.byKey(const ValueKey('user-search-selected-notice')), findsOneWidget);
@@ -953,10 +978,7 @@ void main() {
     expect(api.userSearchQueries, hasLength(1));
     expect(api.networkOps, opsAfterSearch);
     expect(api.networkOps.where((op) => op.startsWith('POST')), isEmpty);
-    expect(
-      api.networkOps.where((op) => op.contains('invite') || op.contains('invitation')),
-      isEmpty,
-    );
+    expect(api.createInvitationCalls, isEmpty);
   });
 
   testWidgets('empty phone search does not call API', (tester) async {
@@ -1139,7 +1161,10 @@ void main() {
     ]);
     expect(find.byKey(const ValueKey('user-search-sent-notice')), findsOneWidget);
     expect(find.text(InvitationMessages.sent), findsOneWidget);
-    expect(find.byKey(const ValueKey('user-search-item-25')), findsOneWidget);
+    expect(find.byKey(const ValueKey('user-search-item-25')), findsNothing);
+    expect(find.byKey(const ValueKey('user-search-select-25')), findsNothing);
+    expect(find.byKey(const ValueKey('user-search-send-invite')), findsNothing);
+    expect((tester.widget<TextField>(find.byType(TextField)).controller?.text ?? ''), isEmpty);
     expect(find.text('Membre'), findsNothing);
     expect(api.listMembersCalls, 1);
   });
@@ -1524,5 +1549,166 @@ void main() {
     expect(find.byKey(const ValueKey('invitation-inbox-item-11')), findsOneWidget);
     expect(find.text('Cette invitation a déjà été traitée.'), findsOneWidget);
     expect(api.acceptedInvitationIds, isEmpty);
+  });
+
+  testWidgets('failed send keeps query and selected user', (tester) async {
+    final api = _FakeCommunityApi()
+      ..failCreateInvitation = const ApiException(
+        message: 'user is already a member',
+        statusCode: 400,
+      );
+    await selectMoh5(tester, api);
+    await tester.tap(find.byKey(const ValueKey('user-search-send-invite')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('user-search-send-error')), findsOneWidget);
+    expect(find.text('Cet utilisateur est déjà membre.'), findsOneWidget);
+    expect(find.byKey(const ValueKey('user-search-item-25')), findsOneWidget);
+    expect(find.byKey(const ValueKey('user-search-send-invite')), findsOneWidget);
+    expect(tester.widget<TextField>(find.byType(TextField)).controller?.text, 'moh5');
+  });
+
+  testWidgets('new search works after a successful send reset', (tester) async {
+    final api = _FakeCommunityApi();
+    await selectMoh5(tester, api);
+    await tester.tap(find.byKey(const ValueKey('user-search-send-invite')));
+    await tester.pumpAndSettle();
+    expect((tester.widget<TextField>(find.byType(TextField)).controller?.text ?? ''), isEmpty);
+    api.userSearchResults = const [UserSearchHit(userId: 26, login: 'moh6')];
+    await tester.enterText(find.byKey(const ValueKey('user-search-field')), 'moh6');
+    await tester.tap(find.byKey(const ValueKey('user-search-submit')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('user-search-item-26')), findsOneWidget);
+    expect(find.byKey(const ValueKey('user-search-sent-notice')), findsNothing);
+  });
+
+  test('sent invitation payload rejects secrets and inactive statuses', () {
+    expect(
+      () => SentCommunityInvitation.fromJson({
+        'id': 1,
+        'invitee_login': 'moh5',
+        'status': 'pending',
+        'phone': '+33600000000',
+      }),
+      throwsA(isA<FormatException>()),
+    );
+    expect(
+      () => SentCommunityInvitation.fromJson({
+        'id': 1,
+        'invitee_login': 'moh5',
+        'status': 'cancelled',
+      }),
+      throwsA(isA<FormatException>()),
+    );
+    final declined = SentCommunityInvitation.fromJson({
+      'id': 4,
+      'invitee_login': 'moh5',
+      'status': 'declined',
+      'created_at': '2026-10-01T12:00:00.000Z',
+      'declined_at': '2026-10-02T12:00:00.000Z',
+    });
+    expect(declined.inviteeLogin, 'moh5');
+    expect(declined.declinedOnLabel, isNotEmpty);
+  });
+
+  testWidgets('owner sees sent invitations with French statuses', (tester) async {
+    final api = _FakeCommunityApi()
+      ..sentInvitations = const [
+        SentCommunityInvitation(
+          id: 21,
+          status: 'pending',
+          inviteeLogin: 'moh5',
+        ),
+        SentCommunityInvitation(
+          id: 22,
+          status: 'accepted',
+          inviteeLogin: 'ada',
+        ),
+        SentCommunityInvitation(
+          id: 23,
+          status: 'declined',
+          inviteeLogin: 'leo',
+          declinedAt: '2026-10-02T12:00:00.000Z',
+        ),
+      ];
+    await openCommunityDetail(tester, api);
+    expect(find.byKey(const ValueKey('community-sent-invitations-title')), findsOneWidget);
+    expect(find.text('Invitations envoyées'), findsOneWidget);
+    expect(find.text('En attente'), findsOneWidget);
+    expect(find.text('Acceptée'), findsOneWidget);
+    expect(find.text('Refusée'), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-sent-invitation-declined-at-23')), findsOneWidget);
+    expect(find.textContaining('Refusée le'), findsOneWidget);
+    expect(find.text('Annuler'), findsNothing);
+    expect(find.text('Renvoyer'), findsNothing);
+    expect(api.listSentInvitationsCalls, 1);
+    expect(
+      api.networkOps.where((op) => op == 'GET /communities/3/invitations'),
+      isNotEmpty,
+    );
+  });
+
+  testWidgets('admin does not load sent invitations', (tester) async {
+    final api = _FakeCommunityApi()
+      ..sentInvitations = const [
+        SentCommunityInvitation(id: 21, status: 'pending', inviteeLogin: 'moh5'),
+      ];
+    setListedRole(api, CommunityRole.admin);
+    await openCommunityDetail(tester, api);
+    expect(find.byKey(const ValueKey('community-sent-invitations-title')), findsNothing);
+    expect(find.text('Invitations envoyées'), findsNothing);
+    expect(api.listSentInvitationsCalls, 0);
+    expect(
+      api.networkOps.where((op) => op == 'GET /communities/3/invitations'),
+      isEmpty,
+    );
+  });
+
+  testWidgets('member does not load sent invitations', (tester) async {
+    final api = _FakeCommunityApi();
+    setListedRole(api, CommunityRole.member);
+    await openCommunityDetail(tester, api);
+    expect(find.text('Invitations envoyées'), findsNothing);
+    expect(api.listSentInvitationsCalls, 0);
+  });
+
+  testWidgets('owner sent invitations empty state', (tester) async {
+    final api = _FakeCommunityApi();
+    await openCommunityDetail(tester, api);
+    expect(find.byKey(const ValueKey('community-sent-invitations-empty')), findsOneWidget);
+    expect(find.text(InvitationMessages.sentEmpty), findsOneWidget);
+  });
+
+  testWidgets('owner sent invitations shows a loading state', (tester) async {
+    final api = _FakeCommunityApi()..holdListSentInvitations = true;
+    await _pumpApp(tester, api: api);
+    await tester.tap(find.text('COMMUNITIES'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('community-list-item-3')));
+    await tester.pump();
+    await tester.pump();
+    expect(find.byKey(const ValueKey('community-sent-invitations-title')), findsOneWidget);
+    expect(find.byType(AppLoading), findsWidgets);
+    for (final hold in api.listSentHolds) {
+      if (!hold.isCompleted) {
+        hold.complete(const <SentCommunityInvitation>[]);
+      }
+    }
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('community-sent-invitations-empty')), findsOneWidget);
+  });
+
+  testWidgets('owner sent invitations error can be retried', (tester) async {
+    final api = _FakeCommunityApi()
+      ..failListSentInvitations = const ApiException(message: 'Network error');
+    await openCommunityDetail(tester, api);
+    expect(find.byKey(const ValueKey('community-sent-invitations-error')), findsOneWidget);
+    api.failListSentInvitations = null;
+    api.sentInvitations = const [
+      SentCommunityInvitation(id: 21, status: 'pending', inviteeLogin: 'moh5'),
+    ];
+    await tester.tap(find.byKey(const ValueKey('community-sent-invitations-retry')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('community-sent-invitation-login-21')), findsOneWidget);
+    expect(api.listSentInvitationsCalls, 2);
   });
 }

@@ -13,6 +13,7 @@ const {
 const {
   createInvitation,
   listReceivedInvitations,
+  listSentInvitations,
   acceptInvitation,
   declineInvitation,
   cancelInvitation,
@@ -296,6 +297,52 @@ function createInvitationMemory() {
         ],
         rowCount: 1,
       };
+    }
+
+    if (
+      key.includes('FROM COMMUNITIES C') &&
+      key.includes('INNER JOIN COMMUNITY_MEMBERS M') &&
+      key.includes('SELECT M.ROLE')
+    ) {
+      const actorUserId = Number(params[0]);
+      const communityId = Number(params[1]);
+      const community = state.communities.find((item) => Number(item.id) === communityId);
+      if (!community) {
+        return { rows: [], rowCount: 0 };
+      }
+      const member = state.members.find(
+        (item) => Number(item.community_id) === communityId && Number(item.user_id) === actorUserId
+      );
+      return member
+        ? { rows: [{ role: member.role }], rowCount: 1 }
+        : { rows: [], rowCount: 0 };
+    }
+
+    if (
+      key.includes('FROM COMMUNITY_INVITATIONS I') &&
+      key.includes('INNER JOIN USERS U') &&
+      !key.includes('INNER JOIN COMMUNITIES') &&
+      key.includes("STATUS IN ('PENDING', 'ACCEPTED', 'DECLINED')")
+    ) {
+      const communityId = Number(params[0]);
+      const rows = state.invitations
+        .filter(
+          (item) =>
+            Number(item.community_id) === communityId &&
+            (item.status === 'pending' || item.status === 'accepted' || item.status === 'declined')
+        )
+        .sort((a, b) => b.created_at - a.created_at || Number(b.id) - Number(a.id))
+        .map((item) => {
+          const invitee = users.find((entry) => Number(entry.id) === Number(item.invitee_user_id));
+          return {
+            id: item.id,
+            invitee_login: invitee ? invitee.login : null,
+            status: item.status,
+            created_at: item.created_at,
+            declined_at: item.status === 'declined' ? item.updated_at : null,
+          };
+        });
+      return { rows, rowCount: rows.length };
     }
 
     if (
@@ -918,6 +965,96 @@ async function main() {
   }
   console.log('Q OK concurrent cancel vs accept');
 
+  const sentDb = createInvitationMemory();
+  const sentCommunity = sentDb.seedCommunity('Cercle envoyees', OWNER_ID);
+  sentDb.addMember(sentCommunity.id, ADMIN_ID, 'admin');
+  const acceptedInvite = await createInvitation(
+    OWNER_ID,
+    sentCommunity.id,
+    { user_id: INVITEE_ID },
+    { db: sentDb }
+  );
+  await acceptInvitation(INVITEE_ID, acceptedInvite.id, { db: sentDb });
+  sentDb.removeMember(sentCommunity.id, INVITEE_ID);
+  const declinedInvite = await createInvitation(
+    OWNER_ID,
+    sentCommunity.id,
+    { user_id: INVITEE_ID },
+    { db: sentDb }
+  );
+  await declineInvitation(INVITEE_ID, declinedInvite.id, { db: sentDb });
+  const pendingInvite = await createInvitation(
+    OWNER_ID,
+    sentCommunity.id,
+    { user_id: INVITEE_ID },
+    { db: sentDb }
+  );
+  const cancelledInvite = await createInvitation(
+    OWNER_ID,
+    sentCommunity.id,
+    { user_id: STRANGER_ID },
+    { db: sentDb }
+  );
+  await cancelInvitation(OWNER_ID, cancelledInvite.id, { db: sentDb });
+  const replacedInvite = await createInvitation(
+    OWNER_ID,
+    sentCommunity.id,
+    { user_id: STRANGER_ID },
+    { db: sentDb }
+  );
+  const replacementInvite = await createInvitation(
+    OWNER_ID,
+    sentCommunity.id,
+    { user_id: STRANGER_ID },
+    { db: sentDb }
+  );
+  const replacedRow = sentDb.state.invitations.find(
+    (item) => Number(item.id) === Number(replacedInvite.id)
+  );
+  assert(replacedRow.status === 'replaced', 'sent list fixture replaced');
+
+  const sentList = await listSentInvitations(OWNER_ID, sentCommunity.id, { db: sentDb });
+  const sentIds = sentList.items.map((item) => Number(item.id));
+  assert(sentIds.includes(Number(pendingInvite.id)), 'sent list pending');
+  assert(sentIds.includes(Number(declinedInvite.id)), 'sent list declined');
+  assert(sentIds.includes(Number(acceptedInvite.id)), 'sent list accepted');
+  assert(sentIds.includes(Number(replacementInvite.id)), 'sent list latest pending stranger');
+  assert(!sentIds.includes(Number(cancelledInvite.id)), 'sent list excludes cancelled');
+  assert(!sentIds.includes(Number(replacedInvite.id)), 'sent list excludes replaced');
+  for (const item of sentList.items) {
+    assert(sentItemsSafe(item), `sent keys ${inboxKeys(item)}`);
+    assert(!Object.prototype.hasOwnProperty.call(item, 'phone'), 'sent phone');
+    assert(!Object.prototype.hasOwnProperty.call(item, 'phone_number'), 'sent phone_number');
+    assert(!Object.prototype.hasOwnProperty.call(item, 'email'), 'sent email');
+    assert(!Object.prototype.hasOwnProperty.call(item, 'invitee_user_id'), 'sent invitee id');
+  }
+  const declinedItem = sentList.items.find((item) => Number(item.id) === Number(declinedInvite.id));
+  assert(declinedItem.status === 'declined', 'declined status');
+  assert(declinedItem.invitee_login === 'invitee7', 'declined login');
+  assert(typeof declinedItem.declined_at === 'string' && declinedItem.declined_at.length > 0, 'declined_at');
+  const pendingItem = sentList.items.find((item) => Number(item.id) === Number(pendingInvite.id));
+  assert(pendingItem.declined_at === null, 'pending declined_at null');
+  const acceptedItem = sentList.items.find((item) => Number(item.id) === Number(acceptedInvite.id));
+  assert(acceptedItem.declined_at === null, 'accepted declined_at null');
+
+  await expectAsyncAppError(
+    listSentInvitations(ADMIN_ID, sentCommunity.id, { db: sentDb }),
+    404,
+    NOT_FOUND
+  );
+  await expectAsyncAppError(
+    listSentInvitations(INVITEE_ID, sentCommunity.id, { db: sentDb }),
+    404,
+    NOT_FOUND
+  );
+  await expectAsyncAppError(
+    listSentInvitations(STRANGER_ID, sentCommunity.id, { db: sentDb }),
+    404,
+    NOT_FOUND
+  );
+  await expectAsyncAppError(listSentInvitations(OWNER_ID, 9999, { db: sentDb }), 404, NOT_FOUND);
+  console.log('Q2 OK owner sent list pending/declined/accepted; others 404; no secrets');
+
   const threshDb = createInvitationMemory();
   const threshCommunity = threshDb.seedCommunity('Cercle seuil refus', OWNER_ID);
   threshDb.state.declines.push({
@@ -1078,6 +1215,73 @@ async function main() {
     });
     assert(cancelledHttp.status === 200, `cancel http ${cancelledHttp.status}`);
     assert(cancelledHttp.json.invitation.status === 'cancelled', 'http cancelled');
+
+    const httpSentCommunity = db.seedCommunity('HTTP envoyees', OWNER_ID);
+    db.addMember(httpSentCommunity.id, ADMIN_ID, 'admin');
+    const httpPendingInvite = await httpRequest({
+      port: HTTP_PORT,
+      method: 'POST',
+      urlPath: `/communities/${httpSentCommunity.id}/invitations`,
+      headers: ownerAuth,
+      body: { user_id: INVITEE_ID },
+    });
+    assert(httpPendingInvite.status === 201, `http sent pending ${httpPendingInvite.status}`);
+    const httpPendingId = httpPendingInvite.json.invitation.id;
+    const httpDeclineInvite = await httpRequest({
+      port: HTTP_PORT,
+      method: 'POST',
+      urlPath: `/communities/${httpSentCommunity.id}/invitations`,
+      headers: ownerAuth,
+      body: { user_id: STRANGER_ID },
+    });
+    const httpDeclineId = httpDeclineInvite.json.invitation.id;
+    const httpDeclined = await httpRequest({
+      port: HTTP_PORT,
+      method: 'POST',
+      urlPath: `/invitations/${httpDeclineId}/decline`,
+      headers: strangerAuth,
+    });
+    assert(httpDeclined.status === 200, `http sent decline ${httpDeclined.status}`);
+
+    const ownerSentHttp = await httpRequest({
+      port: HTTP_PORT,
+      method: 'GET',
+      urlPath: `/communities/${httpSentCommunity.id}/invitations`,
+      headers: ownerAuth,
+    });
+    assert(ownerSentHttp.status === 200, `owner sent http ${ownerSentHttp.status} ${ownerSentHttp.raw}`);
+    const httpSentIds = ownerSentHttp.json.items.map((item) => Number(item.id));
+    assert(httpSentIds.includes(Number(httpPendingId)), 'http sent pending');
+    assert(httpSentIds.includes(Number(httpDeclineId)), 'http sent declined');
+    for (const item of ownerSentHttp.json.items) {
+      assert(sentItemsSafe(item), `http sent keys ${inboxKeys(item)}`);
+    }
+    assert(!JSON.stringify(ownerSentHttp.json).includes('phone'), 'http sent leaked phone');
+
+    const adminSentHttp = await httpRequest({
+      port: HTTP_PORT,
+      method: 'GET',
+      urlPath: `/communities/${httpSentCommunity.id}/invitations`,
+      headers: adminAuth,
+    });
+    assert(adminSentHttp.status === 404, `admin sent ${adminSentHttp.status}`);
+    assert(adminSentHttp.json.error === NOT_FOUND, adminSentHttp.raw);
+
+    const strangerSentHttp = await httpRequest({
+      port: HTTP_PORT,
+      method: 'GET',
+      urlPath: `/communities/${httpSentCommunity.id}/invitations`,
+      headers: strangerAuth,
+    });
+    assert(strangerSentHttp.status === 404, `stranger sent ${strangerSentHttp.status}`);
+
+    const missingSentHttp = await httpRequest({
+      port: HTTP_PORT,
+      method: 'GET',
+      urlPath: '/communities/99999/invitations',
+      headers: ownerAuth,
+    });
+    assert(missingSentHttp.status === 404, `missing sent ${missingSentHttp.status}`);
     console.log('S OK HTTP create/inbox/accept/decline/cancel and authz');
   } finally {
     await new Promise((resolve) => server.close(resolve));
@@ -1107,6 +1311,12 @@ async function main() {
       urlPath: '/invitations/1/accept',
     });
     assert(unauthAccept.status === 401, `unauth accept ${unauthAccept.status}`);
+    const unauthSent = await httpRequest({
+      port: TEST_PORT,
+      method: 'GET',
+      urlPath: '/communities/1/invitations',
+    });
+    assert(unauthSent.status === 401, `unauth sent ${unauthSent.status}`);
     console.log('T OK unauthenticated invitation routes -> 401');
   } finally {
     await stopServer(child);
@@ -1126,6 +1336,11 @@ async function main() {
 function inboxItemsSafe(item) {
   const keys = inboxKeys(item);
   return keys === 'community_id,community_name,created_at,id,invited_by_login,status';
+}
+
+function sentItemsSafe(item) {
+  const keys = inboxKeys(item);
+  return keys === 'created_at,declined_at,id,invitee_login,status';
 }
 
 main().catch((err) => {

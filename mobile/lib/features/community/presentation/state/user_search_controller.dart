@@ -14,9 +14,10 @@ sealed class UserSearchState {
 }
 
 final class UserSearchIdle extends UserSearchState {
-  const UserSearchIdle({this.queryError});
+  const UserSearchIdle({this.queryError, this.notice});
 
   final String? queryError;
+  final String? notice;
 }
 
 final class UserSearchLoading extends UserSearchState {
@@ -48,12 +49,6 @@ final class UserSearchSelected extends UserSearchState {
 
 final class UserSearchSending extends UserSearchState {
   const UserSearchSending(this.hit);
-
-  final UserSearchHit hit;
-}
-
-final class UserSearchSent extends UserSearchState {
-  const UserSearchSent(this.hit);
 
   final UserSearchHit hit;
 }
@@ -166,7 +161,7 @@ class UserSearchController extends AutoDisposeNotifier<UserSearchState> {
       if (sendGeneration != _sendGeneration) {
         return;
       }
-      state = UserSearchSent(hit);
+      state = const UserSearchIdle(notice: InvitationMessages.sent);
     } on ApiException catch (error) {
       if (sendGeneration != _sendGeneration) {
         return;

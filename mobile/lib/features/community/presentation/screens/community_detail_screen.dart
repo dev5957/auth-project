@@ -11,6 +11,7 @@ import '../../../../core/widgets/app_loading.dart';
 import '../../models/community.dart';
 import '../state/community_detail_controller.dart';
 import '../widgets/community_media_placeholder.dart';
+import '../widgets/sent_invitations_section.dart';
 
 class CommunityDetailScreen extends ConsumerWidget {
   const CommunityDetailScreen({super.key, required this.communityId});
@@ -67,6 +68,7 @@ class CommunityDetailScreen extends ConsumerWidget {
                     onPressed: () =>
                         context.push(AppRoutes.communityInviteSearch(data.community.id)),
                   ),
+                  SentInvitationsSection(communityId: data.community.id),
                 ],
                 if (data.community.description != null) ...[
                   const SizedBox(height: AppSpacing.md),

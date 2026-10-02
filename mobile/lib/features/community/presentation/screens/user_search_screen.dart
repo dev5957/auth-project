@@ -12,7 +12,6 @@ import '../../../../core/widgets/app_loading.dart';
 import '../../../../core/widgets/app_text_field.dart';
 import '../../models/community.dart';
 import '../../models/community_fields.dart';
-import '../../models/invitation_messages.dart';
 import '../state/user_search_controller.dart';
 
 class UserSearchScreen extends ConsumerStatefulWidget {
@@ -52,6 +51,11 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<UserSearchState>(userSearchControllerProvider, (previous, next) {
+      if (next is UserSearchIdle && next.notice != null) {
+        _query.clear();
+      }
+    });
     final colors = context.luminaColors;
     final state = ref.watch(userSearchControllerProvider);
     final idle = state is UserSearchIdle ? state : null;
@@ -123,11 +127,24 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
             ),
             Expanded(
               child: switch (state) {
-                UserSearchIdle() => const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: AppSpacing.xxl),
-                    child: Text(
-                      'Recherchez un utilisateur par login ou par téléphone.',
-                      key: ValueKey('user-search-idle'),
+                UserSearchIdle(:final notice) => Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xxl),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (notice != null) ...[
+                          Text(
+                            notice,
+                            key: const ValueKey('user-search-sent-notice'),
+                            style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
+                          ),
+                          const SizedBox(height: AppSpacing.md),
+                        ],
+                        const Text(
+                          'Recherchez un utilisateur par login ou par téléphone.',
+                          key: ValueKey('user-search-idle'),
+                        ),
+                      ],
                     ),
                   ),
                 UserSearchLoading() => const AppLoading(),
@@ -187,29 +204,6 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
                         ),
                     onClear: () =>
                         ref.read(userSearchControllerProvider.notifier).clearSelection(),
-                  ),
-                UserSearchSent(:final hit) => ListView(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.lg,
-                      0,
-                      AppSpacing.lg,
-                      AppSpacing.lg,
-                    ),
-                    children: [
-                      Text(
-                        InvitationMessages.sent,
-                        key: const ValueKey('user-search-sent-notice'),
-                        style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
-                      ),
-                      const SizedBox(height: AppSpacing.md),
-                      _HitCard(hit: hit),
-                      const SizedBox(height: AppSpacing.md),
-                      AppButton(
-                        key: const ValueKey('user-search-back-community'),
-                        label: 'Retour à la communauté',
-                        onPressed: _goBackToCommunity,
-                      ),
-                    ],
                   ),
               },
             ),

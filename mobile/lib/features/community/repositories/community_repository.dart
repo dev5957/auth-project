@@ -74,6 +74,13 @@ class CommunityRepository {
     );
   }
 
+  Future<List<SentCommunityInvitation>> listSentInvitations(int communityId) async {
+    return _api.listSentInvitations(
+      accessToken: await _requireAccessToken(),
+      communityId: communityId,
+    );
+  }
+
   Future<String> _requireAccessToken() async {
     final token = await _tokenStorage.readAccessToken();
     if (token == null || token.isEmpty) {
