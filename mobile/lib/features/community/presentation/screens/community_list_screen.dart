@@ -25,10 +25,17 @@ class CommunityListScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('Mes communautés'),
         actions: [
-          TextButton(
+          IconButton(
             key: const ValueKey('community-search-open'),
+            tooltip: 'Rechercher',
+            icon: const Icon(Icons.search),
             onPressed: () => context.push(AppRoutes.communitiesSearch),
-            child: const Text('Rechercher'),
+          ),
+          IconButton(
+            key: const ValueKey('community-invitations-open'),
+            tooltip: 'Invitations',
+            icon: const Icon(Icons.mail_outline),
+            onPressed: () => context.push(AppRoutes.invitations),
           ),
         ],
       ),

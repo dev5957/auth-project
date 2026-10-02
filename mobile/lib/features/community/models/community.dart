@@ -186,3 +186,111 @@ class CommunityMember {
     );
   }
 }
+
+const _invitationLeakedFields = <String>[
+  'phone_number',
+  'phone',
+  'email',
+  'password_hash',
+  'birth_date',
+  'first_name',
+  'last_name',
+  'members',
+  'avatar_storage_key',
+  'banner_storage_key',
+];
+
+void _rejectInvitationLeaks(Map<String, dynamic> json) {
+  for (final field in _invitationLeakedFields) {
+    if (json.containsKey(field)) {
+      throw const FormatException('Invitation payload leaked private fields');
+    }
+  }
+}
+
+class CreatedCommunityInvitation {
+  const CreatedCommunityInvitation({
+    required this.id,
+    required this.communityId,
+    required this.inviteeUserId,
+    required this.status,
+    this.createdAt,
+  });
+
+  final int id;
+  final int communityId;
+  final int inviteeUserId;
+  final String status;
+  final String? createdAt;
+
+  factory CreatedCommunityInvitation.fromJson(Map<String, dynamic> json) {
+    _rejectInvitationLeaks(json);
+    final status = json['status'];
+    if (status is! String || status.isEmpty) {
+      throw const FormatException('Invalid invitation payload');
+    }
+    return CreatedCommunityInvitation(
+      id: parseChroniqueId(json['id']),
+      communityId: parseChroniqueId(json['community_id']),
+      inviteeUserId: parseChroniqueId(json['invitee_user_id']),
+      status: status,
+      createdAt: json['created_at'] is String ? json['created_at'] as String : null,
+    );
+  }
+}
+
+class ReceivedCommunityInvitation {
+  const ReceivedCommunityInvitation({
+    required this.id,
+    required this.communityId,
+    required this.communityName,
+    required this.invitedByLogin,
+    required this.status,
+    this.createdAt,
+  });
+
+  final int id;
+  final int communityId;
+  final String communityName;
+  final String invitedByLogin;
+  final String status;
+  final String? createdAt;
+
+  factory ReceivedCommunityInvitation.fromJson(Map<String, dynamic> json) {
+    _rejectInvitationLeaks(json);
+    final name = json['community_name'];
+    final login = json['invited_by_login'];
+    final status = json['status'];
+    if (name is! String || name.isEmpty) {
+      throw const FormatException('Invalid invitation payload');
+    }
+    if (login is! String || login.isEmpty) {
+      throw const FormatException('Invalid invitation payload');
+    }
+    if (status is! String || status.isEmpty) {
+      throw const FormatException('Invalid invitation payload');
+    }
+    return ReceivedCommunityInvitation(
+      id: parseChroniqueId(json['id']),
+      communityId: parseChroniqueId(json['community_id']),
+      communityName: name,
+      invitedByLogin: login,
+      status: status,
+      createdAt: json['created_at'] is String ? json['created_at'] as String : null,
+    );
+  }
+
+  String get receivedOnLabel {
+    final raw = createdAt;
+    if (raw == null || raw.isEmpty) {
+      return '';
+    }
+    final parsed = DateTime.tryParse(raw);
+    if (parsed == null) {
+      return raw;
+    }
+    final local = parsed.toLocal();
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${two(local.day)}/${two(local.month)}/${local.year}';
+  }
+}

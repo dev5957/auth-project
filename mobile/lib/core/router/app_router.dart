@@ -22,6 +22,7 @@ import '../../features/community/presentation/screens/community_detail_screen.da
 import '../../features/community/presentation/screens/community_list_screen.dart';
 import '../../features/community/presentation/screens/community_search_screen.dart';
 import '../../features/community/presentation/screens/create_community_screen.dart';
+import '../../features/community/presentation/screens/invitation_inbox_screen.dart';
 import '../../features/community/presentation/screens/user_search_screen.dart';
 import '../../features/home/presentation/screens/home_screen.dart';
 import 'app_routes.dart';
@@ -139,6 +140,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.upcoming,
         builder: (context, state) => const UpcomingChroniquesScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.invitations,
+        builder: (context, state) => const InvitationInboxScreen(),
       ),
       GoRoute(
         path: AppRoutes.communitiesCreate,

@@ -45,6 +45,35 @@ class CommunityRepository {
     return _api.listMembers(accessToken: await _requireAccessToken(), id: id);
   }
 
+  Future<CreatedCommunityInvitation> createInvitation({
+    required int communityId,
+    required int userId,
+  }) async {
+    return _api.createInvitation(
+      accessToken: await _requireAccessToken(),
+      communityId: communityId,
+      userId: userId,
+    );
+  }
+
+  Future<List<ReceivedCommunityInvitation>> listInvitations() async {
+    return _api.listInvitations(accessToken: await _requireAccessToken());
+  }
+
+  Future<void> acceptInvitation(int invitationId) async {
+    await _api.acceptInvitation(
+      accessToken: await _requireAccessToken(),
+      invitationId: invitationId,
+    );
+  }
+
+  Future<void> declineInvitation(int invitationId) async {
+    await _api.declineInvitation(
+      accessToken: await _requireAccessToken(),
+      invitationId: invitationId,
+    );
+  }
+
   Future<String> _requireAccessToken() async {
     final token = await _tokenStorage.readAccessToken();
     if (token == null || token.isEmpty) {

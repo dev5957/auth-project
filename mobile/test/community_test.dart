@@ -15,11 +15,13 @@ import 'package:mobile/features/auth/providers/auth_providers.dart';
 import 'package:mobile/features/auth/state/auth_state.dart';
 import 'package:mobile/features/community/models/community.dart';
 import 'package:mobile/features/community/models/community_fields.dart';
+import 'package:mobile/features/community/models/invitation_messages.dart';
 import 'package:mobile/features/community/presentation/screens/community_detail_screen.dart';
 import 'package:mobile/features/community/presentation/screens/community_list_screen.dart';
 import 'package:mobile/core/widgets/app_card.dart';
 import 'package:mobile/features/community/presentation/screens/community_search_screen.dart';
 import 'package:mobile/features/community/presentation/screens/create_community_screen.dart';
+import 'package:mobile/features/community/presentation/screens/invitation_inbox_screen.dart';
 import 'package:mobile/features/community/presentation/screens/user_search_screen.dart';
 import 'package:mobile/features/community/presentation/state/community_search_controller.dart';
 import 'package:mobile/features/community/presentation/state/user_search_controller.dart';
@@ -85,6 +87,8 @@ class _FakeCommunityApi extends CommunityApiService {
       : super(ApiClient(config: const AppConfig(apiBaseUrl: 'http://test.invalid')));
 
   ApiException? failList;
+  bool holdList = false;
+  final List<Completer<List<Community>>> listHolds = <Completer<List<Community>>>[];
   ApiException? failGet;
   ApiException? failCreate;
   ApiException? failSearch;
@@ -100,6 +104,20 @@ class _FakeCommunityApi extends CommunityApiService {
   bool holdUserSearch = false;
   final List<Completer<List<UserSearchHit>>> userSearchHolds =
       <Completer<List<UserSearchHit>>>[];
+  ApiException? failCreateInvitation;
+  bool holdCreateInvitation = false;
+  final List<Completer<CreatedCommunityInvitation>> createInvitationHolds =
+      <Completer<CreatedCommunityInvitation>>[];
+  final List<Map<String, int>> createInvitationCalls = <Map<String, int>>[];
+  List<ReceivedCommunityInvitation> invitations = const [];
+  ApiException? failListInvitations;
+  ApiException? failAcceptInvitation;
+  ApiException? failDeclineInvitation;
+  bool holdAcceptInvitation = false;
+  final List<Completer<void>> acceptInvitationHolds = <Completer<void>>[];
+  final List<int> acceptedInvitationIds = <int>[];
+  final List<int> declinedInvitationIds = <int>[];
+  int listInvitationsCalls = 0;
   int getCalls = 0;
   int listMembersCalls = 0;
   bool holdGet = false;
@@ -139,10 +157,15 @@ class _FakeCommunityApi extends CommunityApiService {
 
   @override
   Future<List<Community>> list({required String accessToken}) async {
+    networkOps.add('GET /communities');
+    if (holdList) {
+      final hold = Completer<List<Community>>();
+      listHolds.add(hold);
+      return hold.future;
+    }
     if (failList != null) {
       throw failList!;
     }
-    networkOps.add('GET /communities');
     return List<Community>.from(items);
   }
 
@@ -221,6 +244,74 @@ class _FakeCommunityApi extends CommunityApiService {
       throw failUserSearch!;
     }
     return List<UserSearchHit>.from(userSearchResults);
+  }
+
+  @override
+  Future<CreatedCommunityInvitation> createInvitation({
+    required String accessToken,
+    required int communityId,
+    required int userId,
+  }) async {
+    createInvitationCalls.add({'communityId': communityId, 'userId': userId});
+    networkOps.add('POST /communities/$communityId/invitations');
+    if (holdCreateInvitation) {
+      final hold = Completer<CreatedCommunityInvitation>();
+      createInvitationHolds.add(hold);
+      return hold.future;
+    }
+    if (failCreateInvitation != null) {
+      throw failCreateInvitation!;
+    }
+    return CreatedCommunityInvitation(
+      id: 41,
+      communityId: communityId,
+      inviteeUserId: userId,
+      status: 'pending',
+      createdAt: '2026-10-02T12:00:00.000Z',
+    );
+  }
+
+  @override
+  Future<List<ReceivedCommunityInvitation>> listInvitations({
+    required String accessToken,
+  }) async {
+    listInvitationsCalls += 1;
+    networkOps.add('GET /invitations');
+    if (failListInvitations != null) {
+      throw failListInvitations!;
+    }
+    return List<ReceivedCommunityInvitation>.from(invitations);
+  }
+
+  @override
+  Future<void> acceptInvitation({
+    required String accessToken,
+    required int invitationId,
+  }) async {
+    networkOps.add('POST /invitations/$invitationId/accept');
+    if (holdAcceptInvitation) {
+      final hold = Completer<void>();
+      acceptInvitationHolds.add(hold);
+      await hold.future;
+    }
+    if (failAcceptInvitation != null) {
+      throw failAcceptInvitation!;
+    }
+    acceptedInvitationIds.add(invitationId);
+    invitations = invitations.where((item) => item.id != invitationId).toList();
+  }
+
+  @override
+  Future<void> declineInvitation({
+    required String accessToken,
+    required int invitationId,
+  }) async {
+    networkOps.add('POST /invitations/$invitationId/decline');
+    if (failDeclineInvitation != null) {
+      throw failDeclineInvitation!;
+    }
+    declinedInvitationIds.add(invitationId);
+    invitations = invitations.where((item) => item.id != invitationId).toList();
   }
 }
 
@@ -359,9 +450,11 @@ void main() {
     expect(AppRoutes.isAuthenticatedLocation('/communities/search'), isTrue);
     expect(AppRoutes.isAuthenticatedLocation('/communities/12'), isTrue);
     expect(AppRoutes.isAuthenticatedLocation('/communities/12/invite'), isTrue);
+    expect(AppRoutes.isAuthenticatedLocation('/invitations'), isTrue);
     expect(AppRoutes.isAuthenticatedLocation('/communities/nope'), isFalse);
     expect(AppRoutes.isAuthenticatedLocation('/communities/search/extra'), isFalse);
     expect(AppRoutes.isAuthenticatedLocation('/communities/12/invite/extra'), isFalse);
+    expect(AppRoutes.isAuthenticatedLocation('/invitations/extra'), isFalse);
   });
 
   Future<void> openSearch(WidgetTester tester, _FakeCommunityApi api) async {
@@ -977,5 +1070,459 @@ void main() {
     final still = container.read(userSearchControllerProvider) as UserSearchReady;
     expect(still.hit.login, 'beta');
     expect(still.hit.userId, 2);
+  });
+
+  test('created invitation payload rejects private leaks', () {
+    expect(
+      () => CreatedCommunityInvitation.fromJson({
+        'id': 1,
+        'community_id': 3,
+        'invitee_user_id': 25,
+        'status': 'pending',
+        'email': 'hidden@example.com',
+      }),
+      throwsA(isA<FormatException>()),
+    );
+    final created = CreatedCommunityInvitation.fromJson({
+      'id': 1,
+      'community_id': 3,
+      'invitee_user_id': 25,
+      'status': 'pending',
+      'created_at': '2026-10-02T12:00:00.000Z',
+    });
+    expect(created.inviteeUserId, 25);
+    expect(created.status, 'pending');
+  });
+
+  test('received invitation payload rejects member leaks', () {
+    expect(
+      () => ReceivedCommunityInvitation.fromJson({
+        'id': 1,
+        'community_id': 3,
+        'community_name': 'Jardin secret',
+        'invited_by_login': 'owner42',
+        'status': 'pending',
+        'members': <Object>[],
+      }),
+      throwsA(isA<FormatException>()),
+    );
+    final received = ReceivedCommunityInvitation.fromJson({
+      'id': 7,
+      'community_id': 3,
+      'community_name': 'Jardin secret',
+      'invited_by_login': 'owner42',
+      'status': 'pending',
+      'created_at': '2026-10-02T12:00:00.000Z',
+    });
+    expect(received.communityName, 'Jardin secret');
+    expect(received.invitedByLogin, 'owner42');
+  });
+
+  Future<void> selectMoh5(WidgetTester tester, _FakeCommunityApi api) async {
+    api.userSearchResults = const [UserSearchHit(userId: 25, login: 'moh5')];
+    await openUserSearch(tester, api);
+    await tester.enterText(find.byKey(const ValueKey('user-search-field')), 'moh5');
+    await tester.tap(find.byKey(const ValueKey('user-search-submit')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('user-search-select-25')));
+    await tester.pump();
+  }
+
+  testWidgets('send invitation posts user_id after explicit send', (tester) async {
+    final api = _FakeCommunityApi();
+    await selectMoh5(tester, api);
+    expect(api.createInvitationCalls, isEmpty);
+    await tester.tap(find.byKey(const ValueKey('user-search-send-invite')));
+    await tester.pumpAndSettle();
+    expect(api.createInvitationCalls, [
+      {'communityId': 3, 'userId': 25},
+    ]);
+    expect(find.byKey(const ValueKey('user-search-sent-notice')), findsOneWidget);
+    expect(find.text(InvitationMessages.sent), findsOneWidget);
+    expect(find.byKey(const ValueKey('user-search-item-25')), findsOneWidget);
+    expect(find.text('Membre'), findsNothing);
+    expect(api.listMembersCalls, 1);
+  });
+
+  testWidgets('send invitation maps limit reached', (tester) async {
+    final api = _FakeCommunityApi()
+      ..failCreateInvitation = const ApiException(
+        message: 'invitation limit reached',
+        statusCode: 400,
+      );
+    await selectMoh5(tester, api);
+    await tester.tap(find.byKey(const ValueKey('user-search-send-invite')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('user-search-send-error')), findsOneWidget);
+    expect(
+      find.text(
+        'Cet utilisateur a déjà refusé cinq invitations. Invitation impossible pour le moment.',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('send invitation maps already member', (tester) async {
+    final api = _FakeCommunityApi()
+      ..failCreateInvitation = const ApiException(
+        message: 'user is already a member',
+        statusCode: 400,
+      );
+    await selectMoh5(tester, api);
+    await tester.tap(find.byKey(const ValueKey('user-search-send-invite')));
+    await tester.pumpAndSettle();
+    expect(find.text('Cet utilisateur est déjà membre.'), findsOneWidget);
+  });
+
+  testWidgets('send invitation maps self invite', (tester) async {
+    final api = _FakeCommunityApi()
+      ..failCreateInvitation = const ApiException(
+        message: 'cannot invite yourself',
+        statusCode: 400,
+      );
+    await selectMoh5(tester, api);
+    await tester.tap(find.byKey(const ValueKey('user-search-send-invite')));
+    await tester.pumpAndSettle();
+    expect(find.text('Impossible de s’inviter soi-même.'), findsOneWidget);
+  });
+
+  testWidgets('send invitation maps missing user', (tester) async {
+    final api = _FakeCommunityApi()
+      ..failCreateInvitation = const ApiException(
+        message: 'User not found',
+        statusCode: 404,
+      );
+    await selectMoh5(tester, api);
+    await tester.tap(find.byKey(const ValueKey('user-search-send-invite')));
+    await tester.pumpAndSettle();
+    expect(find.text('Utilisateur introuvable'), findsOneWidget);
+  });
+
+  testWidgets('send invitation 401 shows session error', (tester) async {
+    final api = _FakeCommunityApi()
+      ..failCreateInvitation = const ApiException(
+        message: 'Unauthorized',
+        statusCode: 401,
+      );
+    await selectMoh5(tester, api);
+    await tester.tap(find.byKey(const ValueKey('user-search-send-invite')));
+    await tester.pumpAndSettle();
+    expect(find.text('Session expirée'), findsOneWidget);
+  });
+
+  testWidgets('send invitation disables button while in flight', (tester) async {
+    final api = _FakeCommunityApi()..holdCreateInvitation = true;
+    await selectMoh5(tester, api);
+    await tester.tap(find.byKey(const ValueKey('user-search-send-invite')));
+    await tester.pump();
+    expect(api.createInvitationHolds, hasLength(1));
+    await tester.tap(find.byKey(const ValueKey('user-search-send-invite')));
+    await tester.pump();
+    expect(api.createInvitationCalls, hasLength(1));
+    api.createInvitationHolds.single.complete(
+      const CreatedCommunityInvitation(
+        id: 9,
+        communityId: 3,
+        inviteeUserId: 25,
+        status: 'pending',
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('user-search-sent-notice')), findsOneWidget);
+  });
+
+  testWidgets('clear selection does not send an invitation', (tester) async {
+    final api = _FakeCommunityApi();
+    await selectMoh5(tester, api);
+    await tester.tap(find.byKey(const ValueKey('user-search-clear-selection')));
+    await tester.pump();
+    expect(api.createInvitationCalls, isEmpty);
+    expect(find.byKey(const ValueKey('user-search-select-25')), findsOneWidget);
+  });
+
+  const sampleInvite = ReceivedCommunityInvitation(
+    id: 11,
+    communityId: 3,
+    communityName: 'Jardin secret',
+    invitedByLogin: 'owner42',
+    status: 'pending',
+    createdAt: '2026-10-02T12:00:00.000Z',
+  );
+
+  testWidgets('home invitations opens inbox', (tester) async {
+    final api = _FakeCommunityApi()..invitations = const [sampleInvite];
+    await _pumpApp(tester, api: api);
+    await tester.tap(find.byKey(const ValueKey('home-invitations')));
+    await tester.pumpAndSettle();
+    expect(find.byType(InvitationInboxScreen), findsOneWidget);
+    expect(find.byKey(const ValueKey('invitation-inbox-item-11')), findsOneWidget);
+    expect(find.text('Jardin secret'), findsOneWidget);
+    expect(find.text('Invité par owner42'), findsOneWidget);
+    expect(api.listInvitationsCalls, 1);
+    expect(api.getCalls, 0);
+    expect(
+      api.networkOps.where((op) => RegExp(r'^GET /communities/\d+').hasMatch(op)),
+      isEmpty,
+    );
+  });
+
+  testWidgets('community list invitations opens the same inbox', (tester) async {
+    final api = _FakeCommunityApi();
+    await _pumpApp(tester, api: api);
+    await tester.tap(find.text('COMMUNITIES'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('community-invitations-open')));
+    await tester.pumpAndSettle();
+    expect(find.byType(InvitationInboxScreen), findsOneWidget);
+    expect(find.byKey(const ValueKey('invitation-inbox-empty')), findsOneWidget);
+    expect(find.text(InvitationMessages.emptyInbox), findsOneWidget);
+  });
+
+  testWidgets('inbox load error can be retried', (tester) async {
+    final api = _FakeCommunityApi()
+      ..failListInvitations = const ApiException(message: 'Network error');
+    await _pumpApp(tester, api: api);
+    await tester.tap(find.byKey(const ValueKey('home-invitations')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('invitation-inbox-error')), findsOneWidget);
+    api.failListInvitations = null;
+    api.invitations = const [sampleInvite];
+    await tester.tap(find.byKey(const ValueKey('invitation-inbox-retry')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('invitation-inbox-item-11')), findsOneWidget);
+    expect(api.listInvitationsCalls, 2);
+  });
+
+  testWidgets('inbox 401 shows session error', (tester) async {
+    final api = _FakeCommunityApi()
+      ..failListInvitations = const ApiException(message: 'Unauthorized', statusCode: 401);
+    await _pumpApp(tester, api: api);
+    await tester.tap(find.byKey(const ValueKey('home-invitations')));
+    await tester.pumpAndSettle();
+    expect(find.text('Session expirée'), findsOneWidget);
+  });
+
+  testWidgets('accept invitation removes it and refreshes communities', (tester) async {
+    final api = _FakeCommunityApi()..invitations = const [sampleInvite];
+    await _pumpApp(tester, api: api);
+    await tester.tap(find.byKey(const ValueKey('home-invitations')));
+    await tester.pumpAndSettle();
+    final listCallsBefore = api.networkOps.where((op) => op == 'GET /communities').length;
+    await tester.tap(find.byKey(const ValueKey('invitation-inbox-accept-11')));
+    await tester.pumpAndSettle();
+    expect(api.acceptedInvitationIds, [11]);
+    expect(find.byKey(const ValueKey('invitation-inbox-item-11')), findsNothing);
+    expect(find.text(InvitationMessages.accepted), findsOneWidget);
+    expect(find.byType(InvitationInboxScreen), findsOneWidget);
+    expect(find.byType(CommunityDetailScreen), findsNothing);
+    expect(api.getCalls, 0);
+    expect(
+      api.networkOps.where((op) => op == 'GET /communities').length,
+      greaterThan(listCallsBefore),
+    );
+    expect(api.declinedInvitationIds, isEmpty);
+  });
+
+  testWidgets('decline invitation removes it without membership', (tester) async {
+    final api = _FakeCommunityApi()..invitations = const [sampleInvite];
+    await _pumpApp(tester, api: api);
+    await tester.tap(find.byKey(const ValueKey('home-invitations')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('invitation-inbox-decline-11')));
+    await tester.pumpAndSettle();
+    expect(api.declinedInvitationIds, [11]);
+    expect(api.acceptedInvitationIds, isEmpty);
+    expect(find.byKey(const ValueKey('invitation-inbox-item-11')), findsNothing);
+    expect(find.text(InvitationMessages.declined), findsOneWidget);
+    expect(api.listMembersCalls, 0);
+  });
+
+  testWidgets('accept 404 refreshes inbox as unavailable', (tester) async {
+    final api = _FakeCommunityApi()
+      ..invitations = const [sampleInvite]
+      ..failAcceptInvitation = const ApiException(
+        message: 'Invitation not found',
+        statusCode: 404,
+      );
+    await _pumpApp(tester, api: api);
+    await tester.tap(find.byKey(const ValueKey('home-invitations')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('invitation-inbox-accept-11')));
+    await tester.pumpAndSettle();
+    expect(find.text(InvitationMessages.unavailable), findsOneWidget);
+    expect(api.listInvitationsCalls, 2);
+  });
+
+  testWidgets('inbox accept ignores a second tap while in flight', (tester) async {
+    final api = _FakeCommunityApi()
+      ..invitations = const [sampleInvite]
+      ..holdAcceptInvitation = true;
+    await _pumpApp(tester, api: api);
+    await tester.tap(find.byKey(const ValueKey('home-invitations')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('invitation-inbox-accept-11')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('invitation-inbox-decline-11')));
+    await tester.pump();
+    expect(api.acceptInvitationHolds, hasLength(1));
+    expect(api.declinedInvitationIds, isEmpty);
+    api.acceptInvitationHolds.single.complete();
+    await tester.pumpAndSettle();
+    expect(api.acceptedInvitationIds, [11]);
+  });
+
+  test('unknown invitation API error uses a generic French fallback', () {
+    expect(
+      InvitationMessages.fromApi(
+        const ApiException(message: 'internal relation community_invitations', statusCode: 400),
+      ),
+      InvitationMessages.unknown,
+    );
+    expect(
+      InvitationMessages.fromApi(
+        const ApiException(message: 'internal relation community_invitations', statusCode: 400),
+      ),
+      isNot(contains('community_invitations')),
+    );
+  });
+
+  testWidgets('send invitation maps community not found', (tester) async {
+    final api = _FakeCommunityApi()
+      ..failCreateInvitation = const ApiException(
+        message: 'Community not found',
+        statusCode: 404,
+      );
+    await selectMoh5(tester, api);
+    await tester.tap(find.byKey(const ValueKey('user-search-send-invite')));
+    await tester.pumpAndSettle();
+    expect(find.text('Communauté introuvable'), findsOneWidget);
+  });
+
+  testWidgets('send invitation maps cannot be sent', (tester) async {
+    final api = _FakeCommunityApi()
+      ..failCreateInvitation = const ApiException(
+        message: 'invitation cannot be sent',
+        statusCode: 400,
+      );
+    await selectMoh5(tester, api);
+    await tester.tap(find.byKey(const ValueKey('user-search-send-invite')));
+    await tester.pumpAndSettle();
+    expect(find.text('Invitation impossible à envoyer pour le moment.'), findsOneWidget);
+  });
+
+  testWidgets('send invitation unknown error hides English payload', (tester) async {
+    const secret = 'relation community_invitations violated user=25';
+    final api = _FakeCommunityApi()
+      ..failCreateInvitation = const ApiException(message: secret, statusCode: 400);
+    await selectMoh5(tester, api);
+    await tester.tap(find.byKey(const ValueKey('user-search-send-invite')));
+    await tester.pumpAndSettle();
+    expect(find.text(InvitationMessages.unknown), findsOneWidget);
+    expect(find.textContaining('community_invitations'), findsNothing);
+    expect(find.textContaining(secret), findsNothing);
+  });
+
+  testWidgets('resend invitation posts the same user_id again', (tester) async {
+    final api = _FakeCommunityApi();
+    await selectMoh5(tester, api);
+    await tester.tap(find.byKey(const ValueKey('user-search-send-invite')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('user-search-sent-notice')), findsOneWidget);
+    await tester.enterText(find.byKey(const ValueKey('user-search-field')), 'moh5');
+    await tester.tap(find.byKey(const ValueKey('user-search-submit')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('user-search-select-25')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('user-search-send-invite')));
+    await tester.pumpAndSettle();
+    expect(api.createInvitationCalls, [
+      {'communityId': 3, 'userId': 25},
+      {'communityId': 3, 'userId': 25},
+    ]);
+    expect(find.byKey(const ValueKey('user-search-sent-notice')), findsOneWidget);
+    expect(find.text(InvitationMessages.sent), findsOneWidget);
+  });
+
+  testWidgets('community list app bar fits a 320px viewport', (tester) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final overflowErrors = <Object>[];
+    final previousOnError = FlutterError.onError;
+    FlutterError.onError = (details) {
+      overflowErrors.add(details.exception);
+      previousOnError?.call(details);
+    };
+    addTearDown(() {
+      FlutterError.onError = previousOnError;
+    });
+
+    final api = _FakeCommunityApi();
+    await _pumpApp(tester, api: api);
+    await tester.tap(find.text('COMMUNITIES'));
+    await tester.pumpAndSettle();
+    expect(find.byType(CommunityListScreen), findsOneWidget);
+    expect(find.byTooltip('Rechercher'), findsOneWidget);
+    expect(find.byTooltip('Invitations'), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-search-open')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-invitations-open')), findsOneWidget);
+    expect(
+      overflowErrors.where((error) => error.toString().toLowerCase().contains('overflow')),
+      isEmpty,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('community-search-open')));
+    await tester.pumpAndSettle();
+    expect(find.byType(CommunitySearchScreen), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('community-invitations-open')));
+    await tester.pumpAndSettle();
+    expect(find.byType(InvitationInboxScreen), findsOneWidget);
+  });
+
+  testWidgets('accept removes the card before delayed community list returns', (tester) async {
+    final api = _FakeCommunityApi()
+      ..invitations = const [sampleInvite]
+      ..holdList = true;
+    await _pumpApp(tester, api: api);
+    await tester.tap(find.byKey(const ValueKey('home-invitations')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('invitation-inbox-item-11')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('invitation-inbox-accept-11')));
+    await tester.pump();
+    expect(api.acceptedInvitationIds, [11]);
+    expect(api.listHolds, isNotEmpty);
+    expect(find.byKey(const ValueKey('invitation-inbox-item-11')), findsNothing);
+    expect(find.text(InvitationMessages.accepted), findsOneWidget);
+    expect(find.byType(InvitationInboxScreen), findsOneWidget);
+    expect(find.byType(CommunityDetailScreen), findsNothing);
+    expect(api.getCalls, 0);
+    for (final hold in api.listHolds) {
+      if (!hold.isCompleted) {
+        hold.complete(List<Community>.from(api.items));
+      }
+    }
+    await tester.pumpAndSettle();
+    expect(find.byType(InvitationInboxScreen), findsOneWidget);
+  });
+
+  testWidgets('failed accept keeps the invitation visible', (tester) async {
+    final api = _FakeCommunityApi()
+      ..invitations = const [sampleInvite]
+      ..failAcceptInvitation = const ApiException(
+        message: 'invitation is not pending',
+        statusCode: 400,
+      );
+    await _pumpApp(tester, api: api);
+    await tester.tap(find.byKey(const ValueKey('home-invitations')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('invitation-inbox-accept-11')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('invitation-inbox-item-11')), findsOneWidget);
+    expect(find.text('Cette invitation a déjà été traitée.'), findsOneWidget);
+    expect(api.acceptedInvitationIds, isEmpty);
   });
 }

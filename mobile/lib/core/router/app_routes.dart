@@ -45,6 +45,9 @@ abstract final class AppRoutes {
   /// Recherche d’un utilisateur à inviter (propriétaire).
   static const String communityInviteSearchPath = '/communities/:communityId/invite';
 
+  /// Invitations reçues en attente.
+  static const String invitations = '/invitations';
+
   static String chroniqueDetail(int id) => '/explore/$id';
 
   static String chroniqueEdit(int id) => '/explore/$id/edit';
@@ -68,6 +71,7 @@ abstract final class AppRoutes {
         location == communities ||
         location == communitiesCreate ||
         location == communitiesSearch ||
+        location == invitations ||
         _exploreDetailLocation.hasMatch(location) ||
         _exploreEditLocation.hasMatch(location) ||
         _communityInviteLocation.hasMatch(location) ||

@@ -92,6 +92,56 @@ class CommunityApiService {
     return _communityFrom(json);
   }
 
+  Future<CreatedCommunityInvitation> createInvitation({
+    required String accessToken,
+    required int communityId,
+    required int userId,
+  }) async {
+    final json = await _send(
+      'POST',
+      '/communities/$communityId/invitations',
+      accessToken: accessToken,
+      data: <String, dynamic>{'user_id': userId},
+    );
+    final invitation = json['invitation'] ?? json;
+    return CreatedCommunityInvitation.fromJson(_asMap(invitation));
+  }
+
+  Future<List<ReceivedCommunityInvitation>> listInvitations({
+    required String accessToken,
+  }) async {
+    final json = await _send('GET', '/invitations', accessToken: accessToken);
+    final items = json['items'];
+    if (items is! List) {
+      throw const FormatException('Invalid invitation list payload');
+    }
+    return [
+      for (final item in items) ReceivedCommunityInvitation.fromJson(_asMap(item)),
+    ];
+  }
+
+  Future<void> acceptInvitation({
+    required String accessToken,
+    required int invitationId,
+  }) async {
+    await _send(
+      'POST',
+      '/invitations/$invitationId/accept',
+      accessToken: accessToken,
+    );
+  }
+
+  Future<void> declineInvitation({
+    required String accessToken,
+    required int invitationId,
+  }) async {
+    await _send(
+      'POST',
+      '/invitations/$invitationId/decline',
+      accessToken: accessToken,
+    );
+  }
+
   Future<List<CommunityMember>> listMembers({
     required String accessToken,
     required int id,

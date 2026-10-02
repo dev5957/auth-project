@@ -4,10 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../models/community.dart';
 import '../../models/community_fields.dart';
+import '../../models/invitation_messages.dart';
 import '../../providers/community_providers.dart';
 
-const String kUserSearchSelectedNotice =
-    'Utilisateur sélectionné. L’envoi des invitations sera disponible dans une prochaine étape.';
+const String kUserSearchSelectedNotice = InvitationMessages.selectedHint;
 
 sealed class UserSearchState {
   const UserSearchState();
@@ -46,8 +46,29 @@ final class UserSearchSelected extends UserSearchState {
   final UserSearchHit hit;
 }
 
+final class UserSearchSending extends UserSearchState {
+  const UserSearchSending(this.hit);
+
+  final UserSearchHit hit;
+}
+
+final class UserSearchSent extends UserSearchState {
+  const UserSearchSent(this.hit);
+
+  final UserSearchHit hit;
+}
+
+final class UserSearchSendError extends UserSearchState {
+  const UserSearchSendError(this.hit, this.message, {this.statusCode});
+
+  final UserSearchHit hit;
+  final String message;
+  final int? statusCode;
+}
+
 class UserSearchController extends AutoDisposeNotifier<UserSearchState> {
   int _generation = 0;
+  int _sendGeneration = 0;
   UserSearchMode _lastMode = UserSearchMode.login;
   String _lastRaw = '';
 
@@ -55,6 +76,9 @@ class UserSearchController extends AutoDisposeNotifier<UserSearchState> {
   UserSearchState build() => const UserSearchIdle();
 
   Future<void> submit(UserSearchMode mode, String raw) async {
+    if (state is UserSearchSending) {
+      return;
+    }
     final queryError = UserSearchFields.errorFor(mode, raw);
     if (queryError != null) {
       state = UserSearchIdle(queryError: queryError);
@@ -63,6 +87,7 @@ class UserSearchController extends AutoDisposeNotifier<UserSearchState> {
     _lastMode = mode;
     _lastRaw = raw;
     final generation = ++_generation;
+    _sendGeneration += 1;
     state = const UserSearchLoading();
     try {
       final items = await ref.read(communityRepositoryProvider).searchUsers(
@@ -108,6 +133,59 @@ class UserSearchController extends AutoDisposeNotifier<UserSearchState> {
       return;
     }
     state = UserSearchSelected(hit);
+  }
+
+  void clearSelection() {
+    final current = state;
+    if (current is UserSearchSelected) {
+      state = UserSearchReady(current.hit);
+      return;
+    }
+    if (current is UserSearchSendError) {
+      state = UserSearchReady(current.hit);
+    }
+  }
+
+  Future<void> sendInvitation({
+    required int communityId,
+    required UserSearchHit hit,
+  }) async {
+    if (state is UserSearchSending) {
+      return;
+    }
+    if (state is! UserSearchSelected && state is! UserSearchSendError) {
+      return;
+    }
+    final sendGeneration = ++_sendGeneration;
+    state = UserSearchSending(hit);
+    try {
+      await ref.read(communityRepositoryProvider).createInvitation(
+            communityId: communityId,
+            userId: hit.userId,
+          );
+      if (sendGeneration != _sendGeneration) {
+        return;
+      }
+      state = UserSearchSent(hit);
+    } on ApiException catch (error) {
+      if (sendGeneration != _sendGeneration) {
+        return;
+      }
+      debugPrint(
+        '[community] POST /communities/invitations failed '
+        'status=${error.statusCode} type=ApiException',
+      );
+      state = UserSearchSendError(
+        hit,
+        InvitationMessages.fromApi(error),
+        statusCode: error.statusCode,
+      );
+    } on FormatException {
+      if (sendGeneration != _sendGeneration) {
+        return;
+      }
+      state = UserSearchSendError(hit, InvitationMessages.genericRetry);
+    }
   }
 }
 

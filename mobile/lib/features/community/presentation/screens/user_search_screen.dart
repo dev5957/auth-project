@@ -12,6 +12,7 @@ import '../../../../core/widgets/app_loading.dart';
 import '../../../../core/widgets/app_text_field.dart';
 import '../../models/community.dart';
 import '../../models/community_fields.dart';
+import '../../models/invitation_messages.dart';
 import '../state/user_search_controller.dart';
 
 class UserSearchScreen extends ConsumerStatefulWidget {
@@ -41,12 +42,21 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
     ref.read(userSearchControllerProvider.notifier).select(hit);
   }
 
+  void _goBackToCommunity() {
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go(AppRoutes.communityDetail(widget.communityId));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.luminaColors;
     final state = ref.watch(userSearchControllerProvider);
     final idle = state is UserSearchIdle ? state : null;
-    final loading = state is UserSearchLoading;
+    final sending = state is UserSearchSending;
+    final loading = state is UserSearchLoading || sending;
     final isPhone = _mode == UserSearchMode.phone;
 
     return Scaffold(
@@ -56,13 +66,7 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
         leading: IconButton(
           key: const ValueKey('user-search-back'),
           icon: const Icon(Icons.arrow_back),
-          onPressed: () {
-            if (context.canPop()) {
-              context.pop();
-            } else {
-              context.go(AppRoutes.communityDetail(widget.communityId));
-            }
-          },
+          onPressed: sending ? null : _goBackToCommunity,
         ),
       ),
       body: SafeArea(
@@ -111,7 +115,7 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
                   AppButton(
                     key: const ValueKey('user-search-submit'),
                     label: 'Rechercher',
-                    isLoading: loading,
+                    isLoading: state is UserSearchLoading,
                     onPressed: loading ? null : _submit,
                   ),
                 ],
@@ -157,7 +161,34 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
                     hit: hit,
                     onSelect: () => _select(hit),
                   ),
-                UserSearchSelected(:final hit) => ListView(
+                UserSearchSelected(:final hit) => _SelectedPane(
+                    hit: hit,
+                    sending: false,
+                    onSend: () => ref.read(userSearchControllerProvider.notifier).sendInvitation(
+                          communityId: widget.communityId,
+                          hit: hit,
+                        ),
+                    onClear: () =>
+                        ref.read(userSearchControllerProvider.notifier).clearSelection(),
+                  ),
+                UserSearchSending(:final hit) => _SelectedPane(
+                    hit: hit,
+                    sending: true,
+                    onSend: null,
+                    onClear: null,
+                  ),
+                UserSearchSendError(:final hit, :final message) => _SelectedPane(
+                    hit: hit,
+                    sending: false,
+                    error: message,
+                    onSend: () => ref.read(userSearchControllerProvider.notifier).sendInvitation(
+                          communityId: widget.communityId,
+                          hit: hit,
+                        ),
+                    onClear: () =>
+                        ref.read(userSearchControllerProvider.notifier).clearSelection(),
+                  ),
+                UserSearchSent(:final hit) => ListView(
                     padding: const EdgeInsets.fromLTRB(
                       AppSpacing.lg,
                       0,
@@ -166,12 +197,18 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
                     ),
                     children: [
                       Text(
-                        kUserSearchSelectedNotice,
-                        key: const ValueKey('user-search-selected-notice'),
+                        InvitationMessages.sent,
+                        key: const ValueKey('user-search-sent-notice'),
                         style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
                       ),
                       const SizedBox(height: AppSpacing.md),
                       _HitCard(hit: hit),
+                      const SizedBox(height: AppSpacing.md),
+                      AppButton(
+                        key: const ValueKey('user-search-back-community'),
+                        label: 'Retour à la communauté',
+                        onPressed: _goBackToCommunity,
+                      ),
                     ],
                   ),
               },
@@ -179,6 +216,65 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _SelectedPane extends StatelessWidget {
+  const _SelectedPane({
+    required this.hit,
+    required this.sending,
+    required this.onSend,
+    required this.onClear,
+    this.error,
+  });
+
+  final UserSearchHit hit;
+  final bool sending;
+  final VoidCallback? onSend;
+  final VoidCallback? onClear;
+  final String? error;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.luminaColors;
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        0,
+        AppSpacing.lg,
+        AppSpacing.lg,
+      ),
+      children: [
+        Text(
+          kUserSearchSelectedNotice,
+          key: const ValueKey('user-search-selected-notice'),
+          style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        _HitCard(hit: hit),
+        if (error != null) ...[
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            error!,
+            key: const ValueKey('user-search-send-error'),
+          ),
+        ],
+        const SizedBox(height: AppSpacing.md),
+        AppButton(
+          key: const ValueKey('user-search-send-invite'),
+          label: 'Envoyer l’invitation',
+          isLoading: sending,
+          onPressed: onSend,
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        AppButton(
+          key: const ValueKey('user-search-clear-selection'),
+          label: 'Changer d’utilisateur',
+          variant: AppButtonVariant.secondary,
+          onPressed: sending ? null : onClear,
+        ),
+      ],
     );
   }
 }
@@ -192,7 +288,7 @@ class _HitCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+      padding: EdgeInsets.symmetric(horizontal: onSelect == null ? 0 : AppSpacing.lg),
       child: AppCard(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
