@@ -38,6 +38,33 @@ class CommunityApiService {
     ];
   }
 
+  Future<List<UserSearchHit>> searchUsers({
+    required String accessToken,
+    String? login,
+    String? phone,
+  }) async {
+    final hasLogin = login != null;
+    final hasPhone = phone != null;
+    if (hasLogin == hasPhone) {
+      throw const FormatException('User search requires login or phone');
+    }
+    final json = await _send(
+      'GET',
+      '/users/search',
+      accessToken: accessToken,
+      queryParameters: hasLogin
+          ? <String, dynamic>{'login': login}
+          : <String, dynamic>{'phone': phone},
+    );
+    final items = json['items'];
+    if (items is! List) {
+      throw const FormatException('Invalid user search payload');
+    }
+    return [
+      for (final item in items) UserSearchHit.fromJson(_asMap(item)),
+    ];
+  }
+
   Future<List<CommunitySearchPreview>> search({
     required String accessToken,
     required String q,

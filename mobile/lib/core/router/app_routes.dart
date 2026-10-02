@@ -42,15 +42,21 @@ abstract final class AppRoutes {
   /// Détail d’une communauté. `:communityId` numérique.
   static const String communityDetailPath = '/communities/:communityId';
 
+  /// Recherche d’un utilisateur à inviter (propriétaire).
+  static const String communityInviteSearchPath = '/communities/:communityId/invite';
+
   static String chroniqueDetail(int id) => '/explore/$id';
 
   static String chroniqueEdit(int id) => '/explore/$id/edit';
 
   static String communityDetail(int id) => '/communities/$id';
 
+  static String communityInviteSearch(int id) => '/communities/$id/invite';
+
   static final RegExp _exploreDetailLocation = RegExp(r'^/explore/\d+$');
   static final RegExp _exploreEditLocation = RegExp(r'^/explore/\d+/edit$');
   static final RegExp _communityDetailLocation = RegExp(r'^/communities/\d+$');
+  static final RegExp _communityInviteLocation = RegExp(r'^/communities/\d+/invite$');
 
   static bool isAuthenticatedLocation(String location) {
     return location == home ||
@@ -64,6 +70,7 @@ abstract final class AppRoutes {
         location == communitiesSearch ||
         _exploreDetailLocation.hasMatch(location) ||
         _exploreEditLocation.hasMatch(location) ||
+        _communityInviteLocation.hasMatch(location) ||
         _communityDetailLocation.hasMatch(location);
   }
 }

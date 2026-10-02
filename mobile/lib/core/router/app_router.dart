@@ -22,6 +22,7 @@ import '../../features/community/presentation/screens/community_detail_screen.da
 import '../../features/community/presentation/screens/community_list_screen.dart';
 import '../../features/community/presentation/screens/community_search_screen.dart';
 import '../../features/community/presentation/screens/create_community_screen.dart';
+import '../../features/community/presentation/screens/user_search_screen.dart';
 import '../../features/home/presentation/screens/home_screen.dart';
 import 'app_routes.dart';
 import 'session_splash_screen.dart';
@@ -146,6 +147,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.communitiesSearch,
         builder: (context, state) => const CommunitySearchScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.communityInviteSearchPath,
+        builder: (context, state) {
+          final rawId = state.pathParameters['communityId'];
+          final id = int.tryParse(rawId ?? '') ?? 0;
+          return UserSearchScreen(communityId: id);
+        },
       ),
       GoRoute(
         path: AppRoutes.communityDetailPath,

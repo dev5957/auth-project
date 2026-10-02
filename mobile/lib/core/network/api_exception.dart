@@ -1,6 +1,8 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import 'http_log_sanitize.dart';
+
 /// Erreur API alignée sur `{ "error": "<message>" }` du backend.
 class ApiException implements Exception {
   const ApiException({
@@ -25,7 +27,9 @@ class ApiException implements Exception {
     // TEMP diagnostic — no body, tokens, or passwords.
     debugPrint(
       '[auth-http-diag] fromDio response==null=${error.response == null} '
-      'type=${error.type} uri=${error.requestOptions.uri}',
+      'type=${error.type} method=${error.requestOptions.method} '
+      'path=${error.requestOptions.path} '
+      'uri=${HttpLogSanitize.requestUri(error.requestOptions)}',
     );
     if (error.response != null) {
       return ApiException.fromResponse(

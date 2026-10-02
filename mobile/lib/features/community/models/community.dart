@@ -124,6 +124,44 @@ class CommunitySearchPreview {
   }
 }
 
+class UserSearchHit {
+  const UserSearchHit({
+    required this.userId,
+    required this.login,
+  });
+
+  final int userId;
+  final String login;
+
+  static const _leakedFields = <String>[
+    'phone_number',
+    'phone',
+    'email',
+    'password_hash',
+    'birth_date',
+    'first_name',
+    'last_name',
+    'auth_provider',
+    'provider_user_id',
+  ];
+
+  factory UserSearchHit.fromJson(Map<String, dynamic> json) {
+    final login = json['login'];
+    if (login is! String || login.isEmpty) {
+      throw const FormatException('Invalid user search payload');
+    }
+    for (final field in _leakedFields) {
+      if (json.containsKey(field)) {
+        throw const FormatException('User search payload leaked private fields');
+      }
+    }
+    return UserSearchHit(
+      userId: parseChroniqueId(json['user_id']),
+      login: login,
+    );
+  }
+}
+
 class CommunityMember {
   const CommunityMember({
     required this.userId,

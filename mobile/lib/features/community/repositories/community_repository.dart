@@ -29,6 +29,14 @@ class CommunityRepository {
     return _api.search(accessToken: await _requireAccessToken(), q: q);
   }
 
+  Future<List<UserSearchHit>> searchUsers({String? login, String? phone}) async {
+    return _api.searchUsers(
+      accessToken: await _requireAccessToken(),
+      login: login,
+      phone: phone,
+    );
+  }
+
   Future<Community> get(int id) async {
     return _api.get(accessToken: await _requireAccessToken(), id: id);
   }

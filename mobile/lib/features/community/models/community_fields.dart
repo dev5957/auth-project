@@ -52,3 +52,39 @@ abstract final class CommunityFields {
     return null;
   }
 }
+
+enum UserSearchMode { login, phone }
+
+/// Validation locale de `GET /users/search` (login XOR phone, trim, max login 64).
+abstract final class UserSearchFields {
+  static const int loginMax = 64;
+
+  static String preparedLogin(String raw) => raw.trim().toLowerCase();
+
+  static String preparedPhone(String raw) => raw.trim();
+
+  static String? loginError(String raw) {
+    final login = preparedLogin(raw);
+    if (login.isEmpty) {
+      return 'Saisissez un login';
+    }
+    if (CommunityFields.runeLength(login) > loginMax) {
+      return 'Le login est invalide';
+    }
+    return null;
+  }
+
+  static String? phoneError(String raw) {
+    if (preparedPhone(raw).isEmpty) {
+      return 'Saisissez un numéro de téléphone';
+    }
+    return null;
+  }
+
+  static String? errorFor(UserSearchMode mode, String raw) {
+    return switch (mode) {
+      UserSearchMode.login => loginError(raw),
+      UserSearchMode.phone => phoneError(raw),
+    };
+  }
+}
