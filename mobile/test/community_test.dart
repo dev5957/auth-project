@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 
 import 'package:mobile/core/config/app_config.dart';
 import 'package:mobile/core/network/api_client.dart';
@@ -571,6 +572,15 @@ Future<void> _pumpApp(
 }
 
 void main() {
+  const sampleInvite = ReceivedCommunityInvitation(
+    id: 11,
+    communityId: 3,
+    communityName: 'Jardin secret',
+    invitedByLogin: 'owner42',
+    status: 'pending',
+    createdAt: '2026-10-02T12:00:00.000Z',
+  );
+
   test('community name validation uses trim and rune length', () {
     expect(CommunityFields.nameError('short'), isNotNull);
     expect(CommunityFields.nameError('abcdefghij'), isNull);
@@ -668,6 +678,79 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(CommunityListScreen), findsOneWidget);
     expect(find.byType(CommunityDetailScreen), findsNothing);
+    expect(find.byType(BackButton), findsOneWidget);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(find.byType(HomeScreen), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-communities')), findsOneWidget);
+  });
+
+  Future<void> expectListKeepsHome(WidgetTester tester) async {
+    expect(find.byType(CommunityDetailScreen), findsNothing);
+    expect(find.byType(CommunityListScreen), findsOneWidget);
+    expect(find.byType(BackButton), findsOneWidget);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(find.byType(HomeScreen), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-communities')), findsOneWidget);
+    expect(find.byType(CommunityListScreen), findsNothing);
+  }
+
+  testWidgets('detail close pops back to list keeping Home', (tester) async {
+    final api = _FakeCommunityApi();
+    await _pumpApp(tester, api: api);
+    expect(find.byType(HomeScreen), findsOneWidget);
+    await tester.tap(find.text('COMMUNITIES'));
+    await tester.pumpAndSettle();
+    expect(find.byType(CommunityListScreen), findsOneWidget);
+    expect(find.byType(BackButton), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('community-list-item-3')));
+    await tester.pumpAndSettle();
+    expect(find.byType(CommunityDetailScreen), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('community-detail-close')));
+    await tester.pumpAndSettle();
+    await expectListKeepsHome(tester);
+  });
+
+  testWidgets('after accepting an invitation, detail close keeps Home under list', (tester) async {
+    final api = _FakeCommunityApi()..invitations = const [sampleInvite];
+    await _pumpApp(tester, api: api);
+    await tester.tap(find.byKey(const ValueKey('home-invitations')));
+    await tester.pumpAndSettle();
+    expect(find.byType(InvitationInboxScreen), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('invitation-inbox-accept-11')));
+    await tester.pumpAndSettle();
+    expect(find.byType(InvitationInboxScreen), findsOneWidget);
+    expect(find.text(InvitationMessages.accepted), findsOneWidget);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(find.byType(HomeScreen), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('home-communities')));
+    await tester.pumpAndSettle();
+    expect(find.byType(CommunityListScreen), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('community-list-item-3')));
+    await tester.pumpAndSettle();
+    expect(find.byType(CommunityDetailScreen), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('community-detail-close')));
+    await tester.pumpAndSettle();
+    await expectListKeepsHome(tester);
+  });
+
+  testWidgets('detail close falls back to go communities when nothing to pop', (tester) async {
+    final api = _FakeCommunityApi();
+    await _pumpApp(tester, api: api);
+    expect(find.byType(HomeScreen), findsOneWidget);
+    GoRouter.of(tester.element(find.byType(HomeScreen))).go(AppRoutes.communityDetail(3));
+    await tester.pumpAndSettle();
+    expect(find.byType(CommunityDetailScreen), findsOneWidget);
+    expect(find.byType(HomeScreen), findsNothing);
+    expect(find.byType(CommunityListScreen), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('community-detail-close')));
+    await tester.pumpAndSettle();
+    expect(find.byType(CommunityListScreen), findsOneWidget);
+    expect(find.byType(CommunityDetailScreen), findsNothing);
+    expect(find.byType(HomeScreen), findsNothing);
+    expect(find.byType(BackButton), findsNothing);
   });
 
   testWidgets('list 401 shows session error', (tester) async {
@@ -1480,15 +1563,6 @@ void main() {
     expect(api.createInvitationCalls, isEmpty);
     expect(find.byKey(const ValueKey('user-search-select-25')), findsOneWidget);
   });
-
-  const sampleInvite = ReceivedCommunityInvitation(
-    id: 11,
-    communityId: 3,
-    communityName: 'Jardin secret',
-    invitedByLogin: 'owner42',
-    status: 'pending',
-    createdAt: '2026-10-02T12:00:00.000Z',
-  );
 
   testWidgets('home invitations opens inbox', (tester) async {
     final api = _FakeCommunityApi()..invitations = const [sampleInvite];

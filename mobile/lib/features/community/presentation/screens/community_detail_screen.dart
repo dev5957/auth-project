@@ -124,7 +124,11 @@ class CommunityDetailScreen extends ConsumerWidget {
     if (!context.mounted) {
       return;
     }
-    context.go(AppRoutes.communities);
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go(AppRoutes.communities);
+    }
   }
 
   @override
