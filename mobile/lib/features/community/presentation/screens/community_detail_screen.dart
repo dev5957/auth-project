@@ -116,7 +116,7 @@ class CommunityDetailScreen extends ConsumerWidget {
     if (!context.mounted) {
       return;
     }
-    context.go(AppRoutes.communities);
+    context.pop();
   }
 
   Future<void> _returnToCommunityList(BuildContext context, WidgetRef ref) async {

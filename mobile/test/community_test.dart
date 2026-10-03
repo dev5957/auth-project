@@ -2564,6 +2564,18 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  Future<void> expectLeaveReturnsToListKeepingHome(WidgetTester tester) async {
+    expect(find.byType(CommunityDetailScreen), findsNothing);
+    expect(find.byType(CommunityListScreen), findsOneWidget);
+    expect(find.text('Aucune communauté pour le moment'), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-list-item-3')), findsNothing);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(find.byType(HomeScreen), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-communities')), findsOneWidget);
+    expect(find.byType(CommunityListScreen), findsNothing);
+  }
+
   testWidgets('member leave closes detail and reloads empty list', (tester) async {
     final api = _FakeCommunityApi();
     setListedRole(api, CommunityRole.member);
@@ -2573,10 +2585,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('community-leave-confirm-yes')));
     await tester.pumpAndSettle();
     expect(api.leaveCalls, 1);
-    expect(find.byType(CommunityDetailScreen), findsNothing);
-    expect(find.byType(CommunityListScreen), findsOneWidget);
-    expect(find.text('Aucune communauté pour le moment'), findsOneWidget);
-    expect(find.byKey(const ValueKey('community-list-item-3')), findsNothing);
+    await expectLeaveReturnsToListKeepingHome(tester);
   });
 
   testWidgets('admin leave closes detail and reloads empty list', (tester) async {
@@ -2588,9 +2597,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('community-leave-confirm-yes')));
     await tester.pumpAndSettle();
     expect(api.leaveCalls, 1);
-    expect(find.byType(CommunityDetailScreen), findsNothing);
-    expect(find.byType(CommunityListScreen), findsOneWidget);
-    expect(find.text('Aucune communauté pour le moment'), findsOneWidget);
+    await expectLeaveReturnsToListKeepingHome(tester);
   });
 
   testWidgets('owner transfer leave closes detail and reloads list', (tester) async {
@@ -2617,8 +2624,6 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('community-transfer-confirm-yes')));
     await tester.pumpAndSettle();
     expect(api.leaveCalls, 1);
-    expect(find.byType(CommunityDetailScreen), findsNothing);
-    expect(find.byType(CommunityListScreen), findsOneWidget);
-    expect(find.text('Aucune communauté pour le moment'), findsOneWidget);
+    await expectLeaveReturnsToListKeepingHome(tester);
   });
 }
