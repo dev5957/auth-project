@@ -165,9 +165,16 @@ async function lockDeclineCounter(client, communityId, inviteeUserId) {
   return result.rows[0];
 }
 
-async function closePendingJoinRequestsIfPresent(_client, _communityId, _userId) {
-  // Lot 2.4: clôturer les demandes d’adhésion pending du même couple
-  // sans les compter comme un refus d’invitation.
+async function closePendingJoinRequestsIfPresent(client, communityId, userId) {
+  await client.query(
+    `UPDATE community_join_requests
+     SET status = 'cancelled',
+         updated_at = NOW()
+     WHERE community_id = $1
+       AND user_id = $2
+       AND status = 'pending'`,
+    [communityId, userId]
+  );
 }
 
 async function createInvitation(actorUserId, rawCommunityId, body, deps = {}) {

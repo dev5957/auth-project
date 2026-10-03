@@ -11,6 +11,12 @@ const {
   create: createInvitation,
   listSent: listSentInvitations,
 } = require('../controllers/invitationController');
+const {
+  create: createJoinRequest,
+  listForCommunity: listCommunityJoinRequests,
+  accept: acceptJoinRequest,
+  decline: declineJoinRequest,
+} = require('../controllers/joinRequestController');
 const { requireAuth } = require('../middleware/authMiddleware');
 const { createRateLimiter } = require('../middleware/rateLimit');
 
@@ -32,6 +38,10 @@ router.get('/:id/members', communityRateLimit.read, listMembers);
 router.patch('/:id/members/:userId', communityRateLimit.write, patchMemberRole);
 router.get('/:id/invitations', communityRateLimit.read, listSentInvitations);
 router.post('/:id/invitations', communityRateLimit.write, createInvitation);
+router.get('/:id/join-requests', communityRateLimit.read, listCommunityJoinRequests);
+router.post('/:id/join-requests', communityRateLimit.write, createJoinRequest);
+router.post('/:id/join-requests/:requestId/accept', communityRateLimit.write, acceptJoinRequest);
+router.post('/:id/join-requests/:requestId/decline', communityRateLimit.write, declineJoinRequest);
 router.get('/:id', communityRateLimit.read, getOne);
 
 module.exports = router;

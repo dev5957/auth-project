@@ -97,6 +97,7 @@ function cloneState(state, nextIds) {
     communities: state.communities.map((row) => ({ ...row })),
     members: state.members.map((row) => ({ ...row })),
     invitations: state.invitations.map((row) => ({ ...row })),
+    joinRequests: state.joinRequests.map((row) => ({ ...row })),
     declines: state.declines.map((row) => ({ ...row })),
     nextIds: { ...nextIds },
   };
@@ -113,6 +114,7 @@ function createInvitationMemory() {
     communities: [],
     members: [],
     invitations: [],
+    joinRequests: [],
     declines: [],
   };
   const nextIds = {
@@ -160,6 +162,7 @@ function createInvitationMemory() {
         state.communities = session.snapshot.communities;
         state.members = session.snapshot.members;
         state.invitations = session.snapshot.invitations;
+        state.joinRequests = session.snapshot.joinRequests;
         state.declines = session.snapshot.declines;
         nextIds.community = session.snapshot.nextIds.community;
         nextIds.member = session.snapshot.nextIds.member;
@@ -492,6 +495,25 @@ function createInvitationMemory() {
         throw err;
       }
       return { rows: [{ ...row }], rowCount: 1 };
+    }
+
+    if (key.startsWith("UPDATE COMMUNITY_JOIN_REQUESTS") && key.includes("STATUS = 'CANCELLED'")) {
+      const communityId = Number(params[0]);
+      const userId = Number(params[1]);
+      const now = new Date();
+      let count = 0;
+      for (const row of state.joinRequests) {
+        if (
+          Number(row.community_id) === communityId &&
+          Number(row.user_id) === userId &&
+          row.status === 'pending'
+        ) {
+          row.status = 'cancelled';
+          row.updated_at = now;
+          count += 1;
+        }
+      }
+      return { rows: [], rowCount: count };
     }
 
     throw new Error(`unexpected SQL: ${sql}`);
@@ -877,8 +899,12 @@ async function main() {
     INVITATION_NOT_FOUND
   );
   assert(typeof closePendingJoinRequestsIfPresent === 'function', '2.4 hook exported');
-  await closePendingJoinRequestsIfPresent({}, community.id, INVITEE_ID);
-  console.log('M OK third-party accept/decline 404; 2.4 hook is a no-op');
+  await closePendingJoinRequestsIfPresent(
+    { query: async () => ({ rows: [], rowCount: 0 }) },
+    community.id,
+    INVITEE_ID
+  );
+  console.log('M OK third-party accept/decline 404; 2.4 hook closes pending join requests');
 
   const concDb = createInvitationMemory();
   const concCommunity = concDb.seedCommunity('Cercle concurrence invits', OWNER_ID);
