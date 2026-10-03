@@ -142,6 +142,18 @@ async function requireOwnerActor(client, communityId, actorUserId) {
   return membership;
 }
 
+async function requireOwnerOrAdminActor(client, communityId, actorUserId) {
+  const community = await lockCommunity(client, communityId);
+  const membership = await lockMembership(client, communityId, actorUserId);
+  if (!community || !membership) {
+    throw new AppError(404, NOT_FOUND);
+  }
+  if (membership.role !== 'owner' && membership.role !== 'admin') {
+    throw new AppError(400, CANNOT_SEND);
+  }
+  return membership;
+}
+
 async function lockDeclineCounter(client, communityId, inviteeUserId) {
   await client.query(
     `INSERT INTO community_invitation_declines (
@@ -189,7 +201,7 @@ async function createInvitation(actorUserId, rawCommunityId, body, deps = {}) {
 
   try {
     return await withTransaction(db, async (client) => {
-      await requireOwnerActor(client, communityId, actorUserId);
+      await requireOwnerOrAdminActor(client, communityId, actorUserId);
 
       const user = await client.query(
         `SELECT id
@@ -280,7 +292,10 @@ async function listSentInvitations(actorUserId, rawCommunityId, deps = {}) {
      LIMIT 1`,
     [actorUserId, communityId]
   );
-  if (!access.rows[0] || access.rows[0].role !== 'owner') {
+  if (
+    !access.rows[0] ||
+    (access.rows[0].role !== 'owner' && access.rows[0].role !== 'admin')
+  ) {
     throw new AppError(404, NOT_FOUND);
   }
 

@@ -11,13 +11,108 @@ import '../../../../core/widgets/app_loading.dart';
 import '../../models/community.dart';
 import '../state/community_detail_controller.dart';
 import '../widgets/community_join_requests_section.dart';
+import '../widgets/community_leave_bar.dart';
 import '../widgets/community_media_placeholder.dart';
+import '../widgets/community_member_dialogs.dart';
+import '../widgets/community_member_tile.dart';
+import '../widgets/community_owner_leave_flow.dart';
 import '../widgets/sent_invitations_section.dart';
 
 class CommunityDetailScreen extends ConsumerWidget {
   const CommunityDetailScreen({super.key, required this.communityId});
 
   final int communityId;
+
+  Future<void> _onPromote(
+    BuildContext context,
+    WidgetRef ref,
+    CommunityMember member,
+  ) async {
+    final confirmed = await confirmPromoteMember(context, login: member.login);
+    if (!confirmed) {
+      return;
+    }
+    final ok = await ref
+        .read(communityDetailControllerProvider(communityId).notifier)
+        .updateMemberRole(userId: member.userId, role: 'admin');
+    if (!context.mounted) {
+      return;
+    }
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Impossible de modifier ce rôle')),
+      );
+    }
+  }
+
+  Future<void> _onDemote(
+    BuildContext context,
+    WidgetRef ref,
+    CommunityMember member,
+  ) async {
+    final confirmed = await confirmDemoteAdmin(context, login: member.login);
+    if (!confirmed) {
+      return;
+    }
+    final ok = await ref
+        .read(communityDetailControllerProvider(communityId).notifier)
+        .updateMemberRole(userId: member.userId, role: 'member');
+    if (!context.mounted) {
+      return;
+    }
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Impossible de modifier ce rôle')),
+      );
+    }
+  }
+
+  Future<void> _onRemove(
+    BuildContext context,
+    WidgetRef ref,
+    CommunityMember member,
+  ) async {
+    final confirmed = await confirmRemoveMember(context, login: member.login);
+    if (!confirmed) {
+      return;
+    }
+    final ok = await ref
+        .read(communityDetailControllerProvider(communityId).notifier)
+        .removeMember(member.userId);
+    if (!context.mounted) {
+      return;
+    }
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Impossible de retirer ce membre')),
+      );
+    }
+  }
+
+  Future<void> _onLeave(
+    BuildContext context,
+    WidgetRef ref,
+    Community community,
+    List<CommunityMember> members,
+  ) async {
+    final notifier = ref.read(communityDetailControllerProvider(communityId).notifier);
+    final left = await runCommunityLeaveFlow(
+      context: context,
+      myRole: community.myRole,
+      members: members,
+      updateMemberRole: notifier.updateMemberRole,
+      leave: notifier.leave,
+      onError: (message) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+        }
+      },
+    );
+    if (!left || !context.mounted) {
+      return;
+    }
+    context.go(AppRoutes.communities);
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -61,7 +156,8 @@ class CommunityDetailScreen extends ConsumerWidget {
                   key: const ValueKey('community-detail-role'),
                   style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
                 ),
-                if (data.community.myRole == CommunityRole.owner) ...[
+                if (data.community.myRole == CommunityRole.owner ||
+                    data.community.myRole == CommunityRole.admin) ...[
                   const SizedBox(height: AppSpacing.lg),
                   AppButton(
                     key: const ValueKey('community-detail-invite'),
@@ -70,8 +166,9 @@ class CommunityDetailScreen extends ConsumerWidget {
                         context.push(AppRoutes.communityInviteSearch(data.community.id)),
                   ),
                   SentInvitationsSection(communityId: data.community.id),
-                  CommunityJoinRequestsSection(communityId: data.community.id),
                 ],
+                if (data.community.myRole == CommunityRole.owner)
+                  CommunityJoinRequestsSection(communityId: data.community.id),
                 if (data.community.description != null) ...[
                   const SizedBox(height: AppSpacing.md),
                   Text(data.community.description!),
@@ -83,10 +180,22 @@ class CommunityDetailScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: AppSpacing.md),
                 for (final member in data.members)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                    child: Text('${member.login} · ${member.role.label}'),
+                  CommunityMemberTile(
+                    member: member,
+                    viewerRole: data.community.myRole,
+                    onPromote: () => _onPromote(context, ref, member),
+                    onDemote: () => _onDemote(context, ref, member),
+                    onRemove: () => _onRemove(context, ref, member),
                   ),
+                CommunityLeaveBar(
+                  myRole: data.community.myRole,
+                  onLeave: () => _onLeave(
+                    context,
+                    ref,
+                    data.community,
+                    data.members,
+                  ),
+                ),
               ],
             ),
         },

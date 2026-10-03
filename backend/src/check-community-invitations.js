@@ -41,6 +41,7 @@ const HTTP_PORT = 30481;
 const OWNER_ID = 42;
 const INVITEE_ID = 7;
 const ADMIN_ID = 9;
+const MEMBER_ID = 8;
 const STRANGER_ID = 11;
 const MISSING_USER_ID = 999;
 
@@ -108,6 +109,7 @@ function createInvitationMemory() {
     { id: OWNER_ID, login: 'owner42' },
     { id: INVITEE_ID, login: 'invitee7' },
     { id: ADMIN_ID, login: 'admin9' },
+    { id: MEMBER_ID, login: 'member8' },
     { id: STRANGER_ID, login: 'stranger11' },
   ];
   const state = {
@@ -733,12 +735,18 @@ async function main() {
   const db = createInvitationMemory();
   const community = db.seedCommunity('Cercle prive invitation', OWNER_ID);
   db.addMember(community.id, ADMIN_ID, 'admin');
+  db.addMember(community.id, MEMBER_ID, 'member');
 
   const created = await createInvitation(OWNER_ID, community.id, { user_id: INVITEE_ID }, { db });
   assert(created.status === 'pending', 'created pending');
   assert(Number(created.invitee_user_id) === INVITEE_ID, 'invitee stored as user_id');
   assert(!Object.prototype.hasOwnProperty.call(created, 'login'), 'create payload has no login');
   console.log('B OK owner invite creates pending');
+
+  const adminCreated = await createInvitation(ADMIN_ID, community.id, { user_id: STRANGER_ID }, { db });
+  assert(adminCreated.status === 'pending', 'admin created pending');
+  assert(Number(adminCreated.invitee_user_id) === STRANGER_ID, 'admin invitee');
+  console.log('B2 OK admin invite creates pending');
 
   const inbox = await listReceivedInvitations(INVITEE_ID, { db });
   assert(inbox.items.length === 1, 'inbox one pending');
@@ -766,7 +774,7 @@ async function main() {
     CANNOT_INVITE_SELF
   );
   await expectAsyncAppError(
-    createInvitation(ADMIN_ID, community.id, { user_id: INVITEE_ID }, { db }),
+    createInvitation(MEMBER_ID, community.id, { user_id: INVITEE_ID }, { db }),
     400,
     CANNOT_SEND
   );
@@ -795,7 +803,7 @@ async function main() {
     400,
     ALREADY_MEMBER
   );
-  console.log('E OK negative create: self/admin/non-member/missing/already member');
+  console.log('E OK negative create: self/member/non-member/missing/already member');
 
   const accepted = await acceptInvitation(INVITEE_ID, resent.id, { db });
   assert(accepted.invitation.status === 'accepted', 'accepted status');
@@ -1063,11 +1071,8 @@ async function main() {
   const acceptedItem = sentList.items.find((item) => Number(item.id) === Number(acceptedInvite.id));
   assert(acceptedItem.declined_at === null, 'accepted declined_at null');
 
-  await expectAsyncAppError(
-    listSentInvitations(ADMIN_ID, sentCommunity.id, { db: sentDb }),
-    404,
-    NOT_FOUND
-  );
+  const adminSentList = await listSentInvitations(ADMIN_ID, sentCommunity.id, { db: sentDb });
+  assert(adminSentList.items.length === sentList.items.length, 'admin sees same sent list');
   await expectAsyncAppError(
     listSentInvitations(INVITEE_ID, sentCommunity.id, { db: sentDb }),
     404,
@@ -1079,7 +1084,7 @@ async function main() {
     NOT_FOUND
   );
   await expectAsyncAppError(listSentInvitations(OWNER_ID, 9999, { db: sentDb }), 404, NOT_FOUND);
-  console.log('Q2 OK owner sent list pending/declined/accepted; others 404; no secrets');
+  console.log('Q2 OK owner/admin sent list pending/declined/accepted; members 404; no secrets');
 
   const threshDb = createInvitationMemory();
   const threshCommunity = threshDb.seedCommunity('Cercle seuil refus', OWNER_ID);
@@ -1127,6 +1132,7 @@ async function main() {
     const ownerAuth = authFor(OWNER_ID, 'owner42');
     const inviteeAuth = authFor(INVITEE_ID, 'invitee7');
     const adminAuth = authFor(ADMIN_ID, 'admin9');
+    const memberAuth = authFor(MEMBER_ID, 'member8');
     const strangerAuth = authFor(STRANGER_ID, 'stranger11');
 
     const httpInvite = await httpRequest({
@@ -1160,8 +1166,18 @@ async function main() {
       headers: adminAuth,
       body: { user_id: STRANGER_ID },
     });
-    assert(adminCreate.status === 400, `admin invite ${adminCreate.status}`);
-    assert(adminCreate.json.error === CANNOT_SEND, adminCreate.raw);
+    assert(adminCreate.status === 201, `admin invite ${adminCreate.status} ${adminCreate.raw}`);
+    assert(adminCreate.json.invitation.status === 'pending', 'admin http pending');
+
+    const memberCreate = await httpRequest({
+      port: HTTP_PORT,
+      method: 'POST',
+      urlPath: `/communities/${community.id}/invitations`,
+      headers: memberAuth,
+      body: { user_id: STRANGER_ID },
+    });
+    assert(memberCreate.status === 400, `member invite ${memberCreate.status}`);
+    assert(memberCreate.json.error === CANNOT_SEND, memberCreate.raw);
 
     const strangerCreate = await httpRequest({
       port: HTTP_PORT,
@@ -1290,8 +1306,8 @@ async function main() {
       urlPath: `/communities/${httpSentCommunity.id}/invitations`,
       headers: adminAuth,
     });
-    assert(adminSentHttp.status === 404, `admin sent ${adminSentHttp.status}`);
-    assert(adminSentHttp.json.error === NOT_FOUND, adminSentHttp.raw);
+    assert(adminSentHttp.status === 200, `admin sent ${adminSentHttp.status} ${adminSentHttp.raw}`);
+    assert(Array.isArray(adminSentHttp.json.items), 'admin sent items');
 
     const strangerSentHttp = await httpRequest({
       port: HTTP_PORT,

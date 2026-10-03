@@ -167,11 +167,13 @@ class CommunityMember {
     required this.userId,
     required this.login,
     required this.role,
+    this.roleAssignedAt,
   });
 
   final int userId;
   final String login;
   final CommunityRole role;
+  final DateTime? roleAssignedAt;
 
   factory CommunityMember.fromJson(Map<String, dynamic> json) {
     final login = json['login'];
@@ -179,12 +181,44 @@ class CommunityMember {
     if (login is! String || role is! String) {
       throw const FormatException('Invalid community member payload');
     }
+    DateTime? assignedAt;
+    final rawAssigned = json['role_assigned_at'];
+    if (rawAssigned is String && rawAssigned.isNotEmpty) {
+      assignedAt = DateTime.tryParse(rawAssigned);
+    }
     return CommunityMember(
       userId: parseChroniqueId(json['user_id']),
       login: login,
       role: CommunityRole.parse(role),
+      roleAssignedAt: assignedAt,
     );
   }
+}
+
+CommunityMember? oldestCurrentAdmin(List<CommunityMember> members) {
+  final admins = members.where((item) => item.role == CommunityRole.admin).toList();
+  if (admins.isEmpty) {
+    return null;
+  }
+  admins.sort((a, b) {
+    final ta = a.roleAssignedAt;
+    final tb = b.roleAssignedAt;
+    if (ta == null && tb == null) {
+      return a.userId.compareTo(b.userId);
+    }
+    if (ta == null) {
+      return 1;
+    }
+    if (tb == null) {
+      return -1;
+    }
+    final compared = ta.compareTo(tb);
+    if (compared != 0) {
+      return compared;
+    }
+    return a.userId.compareTo(b.userId);
+  });
+  return admins.first;
 }
 
 const _invitationLeakedFields = <String>[

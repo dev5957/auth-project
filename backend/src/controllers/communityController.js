@@ -5,6 +5,8 @@ const {
   searchCommunities,
   listCommunityMembers,
   updateMemberRole,
+  removeMember,
+  leaveCommunity,
 } = require('../services/communityService');
 
 async function create(req, res, next) {
@@ -69,6 +71,28 @@ async function patchMemberRole(req, res, next) {
   }
 }
 
+async function remove(req, res, next) {
+  try {
+    const result = await removeMember(
+      req.user.userId,
+      req.params.id,
+      req.params.userId
+    );
+    res.status(200).json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function leave(req, res, next) {
+  try {
+    const result = await leaveCommunity(req.user.userId, req.params.id);
+    res.status(200).json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   create,
   list,
@@ -76,4 +100,6 @@ module.exports = {
   getOne,
   listMembers,
   patchMemberRole,
+  remove,
+  leave,
 };

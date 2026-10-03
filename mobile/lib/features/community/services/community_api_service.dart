@@ -252,6 +252,45 @@ class CommunityApiService {
     ];
   }
 
+  Future<CommunityMember> updateMemberRole({
+    required String accessToken,
+    required int communityId,
+    required int userId,
+    required String role,
+  }) async {
+    final json = await _send(
+      'PATCH',
+      '/communities/$communityId/members/$userId',
+      accessToken: accessToken,
+      data: <String, dynamic>{'role': role},
+    );
+    final member = json['member'] ?? json;
+    return CommunityMember.fromJson(_asMap(member));
+  }
+
+  Future<void> removeMember({
+    required String accessToken,
+    required int communityId,
+    required int userId,
+  }) async {
+    await _send(
+      'DELETE',
+      '/communities/$communityId/members/$userId',
+      accessToken: accessToken,
+    );
+  }
+
+  Future<Map<String, dynamic>> leaveCommunity({
+    required String accessToken,
+    required int communityId,
+  }) async {
+    return _send(
+      'POST',
+      '/communities/$communityId/leave',
+      accessToken: accessToken,
+    );
+  }
+
   Community _communityFrom(Map<String, dynamic> json) {
     final community = json['community'] ?? json;
     return Community.fromJson(_asMap(community));

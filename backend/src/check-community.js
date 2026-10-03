@@ -137,11 +137,81 @@ function createCommunityMemory() {
         community_id: Number(params[0]),
         user_id: Number(params[1]),
         role: params[2],
+        role_assigned_at: null,
         created_at: now,
         updated_at: now,
       };
       nextMemberId += 1;
       state.members.push(row);
+      return { rows: [{ ...row }], rowCount: 1 };
+    }
+
+    if (key.includes('FROM COMMUNITIES') && key.includes('FOR UPDATE') && !key.includes('JOIN')) {
+      const id = Number(params[0]);
+      const community = state.communities.find((item) => Number(item.id) === id);
+      if (!community) {
+        return { rows: [], rowCount: 0 };
+      }
+      return { rows: [{ id: community.id, created_by: community.created_by }], rowCount: 1 };
+    }
+
+    if (key.startsWith('DELETE FROM COMMUNITY_MEMBERS')) {
+      const communityId = Number(params[0]);
+      const userId = Number(params[1]);
+      const index = state.members.findIndex(
+        (item) => Number(item.community_id) === communityId && Number(item.user_id) === userId
+      );
+      if (index < 0) {
+        return { rows: [], rowCount: 0 };
+      }
+      state.members.splice(index, 1);
+      return { rows: [], rowCount: 1 };
+    }
+
+    if (key.includes('AS OWNER_COUNT')) {
+      const communityId = Number(params[0]);
+      const ownerCount = state.members.filter(
+        (item) => Number(item.community_id) === communityId && item.role === 'owner'
+      ).length;
+      return { rows: [{ owner_count: ownerCount }], rowCount: 1 };
+    }
+
+    if (key.includes("ROLE = 'ADMIN'") && key.includes('ORDER BY ROLE_ASSIGNED_AT')) {
+      const communityId = Number(params[0]);
+      const rows = state.members
+        .filter((item) => Number(item.community_id) === communityId && item.role === 'admin')
+        .sort((a, b) => {
+          const ta = a.role_assigned_at ? new Date(a.role_assigned_at).getTime() : Number.MAX_SAFE_INTEGER;
+          const tb = b.role_assigned_at ? new Date(b.role_assigned_at).getTime() : Number.MAX_SAFE_INTEGER;
+          if (ta !== tb) {
+            return ta - tb;
+          }
+          return Number(a.user_id) - Number(b.user_id);
+        })
+        .slice(0, 1)
+        .map((item) => ({
+          user_id: item.user_id,
+          role: item.role,
+          role_assigned_at: item.role_assigned_at,
+        }));
+      return { rows, rowCount: rows.length };
+    }
+
+    if (key.startsWith('UPDATE COMMUNITY_MEMBERS') && key.includes("ROLE = 'OWNER'")) {
+      const communityId = Number(params[0]);
+      const userId = Number(params[1]);
+      const row = state.members.find(
+        (item) =>
+          Number(item.community_id) === communityId &&
+          Number(item.user_id) === userId &&
+          item.role === 'admin'
+      );
+      if (!row) {
+        return { rows: [], rowCount: 0 };
+      }
+      row.role = 'owner';
+      row.role_assigned_at = null;
+      row.updated_at = new Date();
       return { rows: [{ ...row }], rowCount: 1 };
     }
 
@@ -157,6 +227,11 @@ function createCommunityMemory() {
       }
       row.role = role;
       row.updated_at = new Date();
+      if (key.includes('ROLE_ASSIGNED_AT = NOW()')) {
+        row.role_assigned_at = new Date();
+      } else if (key.includes('ROLE_ASSIGNED_AT = NULL')) {
+        row.role_assigned_at = null;
+      }
       return { rows: [{ ...row }], rowCount: 1 };
     }
 
@@ -227,7 +302,7 @@ function createCommunityMemory() {
       if (!row || !user) {
         return { rows: [], rowCount: 0 };
       }
-      return { rows: [{ user_id: row.user_id, login: user.login, role: row.role }], rowCount: 1 };
+      return { rows: [{ user_id: row.user_id, login: user.login, role: row.role, role_assigned_at: row.role_assigned_at || null }], rowCount: 1 };
     }
 
     if (key.includes('INNER JOIN USERS U') && key.includes('WHERE M.COMMUNITY_ID = $1')) {
@@ -237,7 +312,7 @@ function createCommunityMemory() {
         .filter((item) => Number(item.community_id) === communityId)
         .map((item) => {
           const user = users.find((entry) => Number(entry.id) === Number(item.user_id));
-          return { user_id: item.user_id, login: user ? user.login : 'unknown', role: item.role };
+          return { user_id: item.user_id, login: user ? user.login : 'unknown', role: item.role, role_assigned_at: item.role_assigned_at || null };
         })
         .sort((a, b) => (order[a.role] ?? 9) - (order[b.role] ?? 9) || Number(a.user_id) - Number(b.user_id));
       return { rows, rowCount: rows.length };
@@ -252,7 +327,7 @@ function createCommunityMemory() {
       if (!row) {
         return { rows: [], rowCount: 0 };
       }
-      return { rows: [{ user_id: row.user_id, role: row.role }], rowCount: 1 };
+      return { rows: [{ user_id: row.user_id, role: row.role, role_assigned_at: row.role_assigned_at || null }], rowCount: 1 };
     }
 
     throw new Error(`unexpected SQL: ${sql}`);
@@ -263,12 +338,13 @@ function createCommunityMemory() {
     setFailMemberInsert(value) {
       failMemberInsert = value;
     },
-    addMember(communityId, userId, role) {
+    addMember(communityId, userId, role, roleAssignedAt = null) {
       state.members.push({
         id: nextMemberId,
         community_id: Number(communityId),
         user_id: Number(userId),
         role,
+        role_assigned_at: roleAssignedAt,
         created_at: new Date(),
         updated_at: new Date(),
       });
@@ -505,6 +581,11 @@ async function main() {
 
   const promoted = await updateMemberRole(OWNER_ID, created.id, OTHER_ID, { role: 'admin' }, { db });
   assert(promoted.role === 'admin', 'owner can name admin');
+  assert(promoted.role_assigned_at, 'promotion stamps role_assigned_at');
+  const demoted = await updateMemberRole(OWNER_ID, created.id, OTHER_ID, { role: 'member' }, { db });
+  assert(demoted.role === 'member', 'owner can demote admin');
+  assert(demoted.role_assigned_at == null, 'demotion clears role_assigned_at');
+  await updateMemberRole(OWNER_ID, created.id, OTHER_ID, { role: 'admin' }, { db });
   await expectAsyncAppError(
     updateMemberRole(OTHER_ID, created.id, THIRD_ID, { role: 'member' }, { db }),
     400,

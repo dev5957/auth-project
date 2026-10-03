@@ -72,6 +72,115 @@ function toPublicMember(row) {
     user_id: formatId(row.user_id),
     login: row.login,
     role: row.role,
+    role_assigned_at: row.role_assigned_at == null ? null : toIso(row.role_assigned_at),
+  };
+}
+
+const MEMBER_NOT_FOUND = 'Member not found';
+const ROLE_CANNOT_BE_SET = 'role cannot be set';
+const OWNER_CANNOT_BE_CHANGED = 'owner cannot be changed';
+const OWNER_CANNOT_BE_REMOVED = 'owner cannot be removed';
+const CANNOT_REMOVE_YOURSELF = 'cannot remove yourself';
+const MEMBER_CANNOT_BE_REMOVED = 'member cannot be removed';
+const OWNER_CANNOT_LEAVE = 'owner cannot leave without a successor';
+
+async function lockCommunity(client, communityId) {
+  const result = await client.query(
+    `SELECT id, created_by
+     FROM communities
+     WHERE id = $1
+     FOR UPDATE`,
+    [communityId]
+  );
+  return result.rows[0] || null;
+}
+
+async function lockMembership(client, communityId, userId) {
+  const result = await client.query(
+    `SELECT user_id, role, role_assigned_at
+     FROM community_members
+     WHERE community_id = $1
+       AND user_id = $2
+     FOR UPDATE`,
+    [communityId, userId]
+  );
+  return result.rows[0] || null;
+}
+
+async function loadPublicMember(client, communityId, userId) {
+  const result = await client.query(
+    `SELECT m.user_id, u.login, m.role, m.role_assigned_at
+     FROM community_members m
+     INNER JOIN users u ON u.id = m.user_id
+     WHERE m.community_id = $1
+       AND m.user_id = $2
+     LIMIT 1`,
+    [communityId, userId]
+  );
+  return result.rows[0] ? toPublicMember(result.rows[0]) : null;
+}
+
+async function deleteMembership(client, communityId, userId) {
+  await client.query(
+    `DELETE FROM community_members
+     WHERE community_id = $1
+       AND user_id = $2`,
+    [communityId, userId]
+  );
+}
+
+async function assertExactlyOneOwner(client, communityId) {
+  const result = await client.query(
+    `SELECT COUNT(*)::int AS owner_count
+     FROM community_members
+     WHERE community_id = $1
+       AND role = 'owner'`,
+    [communityId]
+  );
+  const ownerCount = Number(result.rows[0] && result.rows[0].owner_count);
+  if (ownerCount !== 1) {
+    throw new AppError(500, 'owner invariant violated');
+  }
+}
+
+async function lockOldestAdmin(client, communityId) {
+  const result = await client.query(
+    `SELECT user_id, role, role_assigned_at
+     FROM community_members
+     WHERE community_id = $1
+       AND role = 'admin'
+     ORDER BY role_assigned_at ASC NULLS LAST, user_id ASC
+     LIMIT 1
+     FOR UPDATE`,
+    [communityId]
+  );
+  return result.rows[0] || null;
+}
+
+async function transferOwnershipAndLeave(client, communityId, ownerUserId) {
+  const successor = await lockOldestAdmin(client, communityId);
+  if (!successor) {
+    throw new AppError(400, OWNER_CANNOT_LEAVE);
+  }
+
+  await client.query(
+    `UPDATE community_members
+     SET role = 'owner',
+         role_assigned_at = NULL,
+         updated_at = NOW()
+     WHERE community_id = $1
+       AND user_id = $2
+       AND role = 'admin'`,
+    [communityId, successor.user_id]
+  );
+  await deleteMembership(client, communityId, ownerUserId);
+  await assertExactlyOneOwner(client, communityId);
+
+  const publicSuccessor = await loadPublicMember(client, communityId, successor.user_id);
+  return {
+    left: true,
+    transferred: true,
+    successor: publicSuccessor,
   };
 }
 
@@ -238,7 +347,8 @@ async function listCommunityMembers(userId, rawId, deps = {}) {
   const result = await db.query(
     `SELECT m.user_id,
             u.login,
-            m.role
+            m.role,
+            m.role_assigned_at
      FROM community_members m
      INNER JOIN users u ON u.id = m.user_id
      WHERE m.community_id = $1
@@ -264,68 +374,137 @@ async function updateMemberRole(actorUserId, rawCommunityId, rawTargetUserId, bo
   const db = deps.db || pool;
 
   return withTransaction(db, async (client) => {
-    const actor = await client.query(
-      `SELECT role
-       FROM community_members
-       WHERE community_id = $1
-         AND user_id = $2
-       FOR UPDATE`,
-      [communityId, actorUserId]
-    );
-    if (!actor.rows[0]) {
+    const community = await lockCommunity(client, communityId);
+    if (!community) {
       throw new AppError(404, NOT_FOUND);
     }
-    if (actor.rows[0].role !== 'owner') {
-      throw new AppError(400, 'role cannot be set');
+
+    const actor = await lockMembership(client, communityId, actorUserId);
+    if (!actor) {
+      throw new AppError(404, NOT_FOUND);
+    }
+    if (actor.role !== 'owner') {
+      throw new AppError(400, ROLE_CANNOT_BE_SET);
     }
     if (Number(targetUserId) === Number(actorUserId)) {
-      throw new AppError(400, 'role cannot be set');
+      throw new AppError(400, ROLE_CANNOT_BE_SET);
     }
 
-    const target = await client.query(
-      `SELECT user_id, role
-       FROM community_members
-       WHERE community_id = $1
-         AND user_id = $2
-       FOR UPDATE`,
-      [communityId, targetUserId]
-    );
-    if (!target.rows[0]) {
+    const target = await lockMembership(client, communityId, targetUserId);
+    if (!target) {
       throw new AppError(404, NOT_FOUND);
     }
-    if (target.rows[0].role === 'owner') {
-      throw new AppError(400, 'owner cannot be changed');
+    if (target.role === 'owner') {
+      throw new AppError(400, OWNER_CANNOT_BE_CHANGED);
     }
 
-    await client.query(
-      `UPDATE community_members
-       SET role = $1,
-           updated_at = NOW()
-       WHERE community_id = $2
-         AND user_id = $3`,
-      [role, communityId, targetUserId]
-    );
-    const updated = await client.query(
-      `SELECT m.user_id, u.login, m.role
-       FROM community_members m
-       INNER JOIN users u ON u.id = m.user_id
-       WHERE m.community_id = $1
-         AND m.user_id = $2
-       LIMIT 1`,
-      [communityId, targetUserId]
-    );
-    return toPublicMember(updated.rows[0]);
+    if (role === 'admin') {
+      await client.query(
+        `UPDATE community_members
+         SET role = $1,
+             role_assigned_at = NOW(),
+             updated_at = NOW()
+         WHERE community_id = $2
+           AND user_id = $3`,
+        [role, communityId, targetUserId]
+      );
+    } else {
+      await client.query(
+        `UPDATE community_members
+         SET role = $1,
+             role_assigned_at = NULL,
+             updated_at = NOW()
+         WHERE community_id = $2
+           AND user_id = $3`,
+        [role, communityId, targetUserId]
+      );
+    }
+
+    await assertExactlyOneOwner(client, communityId);
+    return loadPublicMember(client, communityId, targetUserId);
+  });
+}
+
+async function removeMember(actorUserId, rawCommunityId, rawTargetUserId, deps = {}) {
+  const communityId = parseCommunityId(rawCommunityId);
+  const targetUserId = parseTargetUserId(rawTargetUserId);
+  requireDatabase();
+  const db = deps.db || pool;
+
+  return withTransaction(db, async (client) => {
+    const community = await lockCommunity(client, communityId);
+    if (!community) {
+      throw new AppError(404, NOT_FOUND);
+    }
+
+    const actor = await lockMembership(client, communityId, actorUserId);
+    if (!actor) {
+      throw new AppError(404, NOT_FOUND);
+    }
+    if (actor.role !== 'owner') {
+      throw new AppError(400, MEMBER_CANNOT_BE_REMOVED);
+    }
+    if (Number(targetUserId) === Number(actorUserId)) {
+      throw new AppError(400, CANNOT_REMOVE_YOURSELF);
+    }
+
+    const target = await lockMembership(client, communityId, targetUserId);
+    if (!target) {
+      throw new AppError(404, MEMBER_NOT_FOUND);
+    }
+    if (target.role === 'owner') {
+      throw new AppError(400, OWNER_CANNOT_BE_REMOVED);
+    }
+
+    await deleteMembership(client, communityId, targetUserId);
+    await assertExactlyOneOwner(client, communityId);
+    return { removed: true };
+  });
+}
+
+async function leaveCommunity(actorUserId, rawCommunityId, deps = {}) {
+  const communityId = parseCommunityId(rawCommunityId);
+  requireDatabase();
+  const db = deps.db || pool;
+
+  return withTransaction(db, async (client) => {
+    const community = await lockCommunity(client, communityId);
+    if (!community) {
+      throw new AppError(404, NOT_FOUND);
+    }
+
+    const actor = await lockMembership(client, communityId, actorUserId);
+    if (!actor) {
+      throw new AppError(404, NOT_FOUND);
+    }
+
+    if (actor.role === 'owner') {
+      return transferOwnershipAndLeave(client, communityId, actorUserId);
+    }
+
+    await deleteMembership(client, communityId, actorUserId);
+    await assertExactlyOneOwner(client, communityId);
+    return { left: true, transferred: false };
   });
 }
 
 module.exports = {
   NOT_FOUND,
+  MEMBER_NOT_FOUND,
+  ROLE_CANNOT_BE_SET,
+  OWNER_CANNOT_BE_CHANGED,
+  OWNER_CANNOT_BE_REMOVED,
+  CANNOT_REMOVE_YOURSELF,
+  MEMBER_CANNOT_BE_REMOVED,
+  OWNER_CANNOT_LEAVE,
   createCommunity,
   listMyCommunities,
   getCommunityById,
   searchCommunities,
   listCommunityMembers,
   updateMemberRole,
+  removeMember,
+  leaveCommunity,
   toPublicCommunity,
   toSearchPreview,
 };

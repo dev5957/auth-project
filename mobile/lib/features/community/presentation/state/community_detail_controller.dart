@@ -68,6 +68,47 @@ class CommunityDetailController extends AutoDisposeFamilyNotifier<CommunityDetai
       state = const CommunityDetailError('Unexpected error');
     }
   }
+
+  Future<bool> updateMemberRole({required int userId, required String role}) async {
+    try {
+      final repo = ref.read(communityRepositoryProvider);
+      await repo.updateMemberRole(communityId: _communityId, userId: userId, role: role);
+      await load();
+      return true;
+    } on ApiException catch (error) {
+      debugPrint(
+        '[community] PATCH members failed status=${error.statusCode} message=${error.message}',
+      );
+      return false;
+    }
+  }
+
+  Future<bool> removeMember(int userId) async {
+    try {
+      final repo = ref.read(communityRepositoryProvider);
+      await repo.removeMember(communityId: _communityId, userId: userId);
+      await load();
+      return true;
+    } on ApiException catch (error) {
+      debugPrint(
+        '[community] DELETE members failed status=${error.statusCode} message=${error.message}',
+      );
+      return false;
+    }
+  }
+
+  Future<bool> leave() async {
+    try {
+      final repo = ref.read(communityRepositoryProvider);
+      await repo.leaveCommunity(_communityId);
+      return true;
+    } on ApiException catch (error) {
+      debugPrint(
+        '[community] POST leave failed status=${error.statusCode} message=${error.message}',
+      );
+      return false;
+    }
+  }
 }
 
 final communityDetailControllerProvider = AutoDisposeNotifierProvider.family<

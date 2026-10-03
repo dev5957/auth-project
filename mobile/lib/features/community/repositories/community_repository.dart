@@ -46,6 +46,37 @@ class CommunityRepository {
     return _api.listMembers(accessToken: await _requireAccessToken(), id: id);
   }
 
+  Future<CommunityMember> updateMemberRole({
+    required int communityId,
+    required int userId,
+    required String role,
+  }) async {
+    return _api.updateMemberRole(
+      accessToken: await _requireAccessToken(),
+      communityId: communityId,
+      userId: userId,
+      role: role,
+    );
+  }
+
+  Future<void> removeMember({
+    required int communityId,
+    required int userId,
+  }) async {
+    await _api.removeMember(
+      accessToken: await _requireAccessToken(),
+      communityId: communityId,
+      userId: userId,
+    );
+  }
+
+  Future<Map<String, dynamic>> leaveCommunity(int communityId) async {
+    return _api.leaveCommunity(
+      accessToken: await _requireAccessToken(),
+      communityId: communityId,
+    );
+  }
+
   Future<CreatedCommunityInvitation> createInvitation({
     required int communityId,
     required int userId,

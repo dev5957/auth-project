@@ -6,6 +6,8 @@ const {
   getOne,
   listMembers,
   patchMemberRole,
+  remove,
+  leave,
 } = require('../controllers/communityController');
 const {
   create: createInvitation,
@@ -36,6 +38,8 @@ router.get('/', communityRateLimit.read, list);
 router.get('/search', communityRateLimit.read, search);
 router.get('/:id/members', communityRateLimit.read, listMembers);
 router.patch('/:id/members/:userId', communityRateLimit.write, patchMemberRole);
+router.delete('/:id/members/:userId', communityRateLimit.write, remove);
+router.post('/:id/leave', communityRateLimit.write, leave);
 router.get('/:id/invitations', communityRateLimit.read, listSentInvitations);
 router.post('/:id/invitations', communityRateLimit.write, createInvitation);
 router.get('/:id/join-requests', communityRateLimit.read, listCommunityJoinRequests);

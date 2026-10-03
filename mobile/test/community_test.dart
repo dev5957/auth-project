@@ -21,6 +21,7 @@ import 'package:mobile/features/community/models/join_request_messages.dart';
 import 'package:mobile/features/community/presentation/screens/community_detail_screen.dart';
 import 'package:mobile/features/community/presentation/screens/community_list_screen.dart';
 import 'package:mobile/core/theme/app_theme.dart';
+import 'package:mobile/core/widgets/app_button.dart';
 import 'package:mobile/core/widgets/app_card.dart';
 import 'package:mobile/core/widgets/app_loading.dart';
 import 'package:mobile/features/community/presentation/screens/community_search_screen.dart';
@@ -29,6 +30,10 @@ import 'package:mobile/features/community/presentation/screens/invitation_inbox_
 import 'package:mobile/features/community/presentation/screens/my_join_requests_screen.dart';
 import 'package:mobile/features/community/presentation/screens/user_search_screen.dart';
 import 'package:mobile/features/community/presentation/widgets/community_join_requests_section.dart';
+import 'package:mobile/features/community/presentation/widgets/community_leave_bar.dart';
+import 'package:mobile/features/community/presentation/widgets/community_member_dialogs.dart';
+import 'package:mobile/features/community/presentation/widgets/community_member_tile.dart';
+import 'package:mobile/features/community/presentation/widgets/community_owner_leave_flow.dart';
 import 'package:mobile/features/community/presentation/state/community_search_controller.dart';
 import 'package:mobile/features/community/presentation/state/user_search_controller.dart';
 import 'package:mobile/features/community/providers/community_providers.dart';
@@ -145,6 +150,12 @@ class _FakeCommunityApi extends CommunityApiService {
   int nextJoinRequestId = 50;
   int getCalls = 0;
   int listMembersCalls = 0;
+  int leaveCalls = 0;
+  final List<Map<String, Object>> roleUpdates = <Map<String, Object>>[];
+  final List<int> removedMemberIds = <int>[];
+  List<CommunityMember> members = const [
+    CommunityMember(userId: 1, login: 'tgjjk', role: CommunityRole.owner),
+  ];
   bool holdGet = false;
   final List<Completer<Community>> getHolds = <Completer<Community>>[];
   final List<Community> items = [
@@ -243,9 +254,52 @@ class _FakeCommunityApi extends CommunityApiService {
     if (failGet != null) {
       throw failGet!;
     }
-    return const [
-      CommunityMember(userId: 1, login: 'tgjjk', role: CommunityRole.owner),
+    return List<CommunityMember>.from(members);
+  }
+
+  @override
+  Future<CommunityMember> updateMemberRole({
+    required String accessToken,
+    required int communityId,
+    required int userId,
+    required String role,
+  }) async {
+    networkOps.add('PATCH /communities/$communityId/members/$userId');
+    roleUpdates.add({'userId': userId, 'role': role});
+    members = [
+      for (final item in members)
+        if (item.userId == userId)
+          CommunityMember(
+            userId: item.userId,
+            login: item.login,
+            role: CommunityRole.parse(role),
+            roleAssignedAt: role == 'admin' ? DateTime.utc(2026, 1, 1) : null,
+          )
+        else
+          item,
     ];
+    return members.firstWhere((item) => item.userId == userId);
+  }
+
+  @override
+  Future<void> removeMember({
+    required String accessToken,
+    required int communityId,
+    required int userId,
+  }) async {
+    networkOps.add('DELETE /communities/$communityId/members/$userId');
+    removedMemberIds.add(userId);
+    members = [for (final item in members) if (item.userId != userId) item];
+  }
+
+  @override
+  Future<Map<String, dynamic>> leaveCommunity({
+    required String accessToken,
+    required int communityId,
+  }) async {
+    networkOps.add('POST /communities/$communityId/leave');
+    leaveCalls += 1;
+    return <String, dynamic>{'left': true, 'transferred': false};
   }
 
   @override
@@ -958,12 +1012,12 @@ void main() {
     expect(find.text('Inviter un membre'), findsOneWidget);
   });
 
-  testWidgets('admin does not see invite member button', (tester) async {
+  testWidgets('admin sees invite member button', (tester) async {
     final api = _FakeCommunityApi();
     setListedRole(api, CommunityRole.admin);
     await openCommunityDetail(tester, api);
-    expect(find.byKey(const ValueKey('community-detail-invite')), findsNothing);
-    expect(find.text('Inviter un membre'), findsNothing);
+    expect(find.byKey(const ValueKey('community-detail-invite')), findsOneWidget);
+    expect(find.text('Inviter un membre'), findsOneWidget);
   });
 
   testWidgets('member does not see invite member button', (tester) async {
@@ -1802,19 +1856,19 @@ void main() {
     );
   });
 
-  testWidgets('admin does not load sent invitations', (tester) async {
+  testWidgets('admin loads sent invitations', (tester) async {
     final api = _FakeCommunityApi()
       ..sentInvitations = const [
         SentCommunityInvitation(id: 21, status: 'pending', inviteeLogin: 'moh5'),
       ];
     setListedRole(api, CommunityRole.admin);
     await openCommunityDetail(tester, api);
-    expect(find.byKey(const ValueKey('community-sent-invitations-title')), findsNothing);
-    expect(find.text('Invitations envoyées'), findsNothing);
-    expect(api.listSentInvitationsCalls, 0);
+    expect(find.byKey(const ValueKey('community-sent-invitations-title')), findsOneWidget);
+    expect(find.text('Invitations envoyées'), findsOneWidget);
+    expect(api.listSentInvitationsCalls, 1);
     expect(
       api.networkOps.where((op) => op == 'GET /communities/3/invitations'),
-      isEmpty,
+      isNotEmpty,
     );
   });
 
@@ -2189,5 +2243,308 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('community-search-pending-99')), findsOneWidget);
     expect(find.text('Demande en attente'), findsWidgets);
+  });
+
+  test('oldestCurrentAdmin is deterministic', () {
+    const owner = CommunityMember(userId: 1, login: 'owner', role: CommunityRole.owner);
+    final lateAdmin = CommunityMember(
+      userId: 4,
+      login: 'late',
+      role: CommunityRole.admin,
+      roleAssignedAt: DateTime.utc(2026, 3, 1),
+    );
+    final earlyAdmin = CommunityMember(
+      userId: 9,
+      login: 'early',
+      role: CommunityRole.admin,
+      roleAssignedAt: DateTime.utc(2026, 1, 1),
+    );
+    expect(oldestCurrentAdmin([owner, lateAdmin, earlyAdmin])!.userId, 9);
+    expect(oldestCurrentAdmin([owner]), isNull);
+  });
+
+  testWidgets('owner member tile exposes promote and remove', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Scaffold(
+          body: CommunityMemberTile(
+            member: const CommunityMember(userId: 7, login: 'member7', role: CommunityRole.member),
+            viewerRole: CommunityRole.owner,
+          ),
+        ),
+      ),
+    );
+    expect(find.byKey(const ValueKey('community-promote-7')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-remove-7')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-demote-7')), findsNothing);
+  });
+
+  testWidgets('admin member tile has no governance controls', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Scaffold(
+          body: CommunityMemberTile(
+            member: const CommunityMember(userId: 7, login: 'member7', role: CommunityRole.member),
+            viewerRole: CommunityRole.admin,
+          ),
+        ),
+      ),
+    );
+    expect(find.byKey(const ValueKey('community-promote-7')), findsNothing);
+    expect(find.byKey(const ValueKey('community-remove-7')), findsNothing);
+  });
+
+  testWidgets('member member tile has no governance controls', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Scaffold(
+          body: CommunityMemberTile(
+            member: const CommunityMember(userId: 9, login: 'admin9', role: CommunityRole.admin),
+            viewerRole: CommunityRole.member,
+          ),
+        ),
+      ),
+    );
+    expect(find.byKey(const ValueKey('community-demote-9')), findsNothing);
+    expect(find.byKey(const ValueKey('community-remove-9')), findsNothing);
+  });
+
+  testWidgets('admin leave bar is available', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Scaffold(
+          body: CommunityLeaveBar(myRole: CommunityRole.admin, onLeave: () {}),
+        ),
+      ),
+    );
+    expect(find.byKey(const ValueKey('community-leave')), findsOneWidget);
+    expect(find.text('Quitter la communauté'), findsOneWidget);
+  });
+
+  testWidgets('owner leave without admin explains the block', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Builder(
+          builder: (context) {
+            return Scaffold(
+              body: AppButton(
+                label: 'open',
+                onPressed: () {
+                  showOwnerCannotLeave(context, hasMembers: false);
+                },
+              ),
+            );
+          },
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('community-owner-cannot-leave')), findsOneWidget);
+    expect(find.textContaining('sans owner'), findsOneWidget);
+  });
+
+  testWidgets('owner transfer dialog names the successor', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Builder(
+          builder: (context) {
+            return Scaffold(
+              body: AppButton(
+                label: 'open',
+                onPressed: () {
+                  confirmOwnerTransfer(context, successorLogin: 'admin9');
+                },
+              ),
+            );
+          },
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('community-transfer-confirm')), findsOneWidget);
+    expect(find.textContaining('admin9'), findsOneWidget);
+  });
+
+  testWidgets('owner remove dialog asks for confirmation', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Builder(
+          builder: (context) {
+            return Scaffold(
+              body: AppButton(
+                label: 'open',
+                onPressed: () {
+                  confirmRemoveMember(context, login: 'member7');
+                },
+              ),
+            );
+          },
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('community-remove-confirm')), findsOneWidget);
+    expect(find.textContaining('member7'), findsOneWidget);
+  });
+
+  Future<void> pumpLeaveFlow(
+    WidgetTester tester, {
+    required List<CommunityMember> members,
+    required CommunityRole myRole,
+    required List<int> promoted,
+    required List<int> left,
+  }) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Builder(
+          builder: (context) {
+            return Scaffold(
+              body: AppButton(
+                key: const ValueKey('start-leave-flow'),
+                label: 'leave',
+                onPressed: () {
+                  runCommunityLeaveFlow(
+                    context: context,
+                    myRole: myRole,
+                    members: members,
+                    updateMemberRole: ({required int userId, required String role}) async {
+                      promoted.add(userId);
+                      expect(role, 'admin');
+                      return true;
+                    },
+                    leave: () async {
+                      left.add(1);
+                      return true;
+                    },
+                  );
+                },
+              ),
+            );
+          },
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('start-leave-flow')));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('owner without admin sees member picker instead of a hard stop', (tester) async {
+    await pumpLeaveFlow(
+      tester,
+      myRole: CommunityRole.owner,
+      members: const [
+        CommunityMember(userId: 1, login: 'tgjjk', role: CommunityRole.owner),
+        CommunityMember(userId: 7, login: 'member7', role: CommunityRole.member),
+        CommunityMember(userId: 8, login: 'member8', role: CommunityRole.member),
+      ],
+      promoted: <int>[],
+      left: <int>[],
+    );
+    expect(find.byKey(const ValueKey('community-no-admin-picker')), findsOneWidget);
+    expect(find.text('Aucun administrateur'), findsOneWidget);
+    expect(find.textContaining('Désignez un membre'), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-no-admin-option-7')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-no-admin-option-8')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-owner-cannot-leave')), findsNothing);
+  });
+
+  testWidgets('owner without admin can promote a chosen member then transfer', (tester) async {
+    final promoted = <int>[];
+    final left = <int>[];
+    await pumpLeaveFlow(
+      tester,
+      myRole: CommunityRole.owner,
+      members: const [
+        CommunityMember(userId: 1, login: 'tgjjk', role: CommunityRole.owner),
+        CommunityMember(userId: 7, login: 'member7', role: CommunityRole.member),
+        CommunityMember(userId: 8, login: 'member8', role: CommunityRole.member),
+      ],
+      promoted: promoted,
+      left: left,
+    );
+    await tester.tap(find.byKey(const ValueKey('community-no-admin-option-8')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('community-no-admin-continue')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('community-promote-confirm')), findsOneWidget);
+    expect(find.textContaining('member8'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('community-promote-confirm-yes')));
+    await tester.pumpAndSettle();
+    expect(promoted, [8]);
+    expect(find.byKey(const ValueKey('community-transfer-confirm')), findsOneWidget);
+    expect(find.textContaining('member8'), findsWidgets);
+    await tester.tap(find.byKey(const ValueKey('community-transfer-confirm-yes')));
+    await tester.pumpAndSettle();
+    expect(left, [1]);
+  });
+
+  testWidgets('cancelling the no-admin picker does not promote or leave', (tester) async {
+    final promoted = <int>[];
+    final left = <int>[];
+    await pumpLeaveFlow(
+      tester,
+      myRole: CommunityRole.owner,
+      members: const [
+        CommunityMember(userId: 1, login: 'tgjjk', role: CommunityRole.owner),
+        CommunityMember(userId: 7, login: 'member7', role: CommunityRole.member),
+      ],
+      promoted: promoted,
+      left: left,
+    );
+    await tester.tap(find.text('Annuler'));
+    await tester.pumpAndSettle();
+    expect(promoted, isEmpty);
+    expect(left, isEmpty);
+    expect(find.byKey(const ValueKey('community-no-admin-picker')), findsNothing);
+  });
+
+  testWidgets('cancelling promote confirmation does not transfer', (tester) async {
+    final promoted = <int>[];
+    final left = <int>[];
+    await pumpLeaveFlow(
+      tester,
+      myRole: CommunityRole.owner,
+      members: const [
+        CommunityMember(userId: 1, login: 'tgjjk', role: CommunityRole.owner),
+        CommunityMember(userId: 7, login: 'member7', role: CommunityRole.member),
+      ],
+      promoted: promoted,
+      left: left,
+    );
+    await tester.tap(find.byKey(const ValueKey('community-no-admin-continue')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Annuler'));
+    await tester.pumpAndSettle();
+    expect(promoted, isEmpty);
+    expect(left, isEmpty);
+  });
+
+  testWidgets('solo owner still cannot leave without a successor', (tester) async {
+    final promoted = <int>[];
+    final left = <int>[];
+    await pumpLeaveFlow(
+      tester,
+      myRole: CommunityRole.owner,
+      members: const [
+        CommunityMember(userId: 1, login: 'tgjjk', role: CommunityRole.owner),
+      ],
+      promoted: promoted,
+      left: left,
+    );
+    expect(find.byKey(const ValueKey('community-owner-cannot-leave')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-no-admin-picker')), findsNothing);
+    expect(promoted, isEmpty);
+    expect(left, isEmpty);
   });
 }
