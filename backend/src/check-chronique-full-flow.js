@@ -68,6 +68,22 @@ function createMemoryDb() {
       return { rows: [{ ...row }], rowCount: 1 };
     }
 
+    if (key.includes('FROM PUBLICATIONS') && key.includes('WHERE USER_ID = $1') && key.includes('AND STATUS = $2')) {
+      const userId = params[0];
+      const status = params[1];
+      const limit = Number(params[params.length - 1]);
+      const rows = state.publications
+        .filter((item) => Number(item.user_id) === Number(userId) && item.status === status)
+        .sort((a, b) => {
+          const av = a.published_at ? new Date(a.published_at).getTime() : 0;
+          const bv = b.published_at ? new Date(b.published_at).getTime() : 0;
+          return bv - av || Number(b.id) - Number(a.id);
+        })
+        .slice(0, limit)
+        .map((item) => ({ ...item }));
+      return { rows, rowCount: rows.length };
+    }
+
     if (key.includes('FROM PUBLICATIONS') && key.includes('FOR UPDATE')) {
       const row = state.publications.find(
         (item) => Number(item.id) === Number(params[0]) && Number(item.user_id) === Number(params[1])
@@ -180,6 +196,24 @@ function createMemoryDb() {
         .filter((item) => Number(item.publication_id) === Number(params[0]) && item.status === 'ready')
         .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id)
         .map((item) => ({ id: item.id }));
+      return { rows, rowCount: rows.length };
+    }
+
+    if (key.includes('FROM PUBLICATION_MEDIA') && key.includes('ANY($1::BIGINT[])')) {
+      const rawIds = Array.isArray(params[0]) ? params[0] : [params[0]];
+      const ids = new Set(rawIds.map((id) => Number(id)));
+      const kinds = new Set(['image', 'video', 'audio', 'document']);
+      const rows = state.media
+        .filter((item) => ids.has(Number(item.publication_id)))
+        .filter((item) => item.status === 'ready')
+        .filter((item) => kinds.has(item.kind))
+        .sort(
+          (a, b) =>
+            Number(a.publication_id) - Number(b.publication_id) ||
+            Number(a.sort_order) - Number(b.sort_order) ||
+            Number(a.id) - Number(b.id)
+        )
+        .map((item) => ({ ...item }));
       return { rows, rowCount: rows.length };
     }
 
@@ -354,10 +388,11 @@ async function main() {
   process.env.DATABASE_URL = previous.DATABASE_URL || 'postgres://chronique-full-flow-test/local';
 
   mockStorage.reset();
-  const storageCalls = { createDirectUpload: 0, head: 0, delete: 0 };
+  const storageCalls = { createDirectUpload: 0, head: 0, delete: 0, createReadUrl: 0 };
   const origCreate = mockStorage.createDirectUpload.bind(mockStorage);
   const origHead = mockStorage.head.bind(mockStorage);
   const origDelete = mockStorage.delete.bind(mockStorage);
+  const origRead = mockStorage.createReadUrl.bind(mockStorage);
   mockStorage.createDirectUpload = (args) => {
     storageCalls.createDirectUpload += 1;
     assert(args && String(args.storageKey).includes('publications/'), 'storage_key opaque');
@@ -372,6 +407,10 @@ async function main() {
   mockStorage.delete = async (storageKey) => {
     storageCalls.delete += 1;
     return origDelete(storageKey);
+  };
+  mockStorage.createReadUrl = async (storageKey) => {
+    storageCalls.createReadUrl += 1;
+    return origRead(storageKey);
   };
 
   const memory = createMemoryDb();
@@ -429,6 +468,7 @@ async function main() {
     assert(emptyRead.status === 200, `GET empty ${emptyRead.status} ${emptyRead.raw}`);
     assert(Array.isArray(emptyRead.json.chronique.media), 'empty media array');
     assert(emptyRead.json.chronique.media.length === 0, 'media=[] sans fichiers');
+    assert(storageCalls.createReadUrl === 0, 'no read url without media');
     assertNoSecrets(emptyRead.json, emptyRead.raw);
     console.log('A2 OK GET /chroniques/:id sans media -> media=[]');
 
@@ -447,6 +487,17 @@ async function main() {
       assert(init.json.media.kind === spec.kind, `${spec.kind} kind`);
       assert(init.json.media.source_type === spec.source_type, `${spec.kind} source`);
       assert(init.json.upload.method === 'PUT', 'upload method');
+      if (spec.kind === 'video') {
+        const thumb = init.json.thumbnail_upload;
+        assert(thumb && typeof thumb.method === 'string' && thumb.method.trim() !== '', 'video thumbnail method');
+        assert(thumb && typeof thumb.url === 'string' && thumb.url.trim() !== '', 'video thumbnail url');
+        assert(thumb.url !== init.json.upload.url, 'thumbnail url distinct from video upload url');
+      } else {
+        assert(
+          !Object.prototype.hasOwnProperty.call(init.json, 'thumbnail_upload'),
+          `${spec.kind} HTTP response omits thumbnail_upload`
+        );
+      }
       assertNoSecrets(init.json, init.raw);
 
       const storageKey = storageKeyFromUploadUrl(init.json.upload.url);
@@ -465,7 +516,7 @@ async function main() {
       lastChronique = complete.json.chronique;
       uploaded.push({ ...spec, id: init.json.media.id, storageKey });
     }
-    assert(storageCalls.createDirectUpload === 3, `uploads ${storageCalls.createDirectUpload}`);
+    assert(storageCalls.createDirectUpload === 4, `uploads ${storageCalls.createDirectUpload}`);
     assert(storageCalls.head === 3, `heads ${storageCalls.head}`);
     console.log('B OK 3 medias pending -> ready via MockStorage');
 
@@ -494,9 +545,33 @@ async function main() {
       assert(Number(item.byte_size) >= 1, 'byte_size');
       assert(Number.isInteger(item.sort_order) || item.sort_order === 0, 'sort_order');
       assert(!Object.prototype.hasOwnProperty.call(item, 'storage_key'), 'no storage_key field');
+      assert(typeof item.read_url === 'string' && item.read_url.startsWith('https://mock-storage.local/read/'), 'read_url');
+      assert(typeof item.read_expires_at === 'string' && !Number.isNaN(Date.parse(item.read_expires_at)), 'read_expires_at');
     }
+    assert(storageCalls.createReadUrl === 3, `read urls ${storageCalls.createReadUrl}`);
     assertNoSecrets(read.json, read.raw);
     console.log('C OK GET /chroniques/:id avec medias ready, sans secrets Storage');
+
+    const listed = await httpRequest({
+      port: TEST_PORT,
+      method: 'GET',
+      urlPath: '/chroniques',
+      headers: auth,
+    });
+    assert(listed.status === 200, `GET list ${listed.status} ${listed.raw}`);
+    assert(listed.json.items.length === 1, 'list count');
+    assert(listed.json.items[0].media.length === 3, 'list media count');
+    assert(
+      listed.json.items[0].media.every(
+        (item) =>
+          typeof item.read_url === 'string' &&
+          item.read_url.startsWith('https://mock-storage.local/read/')
+      ),
+      'list signed read_url'
+    );
+    assert(storageCalls.createReadUrl === 6, `list+detail read urls ${storageCalls.createReadUrl}`);
+    assertNoSecrets(listed.json, listed.raw);
+    console.log('C2 OK GET /chroniques hydrate les medias ready');
 
     const unauth = await httpRequest({
       port: TEST_PORT,
@@ -515,6 +590,7 @@ async function main() {
     });
     assert(stranger.status === 404, `other GET ${stranger.status} ${stranger.raw}`);
     assert(stranger.json.error === 'Chronique not found', stranger.raw);
+    assert(storageCalls.createReadUrl === 6, 'stranger GET must not sign');
 
     const badDoc = await httpRequest({
       port: TEST_PORT,
@@ -564,7 +640,7 @@ async function main() {
     assert(deleted.status === 200, `delete media ${deleted.status} ${deleted.raw}`);
     assert(!deleted.json.chronique.media.some((item) => item.id === removedId), 'media gone');
     assert(mockStorage.getObject(removedKey) == null, 'mock object deleted');
-    assert(storageCalls.delete === 1, `delete calls ${storageCalls.delete}`);
+    assert(storageCalls.delete === 2, `delete calls ${storageCalls.delete}`);
     console.log('F OK DELETE media + MockStorage.delete');
 
     const archived = await httpRequest({
@@ -598,15 +674,16 @@ async function main() {
     assert(otherArchive.status === 404, `other archive ${otherArchive.status}`);
     console.log('G OK archive apres medias + refus post-archive');
 
-    assert(storageCalls.createDirectUpload === 3, 'no extra upload after refusals');
-    assert(storageCalls.head === 3, 'no extra head');
-    assert(storageCalls.delete === 1, 'single mock delete');
-    console.log('H OK MockStorage appels attendus (3 upload, 3 head, 1 delete)');
+    assert(storageCalls.createDirectUpload === 4, 'no extra upload after refusals');
+    assert(storageCalls.head === 5, 'no extra head');
+    assert(storageCalls.delete === 2, 'video delete original and thumbnail');
+    console.log('H OK MockStorage appels attendus (4 upload, 5 head, 2 delete)');
   } finally {
     await new Promise((resolve) => server.close(resolve));
     mockStorage.createDirectUpload = origCreate;
     mockStorage.head = origHead;
     mockStorage.delete = origDelete;
+    mockStorage.createReadUrl = origRead;
     mockStorage.reset();
     process.env.JWT_SECRET = previous.JWT_SECRET;
     process.env.JWT_ISSUER = previous.JWT_ISSUER;

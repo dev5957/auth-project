@@ -13,6 +13,7 @@ class Chronique {
     this.scheduledAt,
     this.expiresAt,
     this.expiredAt,
+    this.purgeAfter,
     this.isTimeLimited = false,
     this.media = const [],
   });
@@ -29,6 +30,7 @@ class Chronique {
   final DateTime? scheduledAt;
   final DateTime? expiresAt;
   final DateTime? expiredAt;
+  final DateTime? purgeAfter;
   final bool isTimeLimited;
   final List<ChroniqueMedia> media;
 
@@ -45,6 +47,7 @@ class Chronique {
     DateTime? scheduledAt,
     DateTime? expiresAt,
     DateTime? expiredAt,
+    DateTime? purgeAfter,
     bool? isTimeLimited,
     List<ChroniqueMedia>? media,
     bool clearTitle = false,
@@ -62,9 +65,22 @@ class Chronique {
       scheduledAt: scheduledAt ?? this.scheduledAt,
       expiresAt: expiresAt ?? this.expiresAt,
       expiredAt: expiredAt ?? this.expiredAt,
+      purgeAfter: purgeAfter ?? this.purgeAfter,
       isTimeLimited: isTimeLimited ?? this.isTimeLimited,
       media: media ?? this.media,
     );
+  }
+
+  /// PATCH ne renvoie pas toujours `media`. Conserve le catalogue déjà affiché
+  /// pour la **même** chronique (id identique). Ne fusionne jamais deux ids.
+  static Chronique keepExistingMedia(Chronique previous, Chronique updated) {
+    if (previous.id != updated.id) {
+      return updated;
+    }
+    if (updated.media.isEmpty && previous.media.isNotEmpty) {
+      return updated.copyWith(media: previous.media);
+    }
+    return updated;
   }
 
   factory Chronique.fromJson(Map<String, dynamic> json) {
@@ -86,6 +102,7 @@ class Chronique {
       scheduledAt: parseChroniqueDateTime(json['scheduled_at']),
       expiresAt: parseChroniqueDateTime(json['expires_at']),
       expiredAt: parseChroniqueDateTime(json['expired_at']),
+      purgeAfter: parseChroniqueDateTime(json['purge_after']),
       isTimeLimited: json['is_time_limited'] == true,
       media: parseChroniqueMediaList(json['media']),
     );
@@ -100,6 +117,12 @@ class ChroniqueMedia {
     this.originalFilename,
     this.byteSize,
     this.status,
+    this.contentType,
+    this.sortOrder,
+    this.readUrl,
+    this.readExpiresAt,
+    this.thumbnailUrl,
+    this.thumbnailExpiresAt,
   });
 
   final int? id;
@@ -107,6 +130,16 @@ class ChroniqueMedia {
   final String? originalFilename;
   final int? byteSize;
   final String? status;
+  final String? contentType;
+  final int? sortOrder;
+
+  /// URL GET signée R2, temporaire. Jamais persistée.
+  final String? readUrl;
+  final DateTime? readExpiresAt;
+
+  /// JPEG de miniature, URL GET signée. Absente si non générée.
+  final String? thumbnailUrl;
+  final DateTime? thumbnailExpiresAt;
 
   factory ChroniqueMedia.fromJson(Map<String, dynamic> json) {
     final kind = json['kind'];
@@ -117,10 +150,40 @@ class ChroniqueMedia {
       id: json['id'] == null ? null : parseChroniqueId(json['id']),
       kind: kind,
       originalFilename: json['original_filename'] as String?,
-      byteSize: json['byte_size'] is int ? json['byte_size'] as int : null,
+      byteSize: _parseByteSize(json['byte_size']),
       status: json['status'] as String?,
+      contentType: json['content_type'] as String?,
+      sortOrder: _parseByteSize(json['sort_order']),
+      readUrl: _parseOptionalUrl(json['read_url']),
+      readExpiresAt: parseChroniqueDateTime(json['read_expires_at']),
+      thumbnailUrl: _parseOptionalUrl(json['thumbnail_url']),
+      thumbnailExpiresAt: parseChroniqueDateTime(json['thumbnail_expires_at']),
     );
   }
+}
+
+String? _parseOptionalUrl(Object? value) {
+  if (value is! String) {
+    return null;
+  }
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) {
+    return null;
+  }
+  return trimmed;
+}
+
+int? _parseByteSize(Object? value) {
+  if (value is int) {
+    return value;
+  }
+  if (value is num) {
+    return value.toInt();
+  }
+  if (value is String) {
+    return int.tryParse(value);
+  }
+  return null;
 }
 
 List<ChroniqueMedia> parseChroniqueMediaList(Object? raw) {

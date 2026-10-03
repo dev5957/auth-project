@@ -104,11 +104,31 @@ class _MediaDraftTile extends StatelessWidget {
                     style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
                   ),
                 ],
+                if (_statusLabel(media) != null) ...[
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    _statusLabel(media)!,
+                    style: AppTextTheme.labelSmall.copyWith(
+                      color: media.status == MediaDraftStatus.failed
+                          ? colors.danger
+                          : colors.textSecondary,
+                    ),
+                  ),
+                ],
+                if (media.status == MediaDraftStatus.uploading) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  LinearProgressIndicator(
+                    value: media.uploadProgress.clamp(0, 100) / 100,
+                  ),
+                ],
               ],
             ),
           ),
-          if (onRemove != null)
+          if (onRemove != null &&
+              media.status != MediaDraftStatus.uploading &&
+              media.status != MediaDraftStatus.uploaded)
             IconButton(
+              key: ValueKey('remove-media-${media.id}'),
               tooltip: 'Supprimer',
               onPressed: onRemove,
               icon: Icon(Icons.close, color: colors.textSecondary),
@@ -117,4 +137,15 @@ class _MediaDraftTile extends StatelessWidget {
       ),
     );
   }
+}
+
+String? _statusLabel(MediaDraft media) {
+  return switch (media.status) {
+    MediaDraftStatus.selected => null,
+    MediaDraftStatus.uploading => 'Envoi… ${media.uploadProgress.clamp(0, 100)} %',
+    MediaDraftStatus.uploaded => 'Terminé',
+    MediaDraftStatus.failed => media.errorMessage?.trim().isNotEmpty == true
+        ? media.errorMessage
+        : 'Échec',
+  };
 }

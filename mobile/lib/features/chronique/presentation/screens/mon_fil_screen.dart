@@ -14,41 +14,42 @@ import '../state/mon_fil_controller.dart';
 import '../widgets/chronique_card.dart';
 import '../widgets/chronique_card_menu.dart';
 import '../widgets/chronique_lifecycle_dialogs.dart';
+import '../widgets/chronique_media_viewer.dart';
+import 'chronique_detail_screen.dart';
 
 /// Fil personnel V1. Route technique : `/explore`.
-class MonFilScreen extends ConsumerWidget {
+class MonFilScreen extends ConsumerStatefulWidget {
   const MonFilScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final colors = context.luminaColors;
-    final state = ref.watch(monFilControllerProvider);
+  ConsumerState<MonFilScreen> createState() => _MonFilScreenState();
+}
 
-    return Scaffold(
-      backgroundColor: colors.bgBase,
-      appBar: AppBar(
-        backgroundColor: colors.bgBase,
-        foregroundColor: colors.textPrimary,
-        elevation: 0,
-        title: Text(
-          'Mon Fil',
-          style: AppTextTheme.titleMedium.copyWith(color: colors.textPrimary),
-        ),
-      ),
-      body: SafeArea(child: _body(context, ref, state)),
-    );
+class _MonFilScreenState extends ConsumerState<MonFilScreen> {
+  final _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 
-  Future<void> _onRefresh(WidgetRef ref) {
+  Future<void> _onRefresh() {
     return ref.read(monFilControllerProvider.notifier).refresh();
   }
 
-  Future<void> _onMenu(
-    BuildContext context,
-    WidgetRef ref,
-    Chronique chronique,
-    ChroniqueCardMenuAction action,
-  ) async {
+  Future<void> _openDetail(Chronique chronique) {
+    return Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (context) => ChroniqueDetailScreen(
+          chroniqueId: chronique.id,
+          chronique: chronique,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _onMenu(Chronique chronique, ChroniqueCardMenuAction action) async {
     switch (action) {
       case ChroniqueCardMenuAction.edit:
         final updated = await context.push<Chronique>(
@@ -67,14 +68,14 @@ class MonFilScreen extends ConsumerWidget {
           await ref.read(chroniqueRepositoryProvider).archive(chronique.id);
           ref.read(monFilControllerProvider.notifier).removeById(chronique.id);
         } on ApiException catch (error) {
-          if (!context.mounted) {
+          if (!mounted) {
             return;
           }
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(messageForChroniqueApiError(error))),
           );
         } on FormatException {
-          if (!context.mounted) {
+          if (!mounted) {
             return;
           }
           ScaffoldMessenger.of(context).showSnackBar(
@@ -93,14 +94,14 @@ class MonFilScreen extends ConsumerWidget {
           await ref.read(chroniqueRepositoryProvider).delete(chronique.id);
           ref.read(monFilControllerProvider.notifier).removeById(chronique.id);
         } on ApiException catch (error) {
-          if (!context.mounted) {
+          if (!mounted) {
             return;
           }
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(messageForChroniqueApiError(error))),
           );
         } on FormatException {
-          if (!context.mounted) {
+          if (!mounted) {
             return;
           }
           ScaffoldMessenger.of(context).showSnackBar(
@@ -111,12 +112,11 @@ class MonFilScreen extends ConsumerWidget {
   }
 
   Widget _refreshable({
-    required WidgetRef ref,
     required Widget child,
     bool alwaysScrollable = false,
   }) {
     return RefreshIndicator(
-      onRefresh: () => _onRefresh(ref),
+      onRefresh: _onRefresh,
       child: alwaysScrollable
           ? ListView(
               physics: const AlwaysScrollableScrollPhysics(),
@@ -131,12 +131,30 @@ class MonFilScreen extends ConsumerWidget {
     );
   }
 
-  Widget _body(BuildContext context, WidgetRef ref, MonFilState state) {
+  @override
+  Widget build(BuildContext context) {
     final colors = context.luminaColors;
+    final state = ref.watch(monFilControllerProvider);
+
+    return Scaffold(
+      backgroundColor: colors.bgBase,
+      appBar: AppBar(
+        backgroundColor: colors.bgBase,
+        foregroundColor: colors.textPrimary,
+        elevation: 0,
+        title: Text(
+          'Mon Fil',
+          style: AppTextTheme.titleMedium.copyWith(color: colors.textPrimary),
+        ),
+      ),
+      body: SafeArea(child: _body(colors, state)),
+    );
+  }
+
+  Widget _body(LuminaColors colors, MonFilState state) {
     return switch (state) {
       MonFilLoading() => const AppLoading(),
       MonFilError(:final message) => _refreshable(
-          ref: ref,
           alwaysScrollable: true,
           child: Center(
             child: Padding(
@@ -150,7 +168,6 @@ class MonFilScreen extends ConsumerWidget {
           ),
         ),
       MonFilReady(:final items) when items.isEmpty => _refreshable(
-          ref: ref,
           alwaysScrollable: true,
           child: Center(
             child: Padding(
@@ -164,8 +181,9 @@ class MonFilScreen extends ConsumerWidget {
           ),
         ),
       MonFilReady(:final items) => RefreshIndicator(
-          onRefresh: () => _onRefresh(ref),
+          onRefresh: _onRefresh,
           child: ListView.separated(
+            controller: _scrollController,
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.all(AppSpacing.xxl),
             itemCount: items.length,
@@ -174,11 +192,11 @@ class MonFilScreen extends ConsumerWidget {
               final item = items[index];
               return ChroniqueCard(
                 chronique: item,
-                onTap: () => context.push(
-                  AppRoutes.chroniqueDetail(item.id),
-                  extra: item,
-                ),
-                onMenuSelected: (action) => _onMenu(context, ref, item, action),
+                showFeedMedia: true,
+                showInactiveSocialActions: true,
+                onTap: () => _openDetail(item),
+                onMediaSelected: (media) => openChroniqueFeedMedia(context, media),
+                onMenuSelected: (action) => _onMenu(item, action),
               );
             },
           ),

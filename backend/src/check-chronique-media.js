@@ -99,6 +99,16 @@ function createMemoryDb({ publications = [], media = [] } = {}) {
       return { rows: row ? [{ ...row }] : [], rowCount: row ? 1 : 0 };
     }
 
+    if (key.includes('FROM PUBLICATIONS') && key.includes('LIMIT 1') && key.includes('STATUS <>')) {
+      const row = state.publications.find(
+        (item) =>
+          Number(item.id) === Number(params[0]) &&
+          Number(item.user_id) === Number(params[1]) &&
+          item.status !== 'deleted'
+      );
+      return { rows: row ? [{ ...row }] : [], rowCount: row ? 1 : 0 };
+    }
+
     if (key.includes('FROM PUBLICATION_MEDIA') && key.includes('COUNT(*)') && key.includes('SUM(BYTE_SIZE)')) {
       const counted = state.media.filter(
         (item) =>
@@ -393,6 +403,16 @@ async function main() {
   expectAppError(() => parseMediaOrder({ media_ids: [] }), 400, 'media_ids is invalid');
   console.log('A OK validators media / document');
 
+  const { thumbnailStorageKey, THUMBNAIL_SUFFIX } = require('./services/mediaStorageKeys');
+  const sampleKey = 'publications/1/media/550e8400-e29b-41d4-a716-446655440000';
+  assert(thumbnailStorageKey(sampleKey) === `${sampleKey}${THUMBNAIL_SUFFIX}`, 'deterministic thumb key');
+  assert(thumbnailStorageKey(sampleKey) !== sampleKey, 'thumb key distinct from original');
+  assert(
+    thumbnailStorageKey(thumbnailStorageKey(sampleKey)) === thumbnailStorageKey(sampleKey),
+    'thumb key idempotent'
+  );
+  assert(!String(thumbnailStorageKey(sampleKey)).includes('soir.jpg'), 'independent of filename');
+
   const db = createMemoryDb({ publications: [samplePublication()] });
   const created = await createMediaUpload(OWNER_ID, 1, validUpload(), { db, storage: mockStorage });
   assert(created.media.status === 'pending_upload', 'pending status');
@@ -400,6 +420,7 @@ async function main() {
   assert(created.upload.method === 'PUT', 'upload method');
   assert(String(created.upload.url).startsWith('https://mock-storage.local/upload/'), 'mock url');
   assert(created.media.storage_key == null, 'storage_key must not be public');
+  assert(created.thumbnail_upload == null, 'image has no thumbnail_upload');
   const stored = db.state.media[0];
   assert(stored.status === 'pending_upload', 'row pending');
   assert(stored.storage_key.includes('publications/1/media/'), 'opaque key');
@@ -491,7 +512,73 @@ async function main() {
     400,
     'Too many media'
   );
-  console.log('F OK quota 20 / 200 Mio');
+  console.log('F OK quota 5 / 200 Mio');
+
+  const exactBytesDb = createMemoryDb({
+    publications: [samplePublication({ id: 4, media_total_bytes: 0 })],
+  });
+  const exact = await createMediaUpload(
+    OWNER_ID,
+    4,
+    validUpload({ byte_size: MAX_BYTES }),
+    { db: exactBytesDb, storage: mockStorage }
+  );
+  assert(exact.media.byte_size === MAX_BYTES, 'exactly 200 MiB accepted');
+
+  const mixedKinds = [
+    validUpload({ kind: 'image', source_type: 'gallery', content_type: 'image/jpeg', original_filename: 'a.jpg' }),
+    validUpload({ kind: 'video', source_type: 'gallery', content_type: 'video/mp4', original_filename: 'b.mp4' }),
+    validUpload({ kind: 'audio', source_type: 'upload', content_type: 'audio/mpeg', original_filename: 'c.mp3' }),
+    validUpload({
+      kind: 'document',
+      source_type: 'upload',
+      content_type: 'application/pdf',
+      original_filename: 'd.pdf',
+    }),
+    validUpload({ kind: 'image', source_type: 'camera', content_type: 'image/jpeg', original_filename: 'e.jpg' }),
+  ];
+  const mixedDb = createMemoryDb({
+    publications: [samplePublication({ id: 5, media_total_bytes: 0 })],
+  });
+  for (const item of mixedKinds) {
+    await createMediaUpload(OWNER_ID, 5, item, { db: mixedDb, storage: mockStorage });
+  }
+  assert(mixedDb.state.media.length === 5, 'five mixed kinds accepted');
+  await expectStatus(
+    () => createMediaUpload(OWNER_ID, 5, validUpload(), { db: mixedDb, storage: mockStorage }),
+    400,
+    'Too many media'
+  );
+  assert(mixedDb.state.media.length === 5, 'sixth mixed upload does not insert');
+
+  const sixReady = [];
+  for (let i = 0; i < 6; i += 1) {
+    sixReady.push({
+      id: 400 + i,
+      publication_id: 6,
+      kind: i % 2 === 0 ? 'image' : 'video',
+      source_type: 'gallery',
+      storage_key: `publications/6/media/${i}`,
+      content_type: i % 2 === 0 ? 'image/jpeg' : 'video/mp4',
+      byte_size: 10,
+      original_filename: `old${i}.bin`,
+      sort_order: i,
+      status: 'ready',
+      created_at: new Date(),
+    });
+  }
+  const sixDb = createMemoryDb({
+    publications: [samplePublication({ id: 6, media_total_bytes: 60 })],
+    media: sixReady,
+  });
+  assert(sixDb.state.media.length === 6, 'existing 6 media are not deleted');
+  await expectStatus(
+    () => createMediaUpload(OWNER_ID, 6, validUpload(), { db: sixDb, storage: mockStorage }),
+    400,
+    'Too many media'
+  );
+  assert(sixDb.state.media.length === 6, 'existing 6 media unchanged after refused add');
+  console.log('F2 OK 5 mixed / 200 MiB exact / existing 6 media readable');
 
   const beforeDelete = db.state.media.length;
   const toDelete = db.state.media.find((row) => row.status === 'ready');
@@ -499,6 +586,39 @@ async function main() {
   assert(db.state.media.length === beforeDelete - 1, 'media row removed');
   assert(mockStorage.getObject(toDelete.storage_key) == null, 'mock object deleted');
   console.log('G OK suppression media + mock delete');
+
+  const videoCreated = await createMediaUpload(
+    OWNER_ID,
+    1,
+    {
+      kind: 'video',
+      source_type: 'gallery',
+      content_type: 'video/mp4',
+      byte_size: 4096,
+      original_filename: 'clip.mp4',
+    },
+    { db, storage: mockStorage }
+  );
+  assert(videoCreated.media.kind === 'video', 'video kind');
+  assert(videoCreated.media.storage_key == null, 'video storage_key not public');
+  assert(videoCreated.thumbnail_upload && videoCreated.thumbnail_upload.method === 'PUT', 'thumbnail upload');
+  assert(
+    String(videoCreated.thumbnail_upload.url).startsWith('https://mock-storage.local/upload/'),
+    'thumbnail mock url'
+  );
+  assert(videoCreated.thumbnail_upload.url !== videoCreated.upload.url, 'thumbnail url distinct');
+  assert(!Object.prototype.hasOwnProperty.call(videoCreated, 'storage_key'), 'no storage_key on payload');
+  const videoRow = db.state.media.find((row) => row.id === videoCreated.media.id);
+  const videoThumbKey = thumbnailStorageKey(videoRow.storage_key);
+  mockStorage.put(videoRow.storage_key, { byteSize: 4096, contentType: 'video/mp4' });
+  mockStorage.put(videoThumbKey, { byteSize: 80, contentType: 'image/jpeg' });
+  const videoReady = await completeMedia(OWNER_ID, 1, videoRow.id, { db, storage: mockStorage });
+  assert(videoReady.media.some((item) => item.id === videoRow.id && item.status === 'ready'), 'video ready without depending on thumbnail');
+  const deletedVideo = await deleteMedia(OWNER_ID, 1, videoRow.id, { db, storage: mockStorage });
+  assert(!deletedVideo.media.some((item) => item.id === videoRow.id), 'video row gone');
+  assert(mockStorage.getObject(videoRow.storage_key) == null, 'video object deleted');
+  assert(mockStorage.getObject(videoThumbKey) == null, 'thumbnail object deleted');
+  console.log('G2 OK video thumbnail upload url + delete original and thumbnail');
 
   const foreign = createMemoryDb({
     publications: [samplePublication({ id: 9, user_id: 99 })],

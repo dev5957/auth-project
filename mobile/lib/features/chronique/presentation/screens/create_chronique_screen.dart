@@ -10,11 +10,15 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_text_theme.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_text_field.dart';
+import '../../media/chronique_media_limits.dart';
 import '../../models/chronique_fields.dart';
 import '../../models/chronique_schedule_draft.dart';
 import '../../models/media_draft.dart';
+import '../../providers/chronique_providers.dart';
 import '../state/create_chronique_controller.dart';
 import '../widgets/add_media_kind_sheet.dart';
+import '../widgets/audio_recording_sheet.dart';
+import '../widgets/chronique_assistant_paused_options.dart';
 import '../widgets/chronique_preview.dart';
 import '../widgets/chronique_publication_fields.dart';
 import '../widgets/media_draft_list.dart';
@@ -32,6 +36,7 @@ class CreateChroniqueScreen extends ConsumerStatefulWidget {
 class CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
   final _titleController = TextEditingController();
   final _bodyController = TextEditingController();
+  final _contentScrollController = ScrollController();
 
   String? _titleError;
   String? _bodyError;
@@ -40,10 +45,20 @@ class CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
   CreateChroniqueStep _step = CreateChroniqueStep.content;
   ChroniqueScheduleDraft _schedule = const ChroniqueScheduleDraft();
 
+  /// Réserve sous le dernier média : tuile + bouton supprimer, au-dessus du footer.
+  static const double _contentScrollBottomReserve = 160;
+
   int get _bodyCount => ChroniqueFields.runeLength(_bodyController.text.trim());
 
+  List<MediaDraft> get _currentMedias =>
+      ref.read(createChroniqueControllerProvider).medias;
+
+  String? get _liveMediaError => chroniqueDraftMediaError(_currentMedias);
+
   bool get _canGoNext =>
-      !_submitting && ChroniqueFields.canPublishBody(_bodyController.text);
+      !_submitting &&
+      ChroniqueFields.canPublishBody(_bodyController.text) &&
+      _liveMediaError == null;
 
   @visibleForTesting
   ChroniqueScheduleDraft get scheduleDraft => _schedule;
@@ -69,12 +84,31 @@ class CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
     _titleController.removeListener(_onTitleEdited);
     _titleController.dispose();
     _bodyController.dispose();
+    _contentScrollController.dispose();
     super.dispose();
+  }
+
+  void _discardStaleMediaFormError() {
+    if (_liveMediaError == null && isChroniqueMediaFormMessage(_formError)) {
+      _formError = null;
+    }
+  }
+
+  void _scrollContentToEnd() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_contentScrollController.hasClients) {
+        return;
+      }
+      _contentScrollController.jumpTo(
+        _contentScrollController.position.maxScrollExtent,
+      );
+    });
   }
 
   void _onBodyEdited() {
     setState(() {
       _bodyError = ChroniqueFields.bodyError(_bodyController.text);
+      _discardStaleMediaFormError();
     });
   }
 
@@ -105,22 +139,69 @@ class CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
     if (_submitting) {
       return;
     }
+    final currentMedias =
+        ref.read(createChroniqueControllerProvider).medias;
+    if (currentMedias.length >= kChroniqueMaxMediaCount) {
+      setState(() => _formError = kTooManyMediaMessage);
+      return;
+    }
     final kind = await showAddMediaKindSheet(context);
     if (!mounted || kind == null) {
       return;
     }
-    setState(() => _formError = null);
     final controller = ref.read(createChroniqueControllerProvider.notifier);
-    final error = await switch (kind) {
-      MediaDraftKind.image => controller.pickImage(),
-      MediaDraftKind.video => controller.pickVideo(),
-      MediaDraftKind.audio => controller.pickAudio(),
-      MediaDraftKind.document => controller.pickDocument(),
-    };
-    if (!mounted || error == null) {
+    late final String? error;
+    if (kind == MediaDraftKind.image) {
+      final source = await showAddImageSourceSheet(context);
+      if (!mounted || source == null) {
+        return;
+      }
+      setState(() => _formError = null);
+      error = source == MediaDraftSourceType.camera
+          ? await controller.pickImageFromCamera()
+          : await controller.pickImage();
+    } else if (kind == MediaDraftKind.video) {
+      final source = await showAddVideoSourceSheet(context);
+      if (!mounted || source == null) {
+        return;
+      }
+      setState(() => _formError = null);
+      error = source == MediaDraftSourceType.camera
+          ? await controller.pickVideoFromCamera()
+          : await controller.pickVideo();
+    } else if (kind == MediaDraftKind.audio) {
+      final source = await showAddAudioSourceSheet(context);
+      if (!mounted || source == null) {
+        return;
+      }
+      setState(() => _formError = null);
+      if (source == MediaDraftSourceType.microphone) {
+        error = await controller.applyMediaPick(
+          await showChroniqueAudioRecordingSheet(
+            context,
+            recorder: ref.read(chroniqueMicrophoneRecorderProvider),
+          ),
+        );
+      } else {
+        error = await controller.pickAudio();
+      }
+    } else {
+      setState(() => _formError = null);
+      error = await switch (kind) {
+        MediaDraftKind.document => controller.pickDocument(),
+        MediaDraftKind.image ||
+        MediaDraftKind.video ||
+        MediaDraftKind.audio =>
+          Future<String?>.value(null),
+      };
+    }
+    if (!mounted) {
       return;
     }
-    setState(() => _formError = error);
+    if (error != null) {
+      setState(() => _formError = error);
+    }
+    _scrollContentToEnd();
   }
 
   String _messageFor(ApiException error) {
@@ -250,6 +331,7 @@ class CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
     final medias = ref.watch(createChroniqueControllerProvider.select((d) => d.medias));
     return Scaffold(
       backgroundColor: colors.bgBase,
+      resizeToAvoidBottomInset: true,
       appBar: AppBar(
         backgroundColor: colors.bgBase,
         foregroundColor: colors.textPrimary,
@@ -264,7 +346,18 @@ class CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
           children: [
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xxl),
+                controller: _step == CreateChroniqueStep.content
+                    ? _contentScrollController
+                    : null,
+                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: EdgeInsets.fromLTRB(
+                  AppSpacing.xxl,
+                  0,
+                  AppSpacing.xxl,
+                  _step == CreateChroniqueStep.content
+                      ? _contentScrollBottomReserve
+                      : AppSpacing.xxl,
+                ),
                 child: switch (_step) {
                   CreateChroniqueStep.content => _contentStep(colors, medias),
                   CreateChroniqueStep.publication => _publicationStep(),
@@ -277,14 +370,17 @@ class CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
                 },
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.xxl,
-                AppSpacing.md,
-                AppSpacing.xxl,
-                AppSpacing.lg,
+            ColoredBox(
+              color: colors.bgBase,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.xxl,
+                  AppSpacing.md,
+                  AppSpacing.xxl,
+                  AppSpacing.lg,
+                ),
+                child: _footer(),
               ),
-              child: _footer(),
             ),
           ],
         ),
@@ -336,6 +432,22 @@ class CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
           variant: AppButtonVariant.secondary,
           onPressed: _submitting ? null : _addMedia,
         ),
+        const SizedBox(height: AppSpacing.md),
+        Text(
+          'Médias : ${medias.length} / $kChroniqueMaxMediaCount',
+          key: const ValueKey('media-count-label'),
+          textAlign: TextAlign.center,
+          style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
+        ),
+        if (medias.length >= kChroniqueMaxMediaCount) ...[
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            kMediaLimitReachedMessage,
+            key: const ValueKey('media-limit-reached'),
+            textAlign: TextAlign.center,
+            style: AppTextTheme.labelSmall.copyWith(color: colors.danger),
+          ),
+        ],
         const SizedBox(height: AppSpacing.lg),
         if (medias.isEmpty)
           Text(
@@ -346,21 +458,33 @@ class CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
         else
           MediaDraftList(
             medias: medias,
-            onRemove: (id) {
-              ref.read(createChroniqueControllerProvider.notifier).removeMediaDraft(id);
-            },
+            onRemove: _submitting
+                ? null
+                : (id) {
+                    ref.read(createChroniqueControllerProvider.notifier).removeMediaDraft(id);
+                    setState(_discardStaleMediaFormError);
+                    _scrollContentToEnd();
+                  },
           ),
-        if (_formError != null) ...[
+        if (_contentBannerError(medias) != null) ...[
           const SizedBox(height: AppSpacing.md),
           Text(
-            _formError!,
+            _contentBannerError(medias)!,
+            key: const ValueKey('content-media-error'),
             textAlign: TextAlign.center,
             style: AppTextTheme.labelSmall.copyWith(color: colors.danger),
           ),
         ],
-        const SizedBox(height: AppSpacing.xxl),
+        const SizedBox(
+          key: ValueKey('content-media-footer-gap'),
+          height: _contentScrollBottomReserve,
+        ),
       ],
     );
+  }
+
+  String? _contentBannerError(List<MediaDraft> medias) {
+    return chroniqueDraftMediaError(medias) ?? _formError;
   }
 
   Widget _publicationStep() {
@@ -377,6 +501,8 @@ class CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
             _formError = null;
           }),
         ),
+        const SizedBox(height: AppSpacing.xxl),
+        const ChroniqueAssistantPausedOptions(),
         if (_formError != null) ...[
           const SizedBox(height: AppSpacing.md),
           Text(

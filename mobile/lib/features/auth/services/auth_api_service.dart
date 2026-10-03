@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_exception.dart';
+import '../../../core/network/http_log_sanitize.dart';
 import '../models/auth_session.dart';
 import '../models/auth_user.dart';
 import '../models/google_start_result.dart';
@@ -267,7 +268,7 @@ class AuthApiService {
       );
       debugPrint(
         '[auth-http-diag] response statusCode=${response.statusCode} '
-        'uri=${response.realUri}',
+        'uri=${HttpLogSanitize.uri(response.realUri)}',
       );
       if (response.data == null || response.data == '') {
         return <String, dynamic>{};
@@ -276,8 +277,10 @@ class AuthApiService {
     } on DioException catch (error) {
       debugPrint(
         '[auth-http-diag][A-AFTER-WRAP] type=${error.type} '
-        'wrapped.error=${error.error} '
-        'uri=${error.requestOptions.uri}',
+        'wrapped.error=${HttpLogSanitize.text(error.error)} '
+        'method=${error.requestOptions.method} '
+        'path=${error.requestOptions.path} '
+        'uri=${HttpLogSanitize.requestUri(error.requestOptions)}',
       );
       final mapped = error.error;
       if (mapped is ApiException) {

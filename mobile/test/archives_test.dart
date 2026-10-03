@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -14,6 +16,7 @@ import 'package:mobile/features/chronique/models/chronique.dart';
 import 'package:mobile/features/chronique/models/chronique_date.dart';
 import 'package:mobile/features/chronique/models/chronique_page.dart';
 import 'package:mobile/features/chronique/presentation/screens/archives_screen.dart';
+import 'package:mobile/features/chronique/presentation/screens/chronique_detail_screen.dart';
 import 'package:mobile/features/chronique/presentation/widgets/chronique_card.dart';
 import 'package:mobile/features/chronique/providers/chronique_providers.dart';
 import 'package:mobile/features/chronique/services/chronique_api_service.dart';
@@ -78,10 +81,24 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
       : super(ApiClient(config: const AppConfig(apiBaseUrl: 'http://test.invalid')));
 
   int listCalls = 0;
+  int getCalls = 0;
+  int deleteCalls = 0;
   String? lastAccessToken;
   String? lastListStatus;
+  int? lastDeleteId;
   List<Chronique> archivedItems = const [];
   ApiException? failWith;
+  ApiException? failDeleteWith;
+  Completer<void>? deleteHold;
+
+  static const archived = Chronique(
+    id: 7,
+    title: 'Mon souvenir',
+    body: 'Texte de la chronique archivee pour les tests.',
+    status: 'archived',
+    publishedAt: '2026-09-01T08:00:00.000Z',
+    archivedAt: '2026-09-23T15:40:00.000Z',
+  );
 
   @override
   Future<ChroniquePage> list({
@@ -99,6 +116,43 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
       return ChroniquePage(items: archivedItems);
     }
     return const ChroniquePage(items: []);
+  }
+
+  @override
+  Future<Chronique> get({
+    required String accessToken,
+    required int id,
+  }) async {
+    getCalls += 1;
+    lastAccessToken = accessToken;
+    for (final item in archivedItems) {
+      if (item.id == id) {
+        return item;
+      }
+    }
+    throw const ApiException(message: 'Chronique not found', statusCode: 404);
+  }
+
+  @override
+  Future<void> delete({
+    required String accessToken,
+    required int id,
+  }) async {
+    deleteCalls += 1;
+    lastAccessToken = accessToken;
+    lastDeleteId = id;
+    final hold = deleteHold;
+    if (hold != null) {
+      await hold.future;
+    }
+    final error = failDeleteWith;
+    if (error != null) {
+      throw error;
+    }
+    archivedItems = [
+      for (final item in archivedItems)
+        if (item.id != id) item,
+    ];
   }
 }
 
@@ -163,22 +217,14 @@ void main() {
   });
 
   testWidgets('Archives displays archived cards with archive date', (tester) async {
-    const archived = Chronique(
-      id: 7,
-      title: 'Mon souvenir',
-      body: 'Texte de la chronique archivee pour les tests.',
-      status: 'archived',
-      publishedAt: '2026-09-01T08:00:00.000Z',
-      archivedAt: '2026-09-23T15:40:00.000Z',
-    );
-    final api = _ChroniqueApiProbe()..archivedItems = const [archived];
+    final api = _ChroniqueApiProbe()..archivedItems = const [_ChroniqueApiProbe.archived];
     await _pumpHome(tester, api: api);
     await _openArchives(tester);
 
     expect(find.byType(ChroniqueCard), findsOneWidget);
     expect(find.text('Mon souvenir'), findsOneWidget);
     expect(find.text('Texte de la chronique archivee pour les tests.'), findsOneWidget);
-    expect(find.text(chroniqueDateLabel(archived)), findsOneWidget);
+    expect(find.text(chroniqueDateLabel(_ChroniqueApiProbe.archived)), findsOneWidget);
     expect(find.text('Aucune chronique archivée.'), findsNothing);
   });
 
@@ -192,5 +238,119 @@ void main() {
     expect(find.byType(ArchivesScreen), findsOneWidget);
     expect(container.read(authControllerProvider), isA<AuthAuthenticated>());
     expect(find.text('Logout'), findsNothing);
+  });
+
+  testWidgets('archived card menu offers Supprimer only', (tester) async {
+    final api = _ChroniqueApiProbe()..archivedItems = const [_ChroniqueApiProbe.archived];
+    await _pumpHome(tester, api: api);
+    await _openArchives(tester);
+
+    await tester.tap(find.byTooltip('Actions'));
+    await tester.pumpAndSettle();
+    expect(find.text('Supprimer'), findsOneWidget);
+    expect(find.text('Modifier'), findsNothing);
+    expect(find.text('Archiver'), findsNothing);
+  });
+
+  testWidgets('archived delete cancellation does not call DELETE', (tester) async {
+    final api = _ChroniqueApiProbe()..archivedItems = const [_ChroniqueApiProbe.archived];
+    await _pumpHome(tester, api: api);
+    await _openArchives(tester);
+
+    await tester.tap(find.byTooltip('Actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Supprimer'));
+    await tester.pumpAndSettle();
+    expect(find.text('Supprimer cette Chronique ?'), findsOneWidget);
+    expect(
+      find.text(
+        'Cette action supprimera cette publication de vos Archives. Elle ne pourra pas être récupérée.',
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Annuler'));
+    await tester.pumpAndSettle();
+
+    expect(api.deleteCalls, 0);
+    expect(find.byType(ChroniqueCard), findsOneWidget);
+    expect(find.text('Mon souvenir'), findsOneWidget);
+  });
+
+  testWidgets('archived delete confirms then removes the card', (tester) async {
+    final api = _ChroniqueApiProbe()..archivedItems = const [_ChroniqueApiProbe.archived];
+    await _pumpHome(tester, api: api);
+    await _openArchives(tester);
+
+    await tester.tap(find.byTooltip('Actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Supprimer'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Supprimer'));
+    await tester.pumpAndSettle();
+
+    expect(api.deleteCalls, 1);
+    expect(api.lastDeleteId, 7);
+    expect(find.byType(ChroniqueCard), findsNothing);
+    expect(find.text('Aucune chronique archivée.'), findsOneWidget);
+    expect(find.text('Chronique supprimée'), findsOneWidget);
+  });
+
+  testWidgets('archived delete API error keeps the card', (tester) async {
+    final api = _ChroniqueApiProbe()
+      ..archivedItems = const [_ChroniqueApiProbe.archived]
+      ..failDeleteWith = const ApiException(message: 'Too many requests', statusCode: 429);
+    await _pumpHome(tester, api: api);
+    await _openArchives(tester);
+
+    await tester.tap(find.byTooltip('Actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Supprimer'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Supprimer'));
+    await tester.pump();
+
+    expect(api.deleteCalls, 1);
+    expect(api.lastDeleteId, 7);
+    expect(find.text('Too many requests'), findsOneWidget);
+    expect(find.byType(ChroniqueCard), findsOneWidget);
+    expect(find.text('Mon souvenir'), findsOneWidget);
+    expect(find.text('Aucune chronique archivée.'), findsNothing);
+  });
+
+  testWidgets('archived delete in flight ignores a second submit', (tester) async {
+    final hold = Completer<void>();
+    final api = _ChroniqueApiProbe()
+      ..archivedItems = const [_ChroniqueApiProbe.archived]
+      ..deleteHold = hold;
+    await _pumpHome(tester, api: api);
+    await _openArchives(tester);
+
+    await tester.tap(find.byTooltip('Actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Supprimer'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Supprimer'));
+    await tester.pump();
+
+    expect(api.deleteCalls, 1);
+    expect(find.byTooltip('Actions'), findsNothing);
+
+    hold.complete();
+    await tester.pumpAndSettle();
+    expect(api.deleteCalls, 1);
+    expect(find.byType(ChroniqueCard), findsNothing);
+  });
+
+  testWidgets('archived card tap still opens detail', (tester) async {
+    final api = _ChroniqueApiProbe()..archivedItems = const [_ChroniqueApiProbe.archived];
+    await _pumpHome(tester, api: api);
+    await _openArchives(tester);
+
+    await tester.tap(find.text('Mon souvenir'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ChroniqueDetailScreen), findsOneWidget);
+    expect(api.getCalls, greaterThan(0));
+    expect(find.text('Archives'), findsNothing);
   });
 }

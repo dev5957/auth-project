@@ -14,6 +14,7 @@ import '../state/chronique_detail_controller.dart';
 import '../state/mon_fil_controller.dart';
 import '../state/upcoming_chroniques_controller.dart';
 import '../widgets/chronique_lifecycle_dialogs.dart';
+import '../widgets/chronique_ready_remote_media_list.dart';
 
 enum _DetailAction { edit, archive, delete }
 
@@ -128,7 +129,7 @@ class _ChroniqueDetailScreenState extends ConsumerState<ChroniqueDetailScreen> {
     }
     _loadGeneration++;
     setState(() {
-      _chronique = updated;
+      _chronique = Chronique.keepExistingMedia(current, updated);
       _error = null;
     });
     ref.read(monFilControllerProvider.notifier).upsert(updated);
@@ -329,6 +330,18 @@ class _ChroniqueDetailScreenState extends ConsumerState<ChroniqueDetailScreen> {
                       ),
                       const SizedBox(height: AppSpacing.lg),
                     ],
+                    if (resolved.status == 'expired') ...[
+                      if (chroniqueDefinitiveDeletionLabel(resolved) case final remaining?) ...[
+                        Text(
+                          remaining,
+                          key: const ValueKey('chronique-expired-remaining'),
+                          style: AppTextTheme.labelSmall.copyWith(
+                            color: colors.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                      ],
+                    ],
                     if (title != null && title.isNotEmpty) ...[
                       Text(
                         title,
@@ -344,6 +357,10 @@ class _ChroniqueDetailScreenState extends ConsumerState<ChroniqueDetailScreen> {
                         color: colors.textPrimary,
                       ),
                     ),
+                    if (displayableChroniqueRemoteMedia(resolved.media).isNotEmpty) ...[
+                      const SizedBox(height: AppSpacing.xxl),
+                      ChroniqueReadyRemoteMediaList(medias: resolved.media),
+                    ],
                     if (_error != null) ...[
                       const SizedBox(height: AppSpacing.lg),
                       Text(

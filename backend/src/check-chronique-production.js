@@ -257,15 +257,15 @@ async function main() {
   assert(published1.length === 1, 'publish first');
   assert(expired1.length === 1, 'expire first');
   assert(purged1.length === 1, 'purge first');
+  assert(purged1[0].id === 12, 'purge first id');
+  assert(jobDb.state.rows.find((row) => row.id === 12) == null, 'expired due is hard deleted');
 
   const afterFirst = {
     publishedAt: stamp(jobDb.state.rows.find((row) => row.id === 10).published_at),
     expiredAt: stamp(jobDb.state.rows.find((row) => row.id === 11).expired_at),
     purgeAfter: stamp(jobDb.state.rows.find((row) => row.id === 11).purge_after),
-    deletedAt: stamp(jobDb.state.rows.find((row) => row.id === 12).deleted_at),
     status10: jobDb.state.rows.find((row) => row.id === 10).status,
     status11: jobDb.state.rows.find((row) => row.id === 11).status,
-    status12: jobDb.state.rows.find((row) => row.id === 12).status,
   };
 
   const published2 = await runPublishScheduledJob({ db: jobDb, query: q, now: jobNow });
@@ -286,13 +286,9 @@ async function main() {
     stamp(jobDb.state.rows.find((row) => row.id === 11).purge_after) === afterFirst.purgeAfter,
     'purge_after unchanged'
   );
-  assert(
-    stamp(jobDb.state.rows.find((row) => row.id === 12).deleted_at) === afterFirst.deletedAt,
-    'deleted_at unchanged'
-  );
   assert(jobDb.state.rows.find((row) => row.id === 10).status === afterFirst.status10, 'status 10');
   assert(jobDb.state.rows.find((row) => row.id === 11).status === afterFirst.status11, 'status 11');
-  assert(jobDb.state.rows.find((row) => row.id === 12).status === afterFirst.status12, 'status 12');
+  assert(jobDb.state.rows.find((row) => row.id === 12) == null, 'hard delete remains');
   console.log('E OK jobs publish/expire/purge idempotents');
 
   const logs = formatChroniqueJobLogs({ published: 3, expired: 2, deleted: 0 }, 'all');

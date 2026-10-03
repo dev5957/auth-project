@@ -30,6 +30,7 @@ enum ChroniqueExpirationPreset {
   twentyFourHours,
   seventyTwoHours,
   sevenDays,
+  thirtyDays,
   custom,
 }
 
@@ -108,6 +109,8 @@ abstract final class ChroniqueDateHelper {
       ChroniqueExpirationPreset.seventyTwoHours =>
         activationLocal.add(const Duration(hours: 72)),
       ChroniqueExpirationPreset.sevenDays => activationLocal.add(const Duration(days: 7)),
+      ChroniqueExpirationPreset.thirtyDays =>
+        activationLocal.add(const Duration(days: 30)),
       ChroniqueExpirationPreset.custom => customLocal,
     };
   }
@@ -120,6 +123,7 @@ abstract final class ChroniqueDateHelper {
       ChroniqueExpirationPreset.twentyFourHours => '24 heures',
       ChroniqueExpirationPreset.seventyTwoHours => '72 heures',
       ChroniqueExpirationPreset.sevenDays => '7 jours',
+      ChroniqueExpirationPreset.thirtyDays => '30 jours',
       ChroniqueExpirationPreset.custom => 'Date personnalisée',
     };
   }
@@ -172,4 +176,38 @@ String? formatOptionalChroniqueDate(DateTime? date) {
     return null;
   }
   return ChroniqueDateHelper.formatLocal(date);
+}
+
+/// Aligné sur le backend `PURGE_DELAY_DAYS` si `purge_after` est absent.
+const int kChroniqueExpiredRetentionDays = 30;
+
+DateTime? chroniquePurgeDeadline(Chronique chronique) {
+  if (chronique.purgeAfter != null) {
+    return chronique.purgeAfter;
+  }
+  final expiredAt = chronique.expiredAt;
+  if (expiredAt == null) {
+    return null;
+  }
+  return expiredAt.add(const Duration(days: kChroniqueExpiredRetentionDays));
+}
+
+/// Exemple : `Suppression définitive dans 12 jours`.
+String? chroniqueDefinitiveDeletionLabel(Chronique chronique, {DateTime? now}) {
+  final deadline = chroniquePurgeDeadline(chronique);
+  if (deadline == null) {
+    return null;
+  }
+  final remaining = deadline.difference(now ?? DateTime.now());
+  if (remaining.isNegative || remaining == Duration.zero) {
+    return 'Suppression définitive imminente';
+  }
+  final days = remaining.inDays;
+  if (days < 1) {
+    return 'Suppression définitive dans moins d’un jour';
+  }
+  if (days == 1) {
+    return 'Suppression définitive dans 1 jour';
+  }
+  return 'Suppression définitive dans $days jours';
 }

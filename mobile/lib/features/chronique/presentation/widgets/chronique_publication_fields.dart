@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_text_theme.dart';
+import '../../models/chronique_assistant_copy.dart';
 import '../../models/chronique_date.dart';
 import '../../models/chronique_schedule_draft.dart';
 
@@ -140,7 +141,7 @@ class ChroniquePublicationFields extends StatelessWidget {
               color: colors.primary,
             ),
             title: Text(
-              'Maintenant',
+              kChroniquePublishNowLabel,
               style: AppTextTheme.bodyMedium.copyWith(color: colors.textPrimary),
             ),
             onTap: enabled
@@ -157,7 +158,7 @@ class ChroniquePublicationFields extends StatelessWidget {
               color: colors.primary,
             ),
             title: Text(
-              'Programmer',
+              kChroniquePublishScheduleLabel,
               style: AppTextTheme.bodyMedium.copyWith(color: colors.textPrimary),
             ),
             onTap: enabled
@@ -195,7 +196,7 @@ class ChroniquePublicationFields extends StatelessWidget {
           ),
         ],
         const SizedBox(height: AppSpacing.xxl),
-        _sectionTitle('Expiration', colors.textSecondary),
+        _sectionTitle(kChroniqueEphemeralSectionLabel, colors.textSecondary),
         ListTile(
           key: const ValueKey('expiration-no'),
           contentPadding: EdgeInsets.zero,
