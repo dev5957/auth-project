@@ -299,6 +299,7 @@ class _FakeCommunityApi extends CommunityApiService {
   }) async {
     networkOps.add('POST /communities/$communityId/leave');
     leaveCalls += 1;
+    items.removeWhere((item) => item.id == communityId);
     return <String, dynamic>{'left': true, 'transferred': false};
   }
 
@@ -661,6 +662,12 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('community-detail-error')), findsOneWidget);
     expect(find.text('Communauté introuvable'), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-detail-error-back')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-detail-close')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('community-detail-error-back')));
+    await tester.pumpAndSettle();
+    expect(find.byType(CommunityListScreen), findsOneWidget);
+    expect(find.byType(CommunityDetailScreen), findsNothing);
   });
 
   testWidgets('list 401 shows session error', (tester) async {
@@ -2546,5 +2553,72 @@ void main() {
     expect(find.byKey(const ValueKey('community-no-admin-picker')), findsNothing);
     expect(promoted, isEmpty);
     expect(left, isEmpty);
+  });
+
+  Future<void> confirmLeaveFromDetail(WidgetTester tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 2400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const ValueKey('community-leave')));
+    await tester.tap(find.byKey(const ValueKey('community-leave')));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('member leave closes detail and reloads empty list', (tester) async {
+    final api = _FakeCommunityApi();
+    setListedRole(api, CommunityRole.member);
+    await openCommunityDetail(tester, api);
+    await confirmLeaveFromDetail(tester);
+    expect(find.byKey(const ValueKey('community-leave-confirm')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('community-leave-confirm-yes')));
+    await tester.pumpAndSettle();
+    expect(api.leaveCalls, 1);
+    expect(find.byType(CommunityDetailScreen), findsNothing);
+    expect(find.byType(CommunityListScreen), findsOneWidget);
+    expect(find.text('Aucune communauté pour le moment'), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-list-item-3')), findsNothing);
+  });
+
+  testWidgets('admin leave closes detail and reloads empty list', (tester) async {
+    final api = _FakeCommunityApi();
+    setListedRole(api, CommunityRole.admin);
+    await openCommunityDetail(tester, api);
+    await confirmLeaveFromDetail(tester);
+    expect(find.byKey(const ValueKey('community-leave-confirm')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('community-leave-confirm-yes')));
+    await tester.pumpAndSettle();
+    expect(api.leaveCalls, 1);
+    expect(find.byType(CommunityDetailScreen), findsNothing);
+    expect(find.byType(CommunityListScreen), findsOneWidget);
+    expect(find.text('Aucune communauté pour le moment'), findsOneWidget);
+  });
+
+  testWidgets('owner transfer leave closes detail and reloads list', (tester) async {
+    final api = _FakeCommunityApi()
+      ..members = [
+        const CommunityMember(userId: 1, login: 'moh5', role: CommunityRole.owner),
+        CommunityMember(
+          userId: 7,
+          login: 'sag5',
+          role: CommunityRole.admin,
+          roleAssignedAt: DateTime.utc(2026, 1, 1),
+        ),
+        CommunityMember(
+          userId: 8,
+          login: 'joe5',
+          role: CommunityRole.admin,
+          roleAssignedAt: DateTime.utc(2026, 2, 1),
+        ),
+      ];
+    await openCommunityDetail(tester, api);
+    await confirmLeaveFromDetail(tester);
+    expect(find.byKey(const ValueKey('community-transfer-confirm')), findsOneWidget);
+    expect(find.textContaining('sag5'), findsWidgets);
+    await tester.tap(find.byKey(const ValueKey('community-transfer-confirm-yes')));
+    await tester.pumpAndSettle();
+    expect(api.leaveCalls, 1);
+    expect(find.byType(CommunityDetailScreen), findsNothing);
+    expect(find.byType(CommunityListScreen), findsOneWidget);
+    expect(find.text('Aucune communauté pour le moment'), findsOneWidget);
   });
 }

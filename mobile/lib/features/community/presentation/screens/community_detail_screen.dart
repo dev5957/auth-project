@@ -10,6 +10,7 @@ import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_loading.dart';
 import '../../models/community.dart';
 import '../state/community_detail_controller.dart';
+import '../state/community_list_controller.dart';
 import '../widgets/community_join_requests_section.dart';
 import '../widgets/community_leave_bar.dart';
 import '../widgets/community_media_placeholder.dart';
@@ -111,6 +112,18 @@ class CommunityDetailScreen extends ConsumerWidget {
     if (!left || !context.mounted) {
       return;
     }
+    await ref.read(communityListControllerProvider.notifier).load();
+    if (!context.mounted) {
+      return;
+    }
+    context.go(AppRoutes.communities);
+  }
+
+  Future<void> _returnToCommunityList(BuildContext context, WidgetRef ref) async {
+    await ref.read(communityListControllerProvider.notifier).load();
+    if (!context.mounted) {
+      return;
+    }
     context.go(AppRoutes.communities);
   }
 
@@ -123,19 +136,36 @@ class CommunityDetailScreen extends ConsumerWidget {
       backgroundColor: colors.bgBase,
       appBar: AppBar(
         title: const Text('Communauté'),
+        leading: IconButton(
+          key: const ValueKey('community-detail-close'),
+          tooltip: 'Retour',
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => _returnToCommunityList(context, ref),
+        ),
       ),
       body: SafeArea(
         child: switch (state) {
           CommunityDetailLoading() => const AppLoading(),
           CommunityDetailError(:final message, :final statusCode) => Padding(
               padding: const EdgeInsets.all(AppSpacing.xxl),
-              child: Text(
-                statusCode == 404
-                    ? 'Communauté introuvable'
-                    : statusCode == 401
-                        ? 'Session expirée'
-                        : message,
-                key: const ValueKey('community-detail-error'),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    statusCode == 404
+                        ? 'Communauté introuvable'
+                        : statusCode == 401
+                            ? 'Session expirée'
+                            : message,
+                    key: const ValueKey('community-detail-error'),
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                  AppButton(
+                    key: const ValueKey('community-detail-error-back'),
+                    label: 'Retour aux communautés',
+                    onPressed: () => _returnToCommunityList(context, ref),
+                  ),
+                ],
               ),
             ),
           CommunityDetailReady(:final data) => ListView(

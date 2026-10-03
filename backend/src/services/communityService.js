@@ -163,6 +163,10 @@ async function transferOwnershipAndLeave(client, communityId, ownerUserId) {
     throw new AppError(400, OWNER_CANNOT_LEAVE);
   }
 
+  // Unique index community_members_one_owner_per_community_key is checked
+  // per statement (not deferrable). Promoting the successor while the current
+  // owner row still exists would create two owners and abort the transaction.
+  await deleteMembership(client, communityId, ownerUserId);
   await client.query(
     `UPDATE community_members
      SET role = 'owner',
@@ -173,7 +177,6 @@ async function transferOwnershipAndLeave(client, communityId, ownerUserId) {
        AND role = 'admin'`,
     [communityId, successor.user_id]
   );
-  await deleteMembership(client, communityId, ownerUserId);
   await assertExactlyOneOwner(client, communityId);
 
   const publicSuccessor = await loadPublicMember(client, communityId, successor.user_id);

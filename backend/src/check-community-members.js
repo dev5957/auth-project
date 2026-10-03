@@ -232,6 +232,20 @@ function createMembersMemory() {
       }
       const communityId = Number(params[0]);
       const userId = Number(params[1]);
+      const otherOwner = state.members.find(
+        (item) =>
+          Number(item.community_id) === communityId &&
+          item.role === 'owner' &&
+          Number(item.user_id) !== userId
+      );
+      if (otherOwner) {
+        const err = new Error(
+          'duplicate key value violates unique constraint "community_members_one_owner_per_community_key"'
+        );
+        err.code = '23505';
+        err.constraint = 'community_members_one_owner_per_community_key';
+        throw err;
+      }
       const row = state.members.find(
         (item) =>
           Number(item.community_id) === communityId &&
