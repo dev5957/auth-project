@@ -18,11 +18,16 @@ import '../../features/chronique/presentation/screens/edit_chronique_screen.dart
 import '../../features/chronique/presentation/screens/expired_chroniques_screen.dart';
 import '../../features/chronique/presentation/screens/mon_fil_screen.dart';
 import '../../features/chronique/presentation/screens/upcoming_chroniques_screen.dart';
+import '../../features/community/models/community_publication.dart';
 import '../../features/community/presentation/screens/community_detail_screen.dart';
 import '../../features/community/presentation/screens/community_list_screen.dart';
+import '../../features/community/presentation/screens/community_publication_detail_screen.dart';
 import '../../features/community/presentation/screens/community_search_screen.dart';
+import '../../features/community/presentation/screens/create_community_publication_screen.dart';
 import '../../features/community/presentation/screens/create_community_screen.dart';
+import '../../features/community/presentation/screens/edit_community_publication_screen.dart';
 import '../../features/community/presentation/screens/invitation_inbox_screen.dart';
+import '../../features/community/presentation/screens/my_community_publications_screen.dart';
 import '../../features/community/presentation/screens/my_join_requests_screen.dart';
 import '../../features/community/presentation/screens/user_search_screen.dart';
 import '../../features/home/presentation/screens/home_screen.dart';
@@ -151,12 +156,67 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const MyJoinRequestsScreen(),
       ),
       GoRoute(
+        path: AppRoutes.myCommunityPublications,
+        builder: (context, state) => const MyCommunityPublicationsScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.myCommunityPublicationDetailPath,
+        builder: (context, state) {
+          final publicationId = int.tryParse(state.pathParameters['publicationId'] ?? '') ?? 0;
+          final extra = state.extra;
+          final communityId = extra is int ? extra : 0;
+          return CommunityPublicationDetailScreen(
+            communityId: communityId,
+            publicationId: publicationId,
+            fromMe: true,
+          );
+        },
+      ),
+      GoRoute(
         path: AppRoutes.communitiesCreate,
         builder: (context, state) => const CreateCommunityScreen(),
       ),
       GoRoute(
         path: AppRoutes.communitiesSearch,
         builder: (context, state) => const CommunitySearchScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.communityPublicationCreatePath,
+        pageBuilder: (context, state) {
+          final id = int.tryParse(state.pathParameters['communityId'] ?? '') ?? 0;
+          final extra = state.extra;
+          return MaterialPage<void>(
+            key: state.pageKey,
+            fullscreenDialog: true,
+            child: CreateCommunityPublicationScreen(
+              communityId: id,
+              communityName: extra is String ? extra : null,
+            ),
+          );
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.communityPublicationEditPath,
+        builder: (context, state) {
+          final extra = state.extra;
+          if (extra is! CommunityPublication) {
+            return const Scaffold(
+              body: Center(child: Text('Publication introuvable')),
+            );
+          }
+          return EditCommunityPublicationScreen(publication: extra);
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.communityPublicationDetailPath,
+        builder: (context, state) {
+          final communityId = int.tryParse(state.pathParameters['communityId'] ?? '') ?? 0;
+          final publicationId = int.tryParse(state.pathParameters['publicationId'] ?? '') ?? 0;
+          return CommunityPublicationDetailScreen(
+            communityId: communityId,
+            publicationId: publicationId,
+          );
+        },
       ),
       GoRoute(
         path: AppRoutes.communityInviteSearchPath,

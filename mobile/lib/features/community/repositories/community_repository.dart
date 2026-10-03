@@ -1,7 +1,10 @@
 import '../../../core/network/api_exception.dart';
 import '../../auth/data/storage/auth_token_storage.dart';
 import '../models/community.dart';
+import '../models/community_publication.dart';
 import '../models/join_request.dart';
+import '../../chronique/models/chronique_media_upload.dart';
+import '../../chronique/models/media_draft.dart';
 import '../services/community_api_service.dart';
 
 class CommunityRepository {
@@ -159,5 +162,159 @@ class CommunityRepository {
       throw const ApiException(message: 'Unauthorized', statusCode: 401);
     }
     return token;
+  }
+
+  Future<CommunityPublication> createPublication({
+    required int communityId,
+    required String body,
+    String? title,
+    String publish = 'now',
+    String? scheduledAt,
+    bool isTimeLimited = false,
+    String? expiresAt,
+    bool commentsEnabled = false,
+    int initialMediaCount = 0,
+  }) {
+    return _withToken(
+      (token) => _api.createPublication(
+        accessToken: token,
+        communityId: communityId,
+        body: body,
+        title: title,
+        publish: publish,
+        scheduledAt: scheduledAt,
+        isTimeLimited: isTimeLimited,
+        expiresAt: expiresAt,
+        commentsEnabled: commentsEnabled,
+        initialMediaCount: initialMediaCount,
+      ),
+    );
+  }
+
+  Future<CommunityPublicationPage> listPublications(int communityId) {
+    return _withToken(
+      (token) => _api.listPublications(accessToken: token, communityId: communityId),
+    );
+  }
+
+  Future<CommunityPublication> getPublication({
+    required int communityId,
+    required int publicationId,
+  }) {
+    return _withToken(
+      (token) => _api.getPublication(
+        accessToken: token,
+        communityId: communityId,
+        publicationId: publicationId,
+      ),
+    );
+  }
+
+  Future<CommunityPublication> patchPublication({
+    required int communityId,
+    required int publicationId,
+    String? title,
+    String? body,
+  }) {
+    return _withToken(
+      (token) => _api.patchPublication(
+        accessToken: token,
+        communityId: communityId,
+        publicationId: publicationId,
+        title: title,
+        body: body,
+      ),
+    );
+  }
+
+  Future<void> deletePublication({
+    required int communityId,
+    required int publicationId,
+  }) {
+    return _withToken(
+      (token) => _api.deletePublication(
+        accessToken: token,
+        communityId: communityId,
+        publicationId: publicationId,
+      ),
+    );
+  }
+
+  Future<CommunityPublication> restorePublication({
+    required int communityId,
+    required int publicationId,
+  }) {
+    return _withToken(
+      (token) => _api.restorePublication(
+        accessToken: token,
+        communityId: communityId,
+        publicationId: publicationId,
+      ),
+    );
+  }
+
+  Future<ChroniqueMediaUploadSession> createPublicationMediaUpload({
+    required int communityId,
+    required int publicationId,
+    required MediaDraft media,
+  }) {
+    return _withToken(
+      (token) => _api.createPublicationMediaUpload(
+        accessToken: token,
+        communityId: communityId,
+        publicationId: publicationId,
+        data: <String, dynamic>{
+          'kind': media.kind.name,
+          'source_type': media.sourceType.name,
+          'content_type': media.contentType,
+          'byte_size': media.byteSize,
+          if (media.fileName != null) 'original_filename': media.fileName,
+        },
+      ),
+    );
+  }
+
+  Future<void> completePublicationMediaUpload({
+    required int communityId,
+    required int publicationId,
+    required int mediaId,
+  }) {
+    return _withToken(
+      (token) => _api.completePublicationMediaUpload(
+        accessToken: token,
+        communityId: communityId,
+        publicationId: publicationId,
+        mediaId: mediaId,
+      ),
+    );
+  }
+
+  Future<void> deletePublicationMedia({
+    required int communityId,
+    required int publicationId,
+    required int mediaId,
+  }) {
+    return _withToken(
+      (token) => _api.deletePublicationMedia(
+        accessToken: token,
+        communityId: communityId,
+        publicationId: publicationId,
+        mediaId: mediaId,
+      ),
+    );
+  }
+
+  Future<CommunityPublicationPage> listMyPublications(String scope) {
+    return _withToken((token) => _api.listMyPublications(accessToken: token, scope: scope));
+  }
+
+  Future<CommunityPublication> getMyPublication(int publicationId) {
+    return _withToken(
+      (token) => _api.getMyPublication(accessToken: token, publicationId: publicationId),
+    );
+  }
+
+  Future<T> _withToken<T>(Future<T> Function(String token) run) async {
+    return run(await _requireAccessToken());
   }
 }

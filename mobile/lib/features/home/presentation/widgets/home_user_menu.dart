@@ -14,6 +14,7 @@ Future<void> showHomeUserMenu(
   required VoidCallback onUpcoming,
   required VoidCallback onArchives,
   required VoidCallback onExpired,
+  required VoidCallback onMyCommunityPublications,
   required VoidCallback onLogout,
 }) {
   final colors = context.luminaColors;
@@ -66,6 +67,15 @@ Future<void> showHomeUserMenu(
                 onTap: () {
                   Navigator.of(sheetContext).pop();
                   onExpired();
+                },
+              ),
+              ListTile(
+                key: const ValueKey('home-my-community-publications'),
+                leading: Icon(Icons.groups_outlined, color: colors.textPrimary),
+                title: const Text('Mes publications communautaires'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  onMyCommunityPublications();
                 },
               ),
               ListTile(

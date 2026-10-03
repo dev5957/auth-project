@@ -4,7 +4,9 @@ import 'package:flutter/foundation.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_exception.dart';
 import '../models/community.dart';
+import '../models/community_publication.dart';
 import '../models/join_request.dart';
+import '../../chronique/models/chronique_media_upload.dart';
 
 class CommunityApiService {
   CommunityApiService(this._client);
@@ -289,6 +291,171 @@ class CommunityApiService {
       '/communities/$communityId/leave',
       accessToken: accessToken,
     );
+  }
+
+  Future<CommunityPublication> createPublication({
+    required String accessToken,
+    required int communityId,
+    required String body,
+    String? title,
+    String publish = 'now',
+    String? scheduledAt,
+    bool isTimeLimited = false,
+    String? expiresAt,
+    bool commentsEnabled = false,
+    int initialMediaCount = 0,
+  }) async {
+    final json = await _send(
+      'POST',
+      '/communities/$communityId/publications',
+      accessToken: accessToken,
+      data: <String, dynamic>{
+        'body': body,
+        'publish': publish,
+        if (title != null && title.isNotEmpty) 'title': title,
+        if (publish == 'schedule' && scheduledAt != null) 'scheduled_at': scheduledAt,
+        if (isTimeLimited) 'is_time_limited': true,
+        if (isTimeLimited && expiresAt != null) 'expires_at': expiresAt,
+        'comments_enabled': commentsEnabled,
+        'initial_media_count': initialMediaCount,
+      },
+    );
+    return CommunityPublication.fromJson(_asMap(json['publication'] ?? json));
+  }
+
+  Future<CommunityPublicationPage> listPublications({
+    required String accessToken,
+    required int communityId,
+  }) async {
+    final json = await _send(
+      'GET',
+      '/communities/$communityId/publications',
+      accessToken: accessToken,
+    );
+    return CommunityPublicationPage.fromJson(json);
+  }
+
+  Future<CommunityPublication> getPublication({
+    required String accessToken,
+    required int communityId,
+    required int publicationId,
+  }) async {
+    final json = await _send(
+      'GET',
+      '/communities/$communityId/publications/$publicationId',
+      accessToken: accessToken,
+    );
+    return CommunityPublication.fromJson(_asMap(json['publication'] ?? json));
+  }
+
+  Future<CommunityPublication> patchPublication({
+    required String accessToken,
+    required int communityId,
+    required int publicationId,
+    String? title,
+    String? body,
+  }) async {
+    final json = await _send(
+      'PATCH',
+      '/communities/$communityId/publications/$publicationId',
+      accessToken: accessToken,
+      data: <String, dynamic>{
+        if (title != null) 'title': title,
+        if (body != null) 'body': body,
+      },
+    );
+    return CommunityPublication.fromJson(_asMap(json['publication'] ?? json));
+  }
+
+  Future<void> deletePublication({
+    required String accessToken,
+    required int communityId,
+    required int publicationId,
+  }) async {
+    await _send(
+      'DELETE',
+      '/communities/$communityId/publications/$publicationId',
+      accessToken: accessToken,
+    );
+  }
+
+  Future<CommunityPublication> restorePublication({
+    required String accessToken,
+    required int communityId,
+    required int publicationId,
+  }) async {
+    final json = await _send(
+      'POST',
+      '/communities/$communityId/publications/$publicationId/restore',
+      accessToken: accessToken,
+    );
+    return CommunityPublication.fromJson(_asMap(json['publication'] ?? json));
+  }
+
+  Future<ChroniqueMediaUploadSession> createPublicationMediaUpload({
+    required String accessToken,
+    required int communityId,
+    required int publicationId,
+    required Map<String, dynamic> data,
+  }) async {
+    final json = await _send(
+      'POST',
+      '/communities/$communityId/publications/$publicationId/media/uploads',
+      accessToken: accessToken,
+      data: data,
+    );
+    return ChroniqueMediaUploadSession.fromJson(json);
+  }
+
+  Future<void> completePublicationMediaUpload({
+    required String accessToken,
+    required int communityId,
+    required int publicationId,
+    required int mediaId,
+  }) async {
+    await _send(
+      'POST',
+      '/communities/$communityId/publications/$publicationId/media/$mediaId/complete',
+      accessToken: accessToken,
+    );
+  }
+
+  Future<void> deletePublicationMedia({
+    required String accessToken,
+    required int communityId,
+    required int publicationId,
+    required int mediaId,
+  }) async {
+    await _send(
+      'DELETE',
+      '/communities/$communityId/publications/$publicationId/media/$mediaId',
+      accessToken: accessToken,
+    );
+  }
+
+  Future<CommunityPublicationPage> listMyPublications({
+    required String accessToken,
+    required String scope,
+  }) async {
+    final json = await _send(
+      'GET',
+      '/me/community-publications',
+      accessToken: accessToken,
+      queryParameters: <String, dynamic>{'scope': scope},
+    );
+    return CommunityPublicationPage.fromJson(json);
+  }
+
+  Future<CommunityPublication> getMyPublication({
+    required String accessToken,
+    required int publicationId,
+  }) async {
+    final json = await _send(
+      'GET',
+      '/me/community-publications/$publicationId',
+      accessToken: accessToken,
+    );
+    return CommunityPublication.fromJson(_asMap(json['publication'] ?? json));
   }
 
   Community _communityFrom(Map<String, dynamic> json) {

@@ -11,6 +11,7 @@ import '../../../../core/widgets/app_loading.dart';
 import '../../models/community.dart';
 import '../state/community_detail_controller.dart';
 import '../state/community_list_controller.dart';
+import '../widgets/community_feed_section.dart';
 import '../widgets/community_join_requests_section.dart';
 import '../widgets/community_leave_bar.dart';
 import '../widgets/community_media_placeholder.dart';
@@ -207,6 +208,7 @@ class CommunityDetailScreen extends ConsumerWidget {
                   const SizedBox(height: AppSpacing.md),
                   Text(data.community.description!),
                 ],
+                CommunityFeedSection(community: data.community),
                 const SizedBox(height: AppSpacing.xl),
                 Text(
                   'Membres (${data.community.memberCount})',

@@ -10,6 +10,9 @@ const {
   escapeIlikePattern,
   VISIBILITY_PRIVATE,
 } = require('../validators/communityFields');
+const {
+  abandonDraftsAndPendingUploads,
+} = require('./communityPublicationMediaService');
 
 const NOT_FOUND = 'Community not found';
 
@@ -120,7 +123,8 @@ async function loadPublicMember(client, communityId, userId) {
   return result.rows[0] ? toPublicMember(result.rows[0]) : null;
 }
 
-async function deleteMembership(client, communityId, userId) {
+async function deleteMembership(client, communityId, userId, deps = {}) {
+  await abandonDraftsAndPendingUploads(client, communityId, userId, deps);
   await client.query(
     `DELETE FROM community_members
      WHERE community_id = $1
@@ -157,7 +161,7 @@ async function lockOldestAdmin(client, communityId) {
   return result.rows[0] || null;
 }
 
-async function transferOwnershipAndLeave(client, communityId, ownerUserId) {
+async function transferOwnershipAndLeave(client, communityId, ownerUserId, deps = {}) {
   const successor = await lockOldestAdmin(client, communityId);
   if (!successor) {
     throw new AppError(400, OWNER_CANNOT_LEAVE);
@@ -166,7 +170,7 @@ async function transferOwnershipAndLeave(client, communityId, ownerUserId) {
   // Unique index community_members_one_owner_per_community_key is checked
   // per statement (not deferrable). Promoting the successor while the current
   // owner row still exists would create two owners and abort the transaction.
-  await deleteMembership(client, communityId, ownerUserId);
+  await deleteMembership(client, communityId, ownerUserId, deps);
   await client.query(
     `UPDATE community_members
      SET role = 'owner',
@@ -459,7 +463,7 @@ async function removeMember(actorUserId, rawCommunityId, rawTargetUserId, deps =
       throw new AppError(400, OWNER_CANNOT_BE_REMOVED);
     }
 
-    await deleteMembership(client, communityId, targetUserId);
+    await deleteMembership(client, communityId, targetUserId, deps);
     await assertExactlyOneOwner(client, communityId);
     return { removed: true };
   });
@@ -482,10 +486,10 @@ async function leaveCommunity(actorUserId, rawCommunityId, deps = {}) {
     }
 
     if (actor.role === 'owner') {
-      return transferOwnershipAndLeave(client, communityId, actorUserId);
+      return transferOwnershipAndLeave(client, communityId, actorUserId, deps);
     }
 
-    await deleteMembership(client, communityId, actorUserId);
+    await deleteMembership(client, communityId, actorUserId, deps);
     await assertExactlyOneOwner(client, communityId);
     return { left: true, transferred: false };
   });

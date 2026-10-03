@@ -16,6 +16,7 @@ import 'package:mobile/features/auth/providers/auth_providers.dart';
 import 'package:mobile/features/auth/state/auth_state.dart';
 import 'package:mobile/features/community/models/community.dart';
 import 'package:mobile/features/community/models/community_fields.dart';
+import 'package:mobile/features/community/models/community_publication.dart';
 import 'package:mobile/features/community/models/invitation_messages.dart';
 import 'package:mobile/features/community/models/join_request.dart';
 import 'package:mobile/features/community/models/join_request_messages.dart';
@@ -26,7 +27,9 @@ import 'package:mobile/core/widgets/app_button.dart';
 import 'package:mobile/core/widgets/app_card.dart';
 import 'package:mobile/core/widgets/app_loading.dart';
 import 'package:mobile/features/community/presentation/screens/community_search_screen.dart';
+import 'package:mobile/features/community/presentation/screens/create_community_publication_screen.dart';
 import 'package:mobile/features/community/presentation/screens/create_community_screen.dart';
+import 'package:mobile/features/community/presentation/screens/my_community_publications_screen.dart';
 import 'package:mobile/features/community/presentation/screens/invitation_inbox_screen.dart';
 import 'package:mobile/features/community/presentation/screens/my_join_requests_screen.dart';
 import 'package:mobile/features/community/presentation/screens/user_search_screen.dart';
@@ -302,6 +305,190 @@ class _FakeCommunityApi extends CommunityApiService {
     leaveCalls += 1;
     items.removeWhere((item) => item.id == communityId);
     return <String, dynamic>{'left': true, 'transferred': false};
+  }
+
+  List<CommunityPublication> publications = const [];
+  List<CommunityPublication> myPublications = const [];
+  final List<Map<String, dynamic>> createPublicationCalls = <Map<String, dynamic>>[];
+  final List<int> deletedPublicationIds = <int>[];
+  final List<int> restoredPublicationIds = <int>[];
+  final List<int> patchedPublicationIds = <int>[];
+  int nextPublicationId = 90;
+  ApiException? failListPublications;
+  ApiException? failCreatePublication;
+  ApiException? failGetPublication;
+  ApiException? failPatchPublication;
+  ApiException? failDeletePublication;
+  ApiException? failRestorePublication;
+
+  @override
+  Future<CommunityPublication> createPublication({
+    required String accessToken,
+    required int communityId,
+    required String body,
+    String? title,
+    String publish = 'now',
+    String? scheduledAt,
+    bool isTimeLimited = false,
+    String? expiresAt,
+    bool commentsEnabled = false,
+    int initialMediaCount = 0,
+  }) async {
+    networkOps.add('POST /communities/$communityId/publications');
+    createPublicationCalls.add(<String, dynamic>{
+      'communityId': communityId,
+      'body': body,
+      'title': title,
+      'publish': publish,
+      'scheduledAt': scheduledAt,
+      'isTimeLimited': isTimeLimited,
+      'expiresAt': expiresAt,
+      'commentsEnabled': commentsEnabled,
+      'initialMediaCount': initialMediaCount,
+    });
+    if (failCreatePublication != null) {
+      throw failCreatePublication!;
+    }
+    final publication = CommunityPublication(
+      id: nextPublicationId++,
+      communityId: communityId,
+      author: const CommunityPublicationAuthor(
+        userId: 1,
+        login: 'tgjjk',
+        isFormerMember: false,
+      ),
+      body: body,
+      title: title,
+      status: publish == 'schedule' ? 'scheduled' : 'active',
+      scheduledAt: scheduledAt,
+      commentsEnabled: commentsEnabled,
+      isTimeLimited: isTimeLimited,
+      expiresAt: expiresAt,
+    );
+    publications = [...publications, publication];
+    return publication;
+  }
+
+  @override
+  Future<CommunityPublicationPage> listPublications({
+    required String accessToken,
+    required int communityId,
+  }) async {
+    networkOps.add('GET /communities/$communityId/publications');
+    if (failListPublications != null) {
+      throw failListPublications!;
+    }
+    return CommunityPublicationPage(
+      items: [
+        for (final item in publications)
+          if (item.communityId == communityId && item.status == 'active') item,
+      ],
+    );
+  }
+
+  @override
+  Future<CommunityPublication> getPublication({
+    required String accessToken,
+    required int communityId,
+    required int publicationId,
+  }) async {
+    networkOps.add('GET /communities/$communityId/publications/$publicationId');
+    if (failGetPublication != null) {
+      throw failGetPublication!;
+    }
+    return publications.firstWhere(
+      (item) => item.id == publicationId && item.communityId == communityId,
+      orElse: () => throw const ApiException(message: 'Not found', statusCode: 404),
+    );
+  }
+
+  @override
+  Future<CommunityPublication> patchPublication({
+    required String accessToken,
+    required int communityId,
+    required int publicationId,
+    String? title,
+    String? body,
+  }) async {
+    networkOps.add('PATCH /communities/$communityId/publications/$publicationId');
+    patchedPublicationIds.add(publicationId);
+    if (failPatchPublication != null) {
+      throw failPatchPublication!;
+    }
+    publications = [
+      for (final item in publications)
+        if (item.id == publicationId)
+          CommunityPublication(
+            id: item.id,
+            communityId: item.communityId,
+            author: item.author,
+            body: body ?? item.body,
+            title: title ?? item.title,
+            status: item.status,
+            scheduledAt: item.scheduledAt,
+            publishedAt: item.publishedAt,
+            expiresAt: item.expiresAt,
+            commentsEnabled: item.commentsEnabled,
+            media: item.media,
+          )
+        else
+          item,
+    ];
+    return publications.firstWhere((item) => item.id == publicationId);
+  }
+
+  @override
+  Future<void> deletePublication({
+    required String accessToken,
+    required int communityId,
+    required int publicationId,
+  }) async {
+    networkOps.add('DELETE /communities/$communityId/publications/$publicationId');
+    deletedPublicationIds.add(publicationId);
+    if (failDeletePublication != null) {
+      throw failDeletePublication!;
+    }
+    publications = [for (final item in publications) if (item.id != publicationId) item];
+  }
+
+  @override
+  Future<CommunityPublication> restorePublication({
+    required String accessToken,
+    required int communityId,
+    required int publicationId,
+  }) async {
+    networkOps.add('POST /communities/$communityId/publications/$publicationId/restore');
+    restoredPublicationIds.add(publicationId);
+    if (failRestorePublication != null) {
+      throw failRestorePublication!;
+    }
+    throw const ApiException(message: 'Not found', statusCode: 404);
+  }
+
+  @override
+  Future<CommunityPublicationPage> listMyPublications({
+    required String accessToken,
+    required String scope,
+  }) async {
+    networkOps.add('GET /me/community-publications');
+    return CommunityPublicationPage(
+      items: [
+        for (final item in myPublications)
+          if (scope == 'expired' ? item.status == 'expired' : item.status != 'expired') item,
+      ],
+    );
+  }
+
+  @override
+  Future<CommunityPublication> getMyPublication({
+    required String accessToken,
+    required int publicationId,
+  }) async {
+    networkOps.add('GET /me/community-publications/$publicationId');
+    return myPublications.firstWhere(
+      (item) => item.id == publicationId,
+      orElse: () => throw const ApiException(message: 'Not found', statusCode: 404),
+    );
   }
 
   @override
@@ -1086,6 +1273,15 @@ void main() {
     await tester.tap(find.text('COMMUNITIES'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('community-list-item-3')));
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> revealCommunityFeed(WidgetTester tester) async {
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('community-publish-open')),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.pumpAndSettle();
   }
 
@@ -2699,5 +2895,135 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.leaveCalls, 1);
     await expectLeaveReturnsToListKeepingHome(tester);
+  });
+
+  testWidgets('community detail shows empty publication feed and publish', (tester) async {
+    final api = _FakeCommunityApi();
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    expect(find.byKey(const ValueKey('community-publish-open')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-feed-empty')), findsOneWidget);
+    expect(api.networkOps, contains('GET /communities/3/publications'));
+  });
+
+  testWidgets('community feed lists active publications only', (tester) async {
+    final api = _FakeCommunityApi()
+      ..publications = const [
+        CommunityPublication(
+          id: 21,
+          communityId: 3,
+          author: CommunityPublicationAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
+          title: 'Titre actif',
+          body: 'Texte de publication active assez long.',
+          status: 'active',
+        ),
+        CommunityPublication(
+          id: 22,
+          communityId: 3,
+          author: CommunityPublicationAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
+          body: 'Publication programmee invisible.',
+          status: 'scheduled',
+        ),
+      ];
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    expect(find.byKey(const ValueKey('community-feed-item-21')), findsOneWidget);
+    expect(find.text('Titre actif'), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-feed-item-22')), findsNothing);
+  });
+
+  testWidgets('community assistant has three steps without public audience or themes', (
+    tester,
+  ) async {
+    final api = _FakeCommunityApi();
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    await tester.tap(find.byKey(const ValueKey('community-publish-open')));
+    await tester.pumpAndSettle();
+    expect(find.byType(CreateCommunityPublicationScreen), findsOneWidget);
+    expect(find.text('Contenu'), findsWidgets);
+    expect(find.byKey(const ValueKey('community-assistant-comments')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-comments-yes')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-comments-no')), findsOneWidget);
+    expect(find.text('Public'), findsNothing);
+    expect(find.text('Privé'), findsNothing);
+    expect(find.text('Thèmes'), findsNothing);
+
+    await tester.enterText(find.byType(TextField).at(1), 'Le texte communautaire de plus de dix car.');
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('community-comments-yes')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('wizard-next')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Paramètres'), findsWidgets);
+    expect(find.byKey(const ValueKey('community-assistant-context-name')), findsOneWidget);
+    expect(find.text('Jardin secret'), findsWidgets);
+    expect(find.byKey(const ValueKey('publish-now')), findsOneWidget);
+    expect(find.byKey(const ValueKey('publish-schedule')), findsOneWidget);
+    expect(find.byKey(const ValueKey('expiration-yes')), findsOneWidget);
+    expect(find.text('Public'), findsNothing);
+    expect(find.text('Privé'), findsNothing);
+    expect(find.text('Thèmes'), findsNothing);
+    expect(find.text('Famille'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('wizard-next')));
+    await tester.pumpAndSettle();
+    expect(find.text('Aperçu'), findsWidgets);
+    expect(find.byKey(const ValueKey('chronique-preview-card')), findsOneWidget);
+    expect(find.byKey(const ValueKey('wizard-publish')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('wizard-publish')));
+    await tester.pumpAndSettle();
+    expect(api.createPublicationCalls, isNotEmpty);
+    expect(api.createPublicationCalls.single['publish'], 'now');
+    expect(api.createPublicationCalls.single['commentsEnabled'], isTrue);
+    expect(api.createPublicationCalls.single['body'], 'Le texte communautaire de plus de dix car.');
+    expect(find.byType(CreateCommunityPublicationScreen), findsNothing);
+    expect(find.byType(CommunityDetailScreen), findsOneWidget);
+  });
+
+  testWidgets('community assistant can schedule a publication', (tester) async {
+    final api = _FakeCommunityApi();
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    await tester.tap(find.byKey(const ValueKey('community-publish-open')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).at(1), 'Texte programme assez long pour passer.');
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('wizard-next')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('publish-schedule')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('wizard-next')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('wizard-publish')));
+    await tester.pumpAndSettle();
+    expect(api.createPublicationCalls.single['publish'], 'schedule');
+    expect(api.createPublicationCalls.single['scheduledAt'], isNotNull);
+  });
+
+  testWidgets('home menu opens mes publications communautaires', (tester) async {
+    final api = _FakeCommunityApi()
+      ..myPublications = const [
+        CommunityPublication(
+          id: 44,
+          communityId: 3,
+          communityName: 'Jardin secret',
+          author: CommunityPublicationAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
+          body: 'Ma publication actuelle dans le cercle.',
+          status: 'active',
+        ),
+      ];
+    await _pumpApp(tester, api: api);
+    await tester.tap(find.byKey(const ValueKey('home-user-avatar')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('home-my-community-publications')));
+    await tester.pumpAndSettle();
+    expect(find.byType(MyCommunityPublicationsScreen), findsOneWidget);
+    expect(find.byKey(const ValueKey('me-pubs-current')), findsOneWidget);
+    expect(find.byKey(const ValueKey('me-pubs-left')), findsOneWidget);
+    expect(find.byKey(const ValueKey('me-pubs-expired')), findsOneWidget);
+    expect(find.text('Ma publication actuelle dans le cercle.'), findsOneWidget);
   });
 }

@@ -19,6 +19,17 @@ const {
   accept: acceptJoinRequest,
   decline: declineJoinRequest,
 } = require('../controllers/joinRequestController');
+const {
+  create: createPublication,
+  list: listPublications,
+  getOne: getPublication,
+  update: updatePublication,
+  remove: removePublication,
+  restore: restorePublication,
+  createUpload,
+  completeUpload,
+  removeMedia,
+} = require('../controllers/communityPublicationController');
 const { requireAuth } = require('../middleware/authMiddleware');
 const { createRateLimiter } = require('../middleware/rateLimit');
 
@@ -46,6 +57,23 @@ router.get('/:id/join-requests', communityRateLimit.read, listCommunityJoinReque
 router.post('/:id/join-requests', communityRateLimit.write, createJoinRequest);
 router.post('/:id/join-requests/:requestId/accept', communityRateLimit.write, acceptJoinRequest);
 router.post('/:id/join-requests/:requestId/decline', communityRateLimit.write, declineJoinRequest);
+router.get('/:id/publications', communityRateLimit.read, listPublications);
+router.post('/:id/publications', communityRateLimit.write, createPublication);
+router.post('/:id/publications/:publicationId/restore', communityRateLimit.write, restorePublication);
+router.post('/:id/publications/:publicationId/media/uploads', communityRateLimit.write, createUpload);
+router.post(
+  '/:id/publications/:publicationId/media/:mediaId/complete',
+  communityRateLimit.write,
+  completeUpload
+);
+router.delete(
+  '/:id/publications/:publicationId/media/:mediaId',
+  communityRateLimit.write,
+  removeMedia
+);
+router.patch('/:id/publications/:publicationId', communityRateLimit.write, updatePublication);
+router.delete('/:id/publications/:publicationId', communityRateLimit.write, removePublication);
+router.get('/:id/publications/:publicationId', communityRateLimit.read, getPublication);
 router.get('/:id', communityRateLimit.read, getOne);
 
 module.exports = router;

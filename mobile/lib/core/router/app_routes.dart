@@ -51,6 +51,21 @@ abstract final class AppRoutes {
   /// Demandes d’adhésion de l’utilisateur.
   static const String joinRequests = '/join-requests';
 
+  /// Publications communautaires de l’utilisateur.
+  static const String myCommunityPublications = '/me/community-publications';
+
+  static const String communityPublicationCreatePath =
+      '/communities/:communityId/publications/create';
+
+  static const String communityPublicationDetailPath =
+      '/communities/:communityId/publications/:publicationId';
+
+  static const String communityPublicationEditPath =
+      '/communities/:communityId/publications/:publicationId/edit';
+
+  static const String myCommunityPublicationDetailPath =
+      '/me/community-publications/:publicationId';
+
   static String chroniqueDetail(int id) => '/explore/$id';
 
   static String chroniqueEdit(int id) => '/explore/$id/edit';
@@ -59,10 +74,30 @@ abstract final class AppRoutes {
 
   static String communityInviteSearch(int id) => '/communities/$id/invite';
 
+  static String communityPublicationCreate(int communityId) =>
+      '/communities/$communityId/publications/create';
+
+  static String communityPublicationDetail(int communityId, int publicationId) =>
+      '/communities/$communityId/publications/$publicationId';
+
+  static String communityPublicationEdit(int communityId, int publicationId) =>
+      '/communities/$communityId/publications/$publicationId/edit';
+
+  static String myCommunityPublicationDetail(int publicationId) =>
+      '/me/community-publications/$publicationId';
+
   static final RegExp _exploreDetailLocation = RegExp(r'^/explore/\d+$');
   static final RegExp _exploreEditLocation = RegExp(r'^/explore/\d+/edit$');
   static final RegExp _communityDetailLocation = RegExp(r'^/communities/\d+$');
   static final RegExp _communityInviteLocation = RegExp(r'^/communities/\d+/invite$');
+  static final RegExp _communityPublicationCreateLocation =
+      RegExp(r'^/communities/\d+/publications/create$');
+  static final RegExp _communityPublicationLocation =
+      RegExp(r'^/communities/\d+/publications/\d+$');
+  static final RegExp _communityPublicationEditLocation =
+      RegExp(r'^/communities/\d+/publications/\d+/edit$');
+  static final RegExp _myCommunityPublicationLocation =
+      RegExp(r'^/me/community-publications/\d+$');
 
   static bool isAuthenticatedLocation(String location) {
     return location == home ||
@@ -76,9 +111,14 @@ abstract final class AppRoutes {
         location == communitiesSearch ||
         location == invitations ||
         location == joinRequests ||
+        location == myCommunityPublications ||
         _exploreDetailLocation.hasMatch(location) ||
         _exploreEditLocation.hasMatch(location) ||
         _communityInviteLocation.hasMatch(location) ||
+        _communityPublicationCreateLocation.hasMatch(location) ||
+        _communityPublicationLocation.hasMatch(location) ||
+        _communityPublicationEditLocation.hasMatch(location) ||
+        _myCommunityPublicationLocation.hasMatch(location) ||
         _communityDetailLocation.hasMatch(location);
   }
 }

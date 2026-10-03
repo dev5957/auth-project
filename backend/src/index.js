@@ -14,10 +14,14 @@ const chroniqueRoutes = require('./routes/chroniques');
 const communityRoutes = require('./routes/communities');
 const invitationRoutes = require('./routes/invitations');
 const joinRequestRoutes = require('./routes/joinRequests');
+const meCommunityPublicationRoutes = require('./routes/meCommunityPublications');
 const userRoutes = require('./routes/users');
 const errorHandler = require('./middleware/errorHandler');
 const { corsMiddleware } = require('./middleware/cors');
 const { startChroniqueScheduler } = require('./services/chroniqueScheduler');
+const {
+  startCommunityPublicationScheduler,
+} = require('./services/communityPublicationScheduler');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -37,6 +41,7 @@ app.use('/chroniques', chroniqueRoutes);
 app.use('/communities', communityRoutes);
 app.use('/invitations', invitationRoutes);
 app.use('/join-requests', joinRequestRoutes);
+app.use('/me/community-publications', meCommunityPublicationRoutes);
 app.use('/users', userRoutes);
 
 app.use(errorHandler);
@@ -44,11 +49,13 @@ app.use(errorHandler);
 const server = app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
   const scheduler = startChroniqueScheduler({ installSignals: false });
-  if (!scheduler.enabled) {
+  const communityScheduler = startCommunityPublicationScheduler();
+  if (!scheduler.enabled && !communityScheduler.enabled) {
     return;
   }
   const shutdown = () => {
     scheduler.stop();
+    communityScheduler.stop();
     server.close(() => {
       process.exit(0);
     });

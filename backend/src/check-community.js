@@ -109,6 +109,10 @@ function createCommunityMemory() {
       return { rows: [], rowCount: 0 };
     }
 
+    if (key.includes('COMMUNITY_PUBLICATIONS') || key.includes('COMMUNITY_PUBLICATION_MEDIA')) {
+      return { rows: [], rowCount: 0 };
+    }
+
     if (key.startsWith('INSERT INTO COMMUNITIES')) {
       const now = new Date();
       const row = {
