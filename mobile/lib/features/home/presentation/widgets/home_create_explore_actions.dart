@@ -45,6 +45,13 @@ class HomeCreateExploreActions extends StatelessWidget {
           variant: AppButtonVariant.secondary,
           onPressed: () => context.push(AppRoutes.invitations),
         ),
+        const SizedBox(height: AppSpacing.md),
+        AppButton(
+          key: const ValueKey('home-join-requests'),
+          label: 'DEMANDES',
+          variant: AppButtonVariant.secondary,
+          onPressed: () => context.push(AppRoutes.joinRequests),
+        ),
       ],
     );
   }

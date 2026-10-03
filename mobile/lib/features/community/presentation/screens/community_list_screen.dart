@@ -37,6 +37,12 @@ class CommunityListScreen extends ConsumerWidget {
             icon: const Icon(Icons.mail_outline),
             onPressed: () => context.push(AppRoutes.invitations),
           ),
+          IconButton(
+            key: const ValueKey('community-join-requests-open'),
+            tooltip: 'Mes demandes',
+            icon: const Icon(Icons.person_add_alt_1_outlined),
+            onPressed: () => context.push(AppRoutes.joinRequests),
+          ),
         ],
       ),
       body: SafeArea(

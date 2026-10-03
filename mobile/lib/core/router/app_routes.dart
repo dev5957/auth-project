@@ -48,6 +48,9 @@ abstract final class AppRoutes {
   /// Invitations reçues en attente.
   static const String invitations = '/invitations';
 
+  /// Demandes d’adhésion de l’utilisateur.
+  static const String joinRequests = '/join-requests';
+
   static String chroniqueDetail(int id) => '/explore/$id';
 
   static String chroniqueEdit(int id) => '/explore/$id/edit';
@@ -72,6 +75,7 @@ abstract final class AppRoutes {
         location == communitiesCreate ||
         location == communitiesSearch ||
         location == invitations ||
+        location == joinRequests ||
         _exploreDetailLocation.hasMatch(location) ||
         _exploreEditLocation.hasMatch(location) ||
         _communityInviteLocation.hasMatch(location) ||

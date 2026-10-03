@@ -1,6 +1,7 @@
 import '../../../core/network/api_exception.dart';
 import '../../auth/data/storage/auth_token_storage.dart';
 import '../models/community.dart';
+import '../models/join_request.dart';
 import '../services/community_api_service.dart';
 
 class CommunityRepository {
@@ -78,6 +79,46 @@ class CommunityRepository {
     return _api.listSentInvitations(
       accessToken: await _requireAccessToken(),
       communityId: communityId,
+    );
+  }
+
+  Future<CreatedJoinRequest> createJoinRequest(int communityId) async {
+    return _api.createJoinRequest(
+      accessToken: await _requireAccessToken(),
+      communityId: communityId,
+    );
+  }
+
+  Future<List<MyJoinRequest>> listMyJoinRequests() async {
+    return _api.listMyJoinRequests(accessToken: await _requireAccessToken());
+  }
+
+  Future<List<OwnerJoinRequest>> listCommunityJoinRequests(int communityId) async {
+    return _api.listCommunityJoinRequests(
+      accessToken: await _requireAccessToken(),
+      communityId: communityId,
+    );
+  }
+
+  Future<void> acceptJoinRequest({
+    required int communityId,
+    required int requestId,
+  }) async {
+    await _api.acceptJoinRequest(
+      accessToken: await _requireAccessToken(),
+      communityId: communityId,
+      requestId: requestId,
+    );
+  }
+
+  Future<void> declineJoinRequest({
+    required int communityId,
+    required int requestId,
+  }) async {
+    await _api.declineJoinRequest(
+      accessToken: await _requireAccessToken(),
+      communityId: communityId,
+      requestId: requestId,
     );
   }
 

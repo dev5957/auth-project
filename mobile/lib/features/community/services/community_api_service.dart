@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_exception.dart';
 import '../models/community.dart';
+import '../models/join_request.dart';
 
 class CommunityApiService {
   CommunityApiService(this._client);
@@ -138,6 +139,79 @@ class CommunityApiService {
     await _send(
       'POST',
       '/invitations/$invitationId/decline',
+      accessToken: accessToken,
+    );
+  }
+
+  Future<CreatedJoinRequest> createJoinRequest({
+    required String accessToken,
+    required int communityId,
+  }) async {
+    final json = await _send(
+      'POST',
+      '/communities/$communityId/join-requests',
+      accessToken: accessToken,
+      data: <String, dynamic>{},
+    );
+    final joinRequest = json['join_request'] ?? json;
+    return CreatedJoinRequest.fromJson(_asMap(joinRequest));
+  }
+
+  Future<List<MyJoinRequest>> listMyJoinRequests({
+    required String accessToken,
+  }) async {
+    final json = await _send(
+      'GET',
+      '/join-requests/mine',
+      accessToken: accessToken,
+    );
+    final items = json['items'];
+    if (items is! List) {
+      throw const FormatException('Invalid join request list payload');
+    }
+    return [
+      for (final item in items) MyJoinRequest.fromJson(_asMap(item)),
+    ];
+  }
+
+  Future<List<OwnerJoinRequest>> listCommunityJoinRequests({
+    required String accessToken,
+    required int communityId,
+  }) async {
+    final json = await _send(
+      'GET',
+      '/communities/$communityId/join-requests',
+      accessToken: accessToken,
+    );
+    final items = json['items'];
+    if (items is! List) {
+      throw const FormatException('Invalid join request list payload');
+    }
+    return [
+      for (final item in items) OwnerJoinRequest.fromJson(_asMap(item)),
+    ];
+  }
+
+  Future<void> acceptJoinRequest({
+    required String accessToken,
+    required int communityId,
+    required int requestId,
+  }) async {
+    await _send(
+      'POST',
+      '/communities/$communityId/join-requests/$requestId/accept',
+      accessToken: accessToken,
+    );
+  }
+
+  Future<void> declineJoinRequest({
+    required String accessToken,
+    required int communityId,
+    required int requestId,
+  }) async {
+    await _send(
+      'POST',
+      '/communities/$communityId/join-requests/$requestId/decline',
       accessToken: accessToken,
     );
   }

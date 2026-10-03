@@ -11,6 +11,7 @@ import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/app_loading.dart';
 import '../../../../core/widgets/app_text_field.dart';
 import '../../models/community.dart';
+import '../../models/join_request_messages.dart';
 import '../state/community_search_controller.dart';
 
 class CommunitySearchScreen extends ConsumerStatefulWidget {
@@ -107,7 +108,15 @@ class _CommunitySearchScreenState extends ConsumerState<CommunitySearchScreen> {
                       key: const ValueKey('community-search-error'),
                     ),
                   ),
-                CommunitySearchReady(:final items, :final notice) => ListView(
+                CommunitySearchReady(
+                  :final items,
+                  :final notice,
+                  :final mutatingCommunityId,
+                  :final actionError,
+                  :final memberCommunityIds,
+                  :final pendingCommunityIds,
+                ) =>
+                  ListView(
                     padding: const EdgeInsets.fromLTRB(
                       AppSpacing.lg,
                       0,
@@ -123,29 +132,64 @@ class _CommunitySearchScreenState extends ConsumerState<CommunitySearchScreen> {
                         ),
                         const SizedBox(height: AppSpacing.md),
                       ],
+                      if (actionError != null) ...[
+                        Text(
+                          actionError,
+                          key: const ValueKey('community-search-join-error'),
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                      ],
                       for (final preview in items) ...[
                         AppCard(
-                          child: InkWell(
-                            key: ValueKey('community-search-item-${preview.id}'),
-                            onTap: () => _openPreview(preview),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(preview.name, style: AppTextTheme.titleMedium),
-                                if (preview.description != null) ...[
-                                  const SizedBox(height: AppSpacing.sm),
-                                  Text(preview.description!),
-                                ],
-                                const SizedBox(height: AppSpacing.sm),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              InkWell(
+                                key: ValueKey('community-search-item-${preview.id}'),
+                                onTap: () => _openPreview(preview),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(preview.name, style: AppTextTheme.titleMedium),
+                                    if (preview.description != null) ...[
+                                      const SizedBox(height: AppSpacing.sm),
+                                      Text(preview.description!),
+                                    ],
+                                    const SizedBox(height: AppSpacing.sm),
+                                    Text(
+                                      '${preview.memberCount} membre${preview.memberCount == 1 ? '' : 's'}',
+                                      key: ValueKey('community-search-count-${preview.id}'),
+                                      style: AppTextTheme.bodyMedium.copyWith(
+                                        color: colors.textSecondary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (!memberCommunityIds.contains(preview.id) &&
+                                  !pendingCommunityIds.contains(preview.id)) ...[
+                                const SizedBox(height: AppSpacing.md),
+                                AppButton(
+                                  key: ValueKey('community-search-join-${preview.id}'),
+                                  label: JoinRequestMessages.askToJoin,
+                                  isLoading: mutatingCommunityId == preview.id,
+                                  onPressed: mutatingCommunityId != null
+                                      ? null
+                                      : () => ref
+                                          .read(communitySearchControllerProvider.notifier)
+                                          .requestJoin(preview.id),
+                                ),
+                              ] else if (pendingCommunityIds.contains(preview.id)) ...[
+                                const SizedBox(height: AppSpacing.md),
                                 Text(
-                                  '${preview.memberCount} membre${preview.memberCount == 1 ? '' : 's'}',
-                                  key: ValueKey('community-search-count-${preview.id}'),
+                                  JoinRequestMessages.pending,
+                                  key: ValueKey('community-search-pending-${preview.id}'),
                                   style: AppTextTheme.bodyMedium.copyWith(
                                     color: colors.textSecondary,
                                   ),
                                 ),
                               ],
-                            ),
+                            ],
                           ),
                         ),
                         const SizedBox(height: AppSpacing.md),

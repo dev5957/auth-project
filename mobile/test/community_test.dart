@@ -16,14 +16,19 @@ import 'package:mobile/features/auth/state/auth_state.dart';
 import 'package:mobile/features/community/models/community.dart';
 import 'package:mobile/features/community/models/community_fields.dart';
 import 'package:mobile/features/community/models/invitation_messages.dart';
+import 'package:mobile/features/community/models/join_request.dart';
+import 'package:mobile/features/community/models/join_request_messages.dart';
 import 'package:mobile/features/community/presentation/screens/community_detail_screen.dart';
 import 'package:mobile/features/community/presentation/screens/community_list_screen.dart';
+import 'package:mobile/core/theme/app_theme.dart';
 import 'package:mobile/core/widgets/app_card.dart';
 import 'package:mobile/core/widgets/app_loading.dart';
 import 'package:mobile/features/community/presentation/screens/community_search_screen.dart';
 import 'package:mobile/features/community/presentation/screens/create_community_screen.dart';
 import 'package:mobile/features/community/presentation/screens/invitation_inbox_screen.dart';
+import 'package:mobile/features/community/presentation/screens/my_join_requests_screen.dart';
 import 'package:mobile/features/community/presentation/screens/user_search_screen.dart';
+import 'package:mobile/features/community/presentation/widgets/community_join_requests_section.dart';
 import 'package:mobile/features/community/presentation/state/community_search_controller.dart';
 import 'package:mobile/features/community/presentation/state/user_search_controller.dart';
 import 'package:mobile/features/community/providers/community_providers.dart';
@@ -125,6 +130,19 @@ class _FakeCommunityApi extends CommunityApiService {
   bool holdListSentInvitations = false;
   final List<Completer<List<SentCommunityInvitation>>> listSentHolds =
       <Completer<List<SentCommunityInvitation>>>[];
+  List<MyJoinRequest> myJoinRequests = const [];
+  List<OwnerJoinRequest> ownerJoinRequests = const [];
+  ApiException? failCreateJoinRequest;
+  ApiException? failListMyJoinRequests;
+  ApiException? failListCommunityJoinRequests;
+  ApiException? failAcceptJoinRequest;
+  ApiException? failDeclineJoinRequest;
+  final List<int> createJoinRequestCalls = <int>[];
+  final List<int> acceptedJoinRequestIds = <int>[];
+  final List<int> declinedJoinRequestIds = <int>[];
+  int listMyJoinRequestsCalls = 0;
+  int listCommunityJoinRequestsCalls = 0;
+  int nextJoinRequestId = 50;
   int getCalls = 0;
   int listMembersCalls = 0;
   bool holdGet = false;
@@ -338,6 +356,138 @@ class _FakeCommunityApi extends CommunityApiService {
     }
     return List<SentCommunityInvitation>.from(sentInvitations);
   }
+
+  @override
+  Future<CreatedJoinRequest> createJoinRequest({
+    required String accessToken,
+    required int communityId,
+  }) async {
+    createJoinRequestCalls.add(communityId);
+    networkOps.add('POST /communities/$communityId/join-requests');
+    if (failCreateJoinRequest != null) {
+      throw failCreateJoinRequest!;
+    }
+    if (items.any((item) => item.id == communityId)) {
+      throw const ApiException(message: 'user is already a member', statusCode: 400);
+    }
+    if (myJoinRequests.any(
+      (item) => item.communityId == communityId && item.status == 'pending',
+    )) {
+      throw const ApiException(message: 'join request already pending', statusCode: 400);
+    }
+    final created = CreatedJoinRequest(
+      id: nextJoinRequestId,
+      communityId: communityId,
+      status: 'pending',
+      createdAt: '2026-10-03T12:00:00.000Z',
+    );
+    myJoinRequests = [
+      MyJoinRequest(
+        id: created.id,
+        communityId: communityId,
+        communityName: 'Communauté $communityId',
+        status: 'pending',
+        createdAt: created.createdAt,
+      ),
+      ...myJoinRequests,
+    ];
+    ownerJoinRequests = [
+      OwnerJoinRequest(
+        id: created.id,
+        status: 'pending',
+        requesterLogin: 'invitee7',
+        createdAt: created.createdAt,
+      ),
+      ...ownerJoinRequests,
+    ];
+    nextJoinRequestId += 1;
+    return created;
+  }
+
+  @override
+  Future<List<MyJoinRequest>> listMyJoinRequests({
+    required String accessToken,
+  }) async {
+    listMyJoinRequestsCalls += 1;
+    networkOps.add('GET /join-requests/mine');
+    if (failListMyJoinRequests != null) {
+      throw failListMyJoinRequests!;
+    }
+    return List<MyJoinRequest>.from(myJoinRequests);
+  }
+
+  @override
+  Future<List<OwnerJoinRequest>> listCommunityJoinRequests({
+    required String accessToken,
+    required int communityId,
+  }) async {
+    listCommunityJoinRequestsCalls += 1;
+    networkOps.add('GET /communities/$communityId/join-requests');
+    if (failListCommunityJoinRequests != null) {
+      throw failListCommunityJoinRequests!;
+    }
+    return List<OwnerJoinRequest>.from(ownerJoinRequests);
+  }
+
+  @override
+  Future<void> acceptJoinRequest({
+    required String accessToken,
+    required int communityId,
+    required int requestId,
+  }) async {
+    networkOps.add('POST /communities/$communityId/join-requests/$requestId/accept');
+    if (failAcceptJoinRequest != null) {
+      throw failAcceptJoinRequest!;
+    }
+    acceptedJoinRequestIds.add(requestId);
+    ownerJoinRequests = [
+      for (final item in ownerJoinRequests)
+        if (item.id == requestId) item.copyWithStatus('accepted') else item,
+    ];
+    myJoinRequests = [
+      for (final item in myJoinRequests)
+        if (item.id == requestId)
+          MyJoinRequest(
+            id: item.id,
+            communityId: item.communityId,
+            communityName: item.communityName,
+            status: 'accepted',
+            createdAt: item.createdAt,
+          )
+        else
+          item,
+    ];
+  }
+
+  @override
+  Future<void> declineJoinRequest({
+    required String accessToken,
+    required int communityId,
+    required int requestId,
+  }) async {
+    networkOps.add('POST /communities/$communityId/join-requests/$requestId/decline');
+    if (failDeclineJoinRequest != null) {
+      throw failDeclineJoinRequest!;
+    }
+    declinedJoinRequestIds.add(requestId);
+    ownerJoinRequests = [
+      for (final item in ownerJoinRequests)
+        if (item.id == requestId) item.copyWithStatus('declined') else item,
+    ];
+    myJoinRequests = [
+      for (final item in myJoinRequests)
+        if (item.id == requestId)
+          MyJoinRequest(
+            id: item.id,
+            communityId: item.communityId,
+            communityName: item.communityName,
+            status: 'declined',
+            createdAt: item.createdAt,
+          )
+        else
+          item,
+    ];
+  }
 }
 
 Future<void> _pumpApp(
@@ -476,10 +626,12 @@ void main() {
     expect(AppRoutes.isAuthenticatedLocation('/communities/12'), isTrue);
     expect(AppRoutes.isAuthenticatedLocation('/communities/12/invite'), isTrue);
     expect(AppRoutes.isAuthenticatedLocation('/invitations'), isTrue);
+    expect(AppRoutes.isAuthenticatedLocation('/join-requests'), isTrue);
     expect(AppRoutes.isAuthenticatedLocation('/communities/nope'), isFalse);
     expect(AppRoutes.isAuthenticatedLocation('/communities/search/extra'), isFalse);
     expect(AppRoutes.isAuthenticatedLocation('/communities/12/invite/extra'), isFalse);
     expect(AppRoutes.isAuthenticatedLocation('/invitations/extra'), isFalse);
+    expect(AppRoutes.isAuthenticatedLocation('/join-requests/extra'), isFalse);
   });
 
   Future<void> openSearch(WidgetTester tester, _FakeCommunityApi api) async {
@@ -554,7 +706,9 @@ void main() {
       findsNothing,
     );
     expect(find.text('Rejoindre'), findsNothing);
+    expect(find.text('Demander à rejoindre'), findsNWidgets(2));
     expect(api.listMembersCalls, 0);
+    expect(api.listMyJoinRequestsCalls, 1);
   });
 
   testWidgets('empty search results show empty state', (tester) async {
@@ -641,6 +795,7 @@ void main() {
     expect(find.text('Aperçu limité'), findsOneWidget);
     expect(find.text('4 membres'), findsOneWidget);
     expect(find.text('Rejoindre'), findsNothing);
+    expect(find.text('Demander à rejoindre'), findsOneWidget);
     expect(api.listMembersCalls, membersBeforeTap);
   });
 
@@ -1710,5 +1865,329 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('community-sent-invitation-login-21')), findsOneWidget);
     expect(api.listSentInvitationsCalls, 2);
+  });
+
+  test('join request payloads reject secrets and invalid statuses', () {
+    expect(
+      () => MyJoinRequest.fromJson({
+        'id': 1,
+        'community_id': 9,
+        'community_name': 'Atelier lumineux',
+        'status': 'pending',
+        'phone': '+33600000000',
+      }),
+      throwsA(isA<FormatException>()),
+    );
+    expect(
+      () => OwnerJoinRequest.fromJson({
+        'id': 1,
+        'requester_login': 'invitee7',
+        'status': 'cancelled',
+      }),
+      throwsA(isA<FormatException>()),
+    );
+    expect(
+      () => MyJoinRequest.fromJson({
+        'id': 1,
+        'community_id': 9,
+        'community_name': 'Atelier lumineux',
+        'status': 'pending',
+        'user_id': 7,
+      }),
+      throwsA(isA<FormatException>()),
+    );
+    final mine = MyJoinRequest.fromJson({
+      'id': 1,
+      'community_id': 9,
+      'community_name': 'Atelier lumineux',
+      'status': 'cancelled',
+      'created_at': '2026-10-03T12:00:00.000Z',
+    });
+    expect(mine.communityName, 'Atelier lumineux');
+    expect(JoinRequestMessages.mineStatusLabel(mine.status), 'Annulée');
+  });
+
+  Future<void> searchFor(
+    WidgetTester tester,
+    _FakeCommunityApi api, {
+    String query = 'Cercle',
+  }) async {
+    await openSearch(tester, api);
+    await tester.enterText(find.byKey(const ValueKey('community-search-field')), query);
+    await tester.tap(find.byKey(const ValueKey('community-search-submit')));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('non-member private search shows ask to join', (tester) async {
+    final api = _FakeCommunityApi()
+      ..searchResults = const [
+        CommunitySearchPreview(id: 99, name: 'Cercle fermé', memberCount: 4),
+      ];
+    await searchFor(tester, api);
+    expect(find.byKey(const ValueKey('community-search-join-99')), findsOneWidget);
+    expect(find.text('Demander à rejoindre'), findsOneWidget);
+    expect(find.text('Rejoindre'), findsNothing);
+  });
+
+  testWidgets('successful join request shows pending and blocks a second send', (tester) async {
+    final api = _FakeCommunityApi()
+      ..searchResults = const [
+        CommunitySearchPreview(id: 99, name: 'Cercle fermé', memberCount: 4),
+      ];
+    await searchFor(tester, api);
+    await tester.tap(find.byKey(const ValueKey('community-search-join-99')));
+    await tester.pumpAndSettle();
+    expect(api.createJoinRequestCalls, [99]);
+    expect(find.text('Demande en attente'), findsWidgets);
+    expect(find.byKey(const ValueKey('community-search-pending-99')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-search-join-99')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('community-search-pending-99')));
+    await tester.pump();
+    expect(api.createJoinRequestCalls, [99]);
+  });
+
+  testWidgets('already pending join request shows waiting state', (tester) async {
+    final api = _FakeCommunityApi()
+      ..searchResults = const [
+        CommunitySearchPreview(id: 99, name: 'Cercle fermé', memberCount: 4),
+      ]
+      ..myJoinRequests = const [
+        MyJoinRequest(
+          id: 12,
+          communityId: 99,
+          communityName: 'Cercle fermé',
+          status: 'pending',
+          createdAt: '2026-10-03T12:00:00.000Z',
+        ),
+      ];
+    await searchFor(tester, api);
+    expect(find.byKey(const ValueKey('community-search-join-99')), findsNothing);
+    expect(find.byKey(const ValueKey('community-search-pending-99')), findsOneWidget);
+    expect(find.text('Demande en attente'), findsOneWidget);
+    expect(api.createJoinRequestCalls, isEmpty);
+  });
+
+  testWidgets('declined join request can be sent again', (tester) async {
+    final api = _FakeCommunityApi()
+      ..searchResults = const [
+        CommunitySearchPreview(id: 99, name: 'Cercle fermé', memberCount: 4),
+      ]
+      ..myJoinRequests = const [
+        MyJoinRequest(
+          id: 12,
+          communityId: 99,
+          communityName: 'Cercle fermé',
+          status: 'declined',
+          createdAt: '2026-10-01T12:00:00.000Z',
+        ),
+      ];
+    await searchFor(tester, api);
+    expect(find.byKey(const ValueKey('community-search-join-99')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('community-search-join-99')));
+    await tester.pumpAndSettle();
+    expect(api.createJoinRequestCalls, [99]);
+    expect(find.byKey(const ValueKey('community-search-pending-99')), findsOneWidget);
+  });
+
+  testWidgets('member community search does not show join action', (tester) async {
+    final api = _FakeCommunityApi()
+      ..searchResults = const [
+        CommunitySearchPreview(id: 3, name: 'Jardin secret', memberCount: 1),
+      ];
+    await searchFor(tester, api, query: 'Jardin');
+    expect(find.byKey(const ValueKey('community-search-join-3')), findsNothing);
+    expect(find.text('Demander à rejoindre'), findsNothing);
+  });
+
+  testWidgets('my join requests lists all statuses', (tester) async {
+    final api = _FakeCommunityApi()
+      ..myJoinRequests = const [
+        MyJoinRequest(
+          id: 1,
+          communityId: 9,
+          communityName: 'Atelier lumineux',
+          status: 'pending',
+          createdAt: '2026-10-03T12:00:00.000Z',
+        ),
+        MyJoinRequest(
+          id: 2,
+          communityId: 10,
+          communityName: 'Cercle des autres',
+          status: 'accepted',
+        ),
+        MyJoinRequest(
+          id: 3,
+          communityId: 11,
+          communityName: 'Club du soir',
+          status: 'declined',
+        ),
+        MyJoinRequest(
+          id: 4,
+          communityId: 12,
+          communityName: 'Salon annulé',
+          status: 'cancelled',
+        ),
+      ];
+    await _pumpApp(tester, api: api);
+    await tester.tap(find.byKey(const ValueKey('home-join-requests')));
+    await tester.pumpAndSettle();
+    expect(find.byType(MyJoinRequestsScreen), findsOneWidget);
+    expect(find.byKey(const ValueKey('my-join-request-item-1')), findsOneWidget);
+    expect(find.text('Atelier lumineux'), findsOneWidget);
+    expect(find.text('Demande en attente'), findsOneWidget);
+    expect(find.text('Acceptée'), findsOneWidget);
+    expect(find.text('Refusée'), findsOneWidget);
+    expect(find.text('Annulée'), findsOneWidget);
+    expect(api.listMyJoinRequestsCalls, 1);
+    expect(api.networkOps.where((op) => op == 'GET /join-requests/mine'), isNotEmpty);
+  });
+
+  testWidgets('community list opens my join requests', (tester) async {
+    final api = _FakeCommunityApi();
+    await _pumpApp(tester, api: api);
+    await tester.tap(find.text('COMMUNITIES'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('community-join-requests-open')));
+    await tester.pumpAndSettle();
+    expect(find.byType(MyJoinRequestsScreen), findsOneWidget);
+    expect(find.byKey(const ValueKey('my-join-requests-empty')), findsOneWidget);
+  });
+
+  testWidgets('owner sees pending and history join requests', (tester) async {
+    final api = _FakeCommunityApi()
+      ..ownerJoinRequests = const [
+        OwnerJoinRequest(id: 31, status: 'pending', requesterLogin: 'invitee7'),
+        OwnerJoinRequest(id: 32, status: 'accepted', requesterLogin: 'ada'),
+        OwnerJoinRequest(id: 33, status: 'declined', requesterLogin: 'leo'),
+      ];
+    await openCommunityDetail(tester, api);
+    expect(find.byKey(const ValueKey('community-join-requests-title')), findsOneWidget);
+    expect(find.text('Demandes d’adhésion'), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-join-request-pending-31')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-join-accept-31')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-join-decline-31')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-join-history-32')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-join-history-33')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-join-accept-32')), findsNothing);
+    expect(api.listCommunityJoinRequestsCalls, 1);
+  });
+
+  testWidgets('admin does not see join request owner actions', (tester) async {
+    final api = _FakeCommunityApi()
+      ..ownerJoinRequests = const [
+        OwnerJoinRequest(id: 31, status: 'pending', requesterLogin: 'invitee7'),
+      ];
+    setListedRole(api, CommunityRole.admin);
+    await openCommunityDetail(tester, api);
+    expect(find.byKey(const ValueKey('community-join-requests-title')), findsNothing);
+    expect(find.byKey(const ValueKey('community-join-accept-31')), findsNothing);
+    expect(api.listCommunityJoinRequestsCalls, 0);
+  });
+
+  testWidgets('member does not see join request owner actions', (tester) async {
+    final api = _FakeCommunityApi();
+    setListedRole(api, CommunityRole.member);
+    await openCommunityDetail(tester, api);
+    expect(find.text('Demandes d’adhésion'), findsNothing);
+    expect(api.listCommunityJoinRequestsCalls, 0);
+  });
+
+  Future<void> pumpOwnerJoinRequests(WidgetTester tester, _FakeCommunityApi api) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authTokenStorageProvider.overrideWithValue(
+            InMemoryAuthTokenStorage(
+              accessToken: 'access-test',
+              refreshToken: 'refresh-test',
+            ),
+          ),
+          communityApiServiceProvider.overrideWithValue(api),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.light,
+          home: const Scaffold(
+            body: SingleChildScrollView(
+              child: CommunityJoinRequestsSection(communityId: 3),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('owner accept moves request to history immediately', (tester) async {
+    final api = _FakeCommunityApi()
+      ..ownerJoinRequests = const [
+        OwnerJoinRequest(id: 31, status: 'pending', requesterLogin: 'invitee7'),
+      ];
+    await pumpOwnerJoinRequests(tester, api);
+    await tester.tap(find.byKey(const ValueKey('community-join-accept-31')));
+    await tester.pumpAndSettle();
+    expect(api.acceptedJoinRequestIds, [31]);
+    expect(find.byKey(const ValueKey('community-join-accept-31')), findsNothing);
+    expect(find.byKey(const ValueKey('community-join-request-pending-31')), findsNothing);
+    expect(find.byKey(const ValueKey('community-join-history-31')), findsOneWidget);
+    expect(find.text('Demande acceptée.'), findsOneWidget);
+    expect(find.text('Acceptée'), findsOneWidget);
+    expect(
+      api.networkOps.where((op) => op == 'POST /communities/3/join-requests/31/accept'),
+      isNotEmpty,
+    );
+  });
+
+  testWidgets('owner decline moves request to history immediately', (tester) async {
+    final api = _FakeCommunityApi()
+      ..ownerJoinRequests = const [
+        OwnerJoinRequest(id: 31, status: 'pending', requesterLogin: 'invitee7'),
+      ];
+    await pumpOwnerJoinRequests(tester, api);
+    await tester.tap(find.byKey(const ValueKey('community-join-decline-31')));
+    await tester.pumpAndSettle();
+    expect(api.declinedJoinRequestIds, [31]);
+    expect(api.acceptedJoinRequestIds, isEmpty);
+    expect(find.byKey(const ValueKey('community-join-decline-31')), findsNothing);
+    expect(find.byKey(const ValueKey('community-join-history-31')), findsOneWidget);
+    expect(find.text('Demande refusée.'), findsOneWidget);
+    expect(find.text('Refusée'), findsOneWidget);
+  });
+
+  testWidgets('stale owner join action refreshes from the server', (tester) async {
+    final api = _FakeCommunityApi()
+      ..ownerJoinRequests = const [
+        OwnerJoinRequest(id: 31, status: 'pending', requesterLogin: 'invitee7'),
+      ]
+      ..failAcceptJoinRequest = const ApiException(
+        message: 'join request is not pending',
+        statusCode: 400,
+      );
+    await pumpOwnerJoinRequests(tester, api);
+    api.ownerJoinRequests = const [
+      OwnerJoinRequest(id: 31, status: 'accepted', requesterLogin: 'invitee7'),
+    ];
+    await tester.tap(find.byKey(const ValueKey('community-join-accept-31')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('community-join-accept-31')), findsNothing);
+    expect(find.byKey(const ValueKey('community-join-history-31')), findsOneWidget);
+    expect(find.text('Cette demande a déjà été traitée.'), findsOneWidget);
+    expect(api.listCommunityJoinRequestsCalls, greaterThan(1));
+  });
+
+  testWidgets('already pending API error shows waiting state', (tester) async {
+    final api = _FakeCommunityApi()
+      ..searchResults = const [
+        CommunitySearchPreview(id: 99, name: 'Cercle fermé', memberCount: 4),
+      ]
+      ..failCreateJoinRequest = const ApiException(
+        message: 'join request already pending',
+        statusCode: 400,
+      );
+    await searchFor(tester, api);
+    await tester.tap(find.byKey(const ValueKey('community-search-join-99')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('community-search-pending-99')), findsOneWidget);
+    expect(find.text('Demande en attente'), findsWidgets);
   });
 }
