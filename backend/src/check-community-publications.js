@@ -527,6 +527,19 @@ function createMemory() {
   };
 }
 
+function assertNoStorageKey(payload) {
+  const text = JSON.stringify(payload);
+  assert(!text.includes('"storage_key"'), 'storage_key json');
+}
+
+function assertSignedReadyMedia(item, storageKey) {
+  assert(item.status === 'ready', 'ready media');
+  assert(typeof item.read_url === 'string' && item.read_url === `https://read.test/${storageKey}`, 'read_url from storage');
+  assert(typeof item.read_expires_at === 'string' && item.read_expires_at.length > 0, 'read_expires_at');
+  assert(!Object.prototype.hasOwnProperty.call(item, 'storage_key'), 'storage_key field');
+  assert(!Object.prototype.hasOwnProperty.call(item, 'thumbnail_url'), 'no thumbnail_url');
+}
+
 function validBody(overrides = {}) {
   return {
     title: 'Soirée jardin',
@@ -799,6 +812,54 @@ async function main() {
     { kind: 'image', source_type: 'gallery', content_type: 'image/jpeg', byte_size: 500 },
     deps
   );
+
+  const feedHydrated = await listFeed(OWNER_ID, COMMUNITY_ID, {}, deps);
+  const textFeed = feedHydrated.items.find((item) => Number(item.id) === Number(textOnly.id));
+  assert(textFeed, 'text-only still on feed');
+  assert(Array.isArray(textFeed.media) && textFeed.media.length === 0, 'no media still works');
+  assertNoStorageKey(textFeed);
+
+  const multiFeed = feedHydrated.items.find((item) => Number(item.id) === Number(multi.id));
+  assert(multiFeed && multiFeed.media.length === 3, 'three ready media on feed');
+  const multiKeys = db.state.media
+    .filter((item) => Number(item.community_publication_id) === Number(multi.id) && item.status === 'ready')
+    .sort((a, b) => Number(a.sort_order) - Number(b.sort_order) || Number(a.id) - Number(b.id))
+    .map((item) => item.storage_key);
+  assert(multiKeys.length === 3, 'three ready keys');
+  multiFeed.media.forEach((item, index) => assertSignedReadyMedia(item, multiKeys[index]));
+  assert(new Set(multiFeed.media.map((item) => item.read_url)).size === 3, 'distinct read_url');
+  assertNoStorageKey(multiFeed);
+
+  const readyFeed = feedHydrated.items.find((item) => Number(item.id) === Number(readyPub.id));
+  assert(readyFeed && readyFeed.media.length === 1, 'feed ready-only omits pending');
+  assertSignedReadyMedia(readyFeed.media[0], readyKey);
+  assertNoStorageKey(readyFeed);
+
+  const gotMulti = await getPublication(OWNER_ID, COMMUNITY_ID, multi.id, deps);
+  assert(gotMulti.media.length === 3, 'get hydrates all ready');
+  gotMulti.media.forEach((item, index) => assertSignedReadyMedia(item, multiKeys[index]));
+  assertNoStorageKey(gotMulti);
+
+  const gotReady = await getPublication(MEMBER_ID, COMMUNITY_ID, readyPub.id, deps);
+  const gotReadyItem = gotReady.media.find((item) => item.status === 'ready');
+  const gotPendingItem = gotReady.media.find((item) => item.status === 'pending_upload');
+  assert(gotReadyItem, 'get includes ready');
+  assertSignedReadyMedia(gotReadyItem, readyKey);
+  assert(gotPendingItem, 'get includes pending');
+  assert(!Object.prototype.hasOwnProperty.call(gotPendingItem, 'read_url'), 'pending omits read_url');
+  assertNoStorageKey(gotReady);
+
+  const mineCurrent = await listMine(MEMBER_ID, { scope: 'current' }, deps);
+  const mineMulti = mineCurrent.items.find((item) => Number(item.id) === Number(multi.id));
+  assert(mineMulti && mineMulti.media.length === 3, 'listMine hydrates ready');
+  mineMulti.media.forEach((item, index) => assertSignedReadyMedia(item, multiKeys[index]));
+  assertNoStorageKey(mineMulti);
+
+  const mineOne = await getMine(MEMBER_ID, multi.id, deps);
+  assert(mineOne.media.length === 3, 'getMine hydrates ready');
+  mineOne.media.forEach((item, index) => assertSignedReadyMedia(item, multiKeys[index]));
+  assertNoStorageKey(mineOne);
+
   await deleteMedia(MEMBER_ID, COMMUNITY_ID, multi.id, m1.media.id, deps);
   assert(
     !db.state.media.some((item) => Number(item.id) === Number(m1.media.id)),
@@ -836,10 +897,18 @@ async function main() {
   );
 
   await expectReject(listFeed(MEMBER_ID, COMMUNITY_ID, {}, deps), 404);
+  await expectReject(getPublication(MEMBER_ID, COMMUNITY_ID, readyPub.id, deps), 404);
   await expectReject(patchPublication(MEMBER_ID, COMMUNITY_ID, readyPub.id, { title: 'x' }, deps), 404);
   const mineLeft = await listMine(MEMBER_ID, { scope: 'left' }, deps);
   assert(mineLeft.items.some((item) => Number(item.id) === Number(readyPub.id)), 'left scope has kept pub');
   assert(mineLeft.items.every((item) => item.status !== 'draft'), 'no drafts in me');
+  const leftReady = mineLeft.items.find((item) => Number(item.id) === Number(readyPub.id));
+  assert(leftReady.media.length === 1, 'left mine still hydrates ready');
+  assertSignedReadyMedia(leftReady.media[0], readyKey);
+  assertNoStorageKey(leftReady);
+  const getMineLeft = await getMine(MEMBER_ID, readyPub.id, deps);
+  assertSignedReadyMedia(getMineLeft.media[0], readyKey);
+  assertNoStorageKey(getMineLeft);
 
   await runPublishScheduledJob({ ...deps, now: new Date(Date.now() + 2 * 86400000) });
   const stillScheduled = db.state.publications.find((item) => Number(item.id) === Number(scheduled.id));

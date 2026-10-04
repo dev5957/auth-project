@@ -1,5 +1,6 @@
 const pool = require('../db');
 const AppError = require('../errors/AppError');
+const { getStorage } = require('./storageService');
 const {
   parseCreateInput,
   parsePatchInput,
@@ -140,6 +141,39 @@ function toPublicMedia(row) {
   };
 }
 
+async function toPublicMediaForGet(row, storage) {
+  const media = toPublicMedia(row);
+  if (row.status !== 'ready' || storage == null) {
+    return media;
+  }
+  const storageKey = row.storage_key;
+  if (typeof storageKey !== 'string' || storageKey.trim() === '') {
+    return media;
+  }
+  const signed = await storage.createReadUrl(storageKey);
+  if (signed && typeof signed.url === 'string' && signed.url.trim() !== '') {
+    media.read_url = signed.url;
+    if (signed.expires_at != null) {
+      media.read_expires_at = toIso(signed.expires_at);
+    }
+  }
+  return media;
+}
+
+async function toPublicMediaList(rows, deps = {}, { readyOnly = false } = {}) {
+  const selected = readyOnly ? rows.filter((item) => item.status === 'ready') : rows;
+  if (selected.length === 0) {
+    return [];
+  }
+  const needsSign = selected.some((item) => item.status === 'ready');
+  const storage = needsSign ? getStorage(deps.storage) : null;
+  const media = [];
+  for (const row of selected) {
+    media.push(await toPublicMediaForGet(row, storage));
+  }
+  return media;
+}
+
 async function attachAuthorAndFormer(client, row) {
   const user = await loadAuthorLogin(client, row.author_user_id);
   const membership = await loadMembership(client, row.community_id, row.author_user_id);
@@ -258,7 +292,7 @@ async function listFeed(userId, rawCommunityId, query, deps = {}) {
       items.push(
         toPublicPublication(row, {
           isFormerMember: row.is_former_member,
-          media: mediaRows.filter((item) => item.status === 'ready').map(toPublicMedia),
+          media: await toPublicMediaList(mediaRows, deps, { readyOnly: true }),
         })
       );
     }
@@ -310,7 +344,7 @@ async function getPublication(userId, rawCommunityId, rawId, deps = {}) {
     const mediaRows = await loadMediaRows(client, row.id);
     return toPublicPublication(enriched, {
       isFormerMember: enriched.isFormerMember,
-      media: mediaRows.map(toPublicMedia),
+      media: await toPublicMediaList(mediaRows, deps),
     });
   });
 }
@@ -528,7 +562,7 @@ async function listMine(userId, query, deps = {}) {
       items.push(
         toPublicPublication(row, {
           isFormerMember: row.is_former_member,
-          media: mediaRows.filter((item) => item.status === 'ready').map(toPublicMedia),
+          media: await toPublicMediaList(mediaRows, deps, { readyOnly: true }),
         })
       );
     }
@@ -569,7 +603,7 @@ async function getMine(userId, rawId, deps = {}) {
       { ...enriched, community_name: row.community_name },
       {
         isFormerMember: enriched.isFormerMember,
-        media: mediaRows.filter((item) => item.status === 'ready').map(toPublicMedia),
+        media: await toPublicMediaList(mediaRows, deps, { readyOnly: true }),
       }
     );
   });
