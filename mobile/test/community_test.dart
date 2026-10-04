@@ -27,6 +27,8 @@ import 'package:mobile/core/widgets/app_button.dart';
 import 'package:mobile/core/widgets/app_card.dart';
 import 'package:mobile/core/widgets/app_loading.dart';
 import 'package:mobile/features/community/presentation/screens/community_search_screen.dart';
+import 'package:mobile/features/chronique/models/chronique_date.dart';
+import 'package:mobile/features/community/presentation/screens/community_publication_detail_screen.dart';
 import 'package:mobile/features/community/presentation/screens/create_community_publication_screen.dart';
 import 'package:mobile/features/community/presentation/screens/create_community_screen.dart';
 import 'package:mobile/features/community/presentation/screens/my_community_publications_screen.dart';
@@ -417,24 +419,13 @@ class _FakeCommunityApi extends CommunityApiService {
     }
     publications = [
       for (final item in publications)
-        if (item.id == publicationId)
-          CommunityPublication(
-            id: item.id,
-            communityId: item.communityId,
-            author: item.author,
-            body: body ?? item.body,
-            title: title ?? item.title,
-            status: item.status,
-            scheduledAt: item.scheduledAt,
-            publishedAt: item.publishedAt,
-            expiresAt: item.expiresAt,
-            commentsEnabled: item.commentsEnabled,
-            media: item.media,
-          )
-        else
-          item,
+        if (item.id == publicationId) _copyPublication(item, title: title, body: body) else item,
     ];
-    return publications.firstWhere((item) => item.id == publicationId);
+    myPublications = [
+      for (final item in myPublications)
+        if (item.id == publicationId) _copyPublication(item, title: title, body: body) else item,
+    ];
+    return [...publications, ...myPublications].firstWhere((item) => item.id == publicationId);
   }
 
   @override
@@ -449,6 +440,7 @@ class _FakeCommunityApi extends CommunityApiService {
       throw failDeletePublication!;
     }
     publications = [for (final item in publications) if (item.id != publicationId) item];
+    myPublications = [for (final item in myPublications) if (item.id != publicationId) item];
   }
 
   @override
@@ -474,7 +466,7 @@ class _FakeCommunityApi extends CommunityApiService {
     return CommunityPublicationPage(
       items: [
         for (final item in myPublications)
-          if (scope == 'expired' ? item.status == 'expired' : item.status != 'expired') item,
+          if (_matchesMeScope(item, scope)) item,
       ],
     );
   }
@@ -488,6 +480,41 @@ class _FakeCommunityApi extends CommunityApiService {
     return myPublications.firstWhere(
       (item) => item.id == publicationId,
       orElse: () => throw const ApiException(message: 'Not found', statusCode: 404),
+    );
+  }
+
+  bool _matchesMeScope(CommunityPublication item, String scope) {
+    final currentOrScheduled = item.status == 'active' || item.status == 'scheduled';
+    if (scope == 'expired') {
+      return item.status == 'expired';
+    }
+    if (scope == 'left') {
+      return currentOrScheduled && item.author.isFormerMember;
+    }
+    return currentOrScheduled && !item.author.isFormerMember;
+  }
+
+  CommunityPublication _copyPublication(
+    CommunityPublication item, {
+    String? title,
+    String? body,
+  }) {
+    return CommunityPublication(
+      id: item.id,
+      communityId: item.communityId,
+      communityName: item.communityName,
+      author: item.author,
+      body: body ?? item.body,
+      title: title ?? item.title,
+      status: item.status,
+      scheduledAt: item.scheduledAt,
+      publishedAt: item.publishedAt,
+      expiresAt: item.expiresAt,
+      expiredAt: item.expiredAt,
+      isTimeLimited: item.isTimeLimited,
+      commentsEnabled: item.commentsEnabled,
+      deletedByUserId: item.deletedByUserId,
+      media: item.media,
     );
   }
 
@@ -3025,5 +3052,206 @@ void main() {
     expect(find.byKey(const ValueKey('me-pubs-left')), findsOneWidget);
     expect(find.byKey(const ValueKey('me-pubs-expired')), findsOneWidget);
     expect(find.text('Ma publication actuelle dans le cercle.'), findsOneWidget);
+  });
+
+  CommunityPublication scheduledMine({
+    int id = 70,
+    bool formerMember = false,
+    int authorId = 1,
+    String status = 'scheduled',
+    String? scheduledAt = '2026-10-10T15:30:00.000Z',
+    String title = 'Soirée jardin',
+    String body = 'Publication programmee assez longue.',
+  }) {
+    return CommunityPublication(
+      id: id,
+      communityId: 3,
+      communityName: 'Jardin secret',
+      author: CommunityPublicationAuthor(
+        userId: authorId,
+        login: authorId == 1 ? 'tgjjk' : 'other',
+        isFormerMember: formerMember,
+      ),
+      title: title,
+      body: body,
+      status: status,
+      scheduledAt: scheduledAt,
+    );
+  }
+
+  Future<void> openMyPublications(WidgetTester tester, _FakeCommunityApi api) async {
+    await _pumpApp(tester, api: api);
+    await tester.tap(find.byKey(const ValueKey('home-user-avatar')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('home-my-community-publications')));
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> pumpPublicationDetail(
+    WidgetTester tester,
+    _FakeCommunityApi api, {
+    required int publicationId,
+    bool fromMe = false,
+  }) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authTokenStorageProvider.overrideWithValue(
+            InMemoryAuthTokenStorage(accessToken: 'access-test', refreshToken: 'refresh-test'),
+          ),
+          authControllerProvider.overrideWith(() => _SeededAuthController()),
+          communityApiServiceProvider.overrideWithValue(api),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.light,
+          home: CommunityPublicationDetailScreen(
+            communityId: 3,
+            publicationId: publicationId,
+            fromMe: fromMe,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('A me actuelles shows scheduled label and datetime', (tester) async {
+    final scheduledAt = DateTime.parse('2026-10-10T15:30:00.000Z');
+    final api = _FakeCommunityApi()
+      ..myPublications = [
+        scheduledMine(),
+        const CommunityPublication(
+          id: 71,
+          communityId: 3,
+          communityName: 'Jardin secret',
+          author: CommunityPublicationAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
+          body: 'Publication active actuelle.',
+          status: 'active',
+        ),
+      ];
+    await openMyPublications(tester, api);
+    expect(find.byKey(const ValueKey('me-pub-scheduled-label-70')), findsOneWidget);
+    expect(find.text('Programmée'), findsOneWidget);
+    expect(find.text(formatOptionalChroniqueDate(scheduledAt)!), findsOneWidget);
+    expect(find.text('Publication active actuelle.'), findsOneWidget);
+    expect(find.byKey(const ValueKey('me-pub-scheduled-label-71')), findsNothing);
+  });
+
+  testWidgets('B me detail scheduled author shows edit and delete', (tester) async {
+    final api = _FakeCommunityApi()..myPublications = [scheduledMine()];
+    await openMyPublications(tester, api);
+    await tester.tap(find.byKey(const ValueKey('me-pub-current-70')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('community-publication-menu')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('community-publication-menu')));
+    await tester.pumpAndSettle();
+    expect(find.text('Modifier'), findsOneWidget);
+    expect(find.text('Supprimer'), findsOneWidget);
+  });
+
+  testWidgets('C scheduled edit keeps status and scheduled_at', (tester) async {
+    final original = scheduledMine();
+    final api = _FakeCommunityApi()..myPublications = [original];
+    await openMyPublications(tester, api);
+    await tester.tap(find.byKey(const ValueKey('me-pub-current-70')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('community-publication-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Modifier'));
+    await tester.pumpAndSettle();
+    expect(find.text('Modifier la publication'), findsOneWidget);
+    await tester.enterText(find.byType(TextField).first, 'Nouveau titre jardin');
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('community-publication-save')));
+    await tester.pumpAndSettle();
+    expect(api.patchedPublicationIds, [70]);
+    expect(find.text('Nouveau titre jardin'), findsOneWidget);
+    final updated = api.myPublications.singleWhere((item) => item.id == 70);
+    expect(updated.status, 'scheduled');
+    expect(updated.scheduledAt, original.scheduledAt);
+    expect(updated.title, 'Nouveau titre jardin');
+  });
+
+  testWidgets('D scheduled author can delete from me detail', (tester) async {
+    final api = _FakeCommunityApi()..myPublications = [scheduledMine()];
+    await openMyPublications(tester, api);
+    await tester.tap(find.byKey(const ValueKey('me-pub-current-70')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('community-publication-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Supprimer'));
+    await tester.pumpAndSettle();
+    expect(find.text('Elle ne sera plus programmée.'), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, 'Supprimer'));
+    await tester.pumpAndSettle();
+    expect(api.deletedPublicationIds, [70]);
+    expect(find.byType(MyCommunityPublicationsScreen), findsOneWidget);
+    expect(find.text('Publication programmee assez longue.'), findsNothing);
+  });
+
+  testWidgets('E owner cannot edit or delete someone else scheduled', (tester) async {
+    final api = _FakeCommunityApi()
+      ..publications = [scheduledMine(authorId: 2)]
+      ..myPublications = [scheduledMine(authorId: 2)];
+    await pumpPublicationDetail(tester, api, publicationId: 70);
+    expect(find.byKey(const ValueKey('community-publication-menu')), findsNothing);
+    expect(find.text('Modifier'), findsNothing);
+    expect(find.text('Supprimer'), findsNothing);
+  });
+
+  testWidgets('E former member cannot edit or delete scheduled from me', (tester) async {
+    final api = _FakeCommunityApi()..myPublications = [scheduledMine(formerMember: true)];
+    await pumpPublicationDetail(tester, api, publicationId: 70, fromMe: true);
+    expect(find.byKey(const ValueKey('community-publication-menu')), findsNothing);
+  });
+
+  testWidgets('F active author from me keeps edit and delete', (tester) async {
+    final api = _FakeCommunityApi()
+      ..myPublications = [
+        scheduledMine(
+          id: 72,
+          status: 'active',
+          scheduledAt: null,
+          title: 'Active titre',
+          body: 'Publication active auteur encore membre.',
+        ),
+      ];
+    await openMyPublications(tester, api);
+    await tester.tap(find.byKey(const ValueKey('me-pub-current-72')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('community-publication-menu')));
+    await tester.pumpAndSettle();
+    expect(find.text('Modifier'), findsOneWidget);
+    expect(find.text('Supprimer'), findsOneWidget);
+  });
+
+  testWidgets('F left scheduled stays read only', (tester) async {
+    final api = _FakeCommunityApi()
+      ..myPublications = [scheduledMine(id: 73, formerMember: true)];
+    await openMyPublications(tester, api);
+    await tester.tap(find.byKey(const ValueKey('me-pubs-left')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('me-pub-left-73')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('me-pub-left-73')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('community-publication-menu')), findsNothing);
+  });
+
+  testWidgets('F expired from me has no edit or delete', (tester) async {
+    final api = _FakeCommunityApi()
+      ..myPublications = [
+        scheduledMine(
+          id: 74,
+          status: 'expired',
+          scheduledAt: null,
+          body: 'Publication expiree de lauteur.',
+        ),
+      ];
+    await openMyPublications(tester, api);
+    await tester.tap(find.byKey(const ValueKey('me-pubs-expired')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('me-pub-expired-74')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('community-publication-menu')), findsNothing);
   });
 }

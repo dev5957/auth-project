@@ -19,6 +19,7 @@ import '../../models/community_publication.dart';
 import '../../providers/community_providers.dart';
 import '../state/community_detail_controller.dart';
 import '../state/community_feed_controller.dart';
+import '../state/my_community_publications_controller.dart';
 
 class CommunityPublicationDetailScreen extends ConsumerStatefulWidget {
   const CommunityPublicationDetailScreen({
@@ -70,12 +71,18 @@ class _CommunityPublicationDetailScreenState
     return role == CommunityRole.owner || role == CommunityRole.admin;
   }
 
-  bool get _readOnlyLeft => widget.fromMe && (_publication?.author.isFormerMember ?? false);
+  bool get _readOnlyLeft => _publication?.author.isFormerMember ?? false;
 
-  bool get _canEdit => !widget.fromMe && _isAuthor && !_readOnlyLeft && _publication?.status != 'expired';
+  bool get _canEdit {
+    if (!_isAuthor || _readOnlyLeft) {
+      return false;
+    }
+    final status = _publication?.status;
+    return status == 'active' || status == 'scheduled';
+  }
 
   bool get _canDelete {
-    if (widget.fromMe || _readOnlyLeft) {
+    if (_readOnlyLeft) {
       return false;
     }
     final status = _publication?.status;
@@ -89,7 +96,7 @@ class _CommunityPublicationDetailScreenState
   }
 
   bool get _canRestore {
-    if (widget.fromMe || _readOnlyLeft) {
+    if (_readOnlyLeft) {
       return false;
     }
     final publication = _publication;
@@ -100,10 +107,17 @@ class _CommunityPublicationDetailScreenState
   }
 
   bool get _canDeleteMedia =>
-      !widget.fromMe &&
       _isAuthor &&
       !_readOnlyLeft &&
       (_publication?.status == 'active' || _publication?.status == 'scheduled');
+
+  Future<void> _reloadRelatedLists() async {
+    if (widget.communityId > 0) {
+      await ref.read(communityFeedControllerProvider(widget.communityId).notifier).load();
+    }
+    await ref.read(myCommunityPublicationsControllerProvider('current').notifier).load();
+    await ref.read(myCommunityPublicationsControllerProvider('left').notifier).load();
+  }
 
   @override
   void initState() {
@@ -157,7 +171,7 @@ class _CommunityPublicationDetailScreenState
       return;
     }
     setState(() => _publication = updated);
-    ref.read(communityFeedControllerProvider(widget.communityId).notifier).load();
+    await _reloadRelatedLists();
   }
 
   Future<void> _delete() async {
@@ -193,8 +207,7 @@ class _CommunityPublicationDetailScreenState
       }
       final wasAuthor = _isAuthor;
       final repository = ref.read(communityRepositoryProvider);
-      final feed = ref.read(communityFeedControllerProvider(widget.communityId).notifier);
-      await feed.load();
+      await _reloadRelatedLists();
       if (!mounted) {
         return;
       }
@@ -212,7 +225,7 @@ class _CommunityPublicationDetailScreenState
                       communityId: widget.communityId,
                       publicationId: widget.publicationId,
                     );
-                    await feed.load();
+                    await _reloadRelatedLists();
                   } catch (_) {}
                 }());
               },
@@ -249,7 +262,7 @@ class _CommunityPublicationDetailScreenState
         _busy = false;
         _publication = restored;
       });
-      ref.read(communityFeedControllerProvider(widget.communityId).notifier).load();
+      await _reloadRelatedLists();
     } on ApiException catch (error) {
       if (!mounted) {
         return;

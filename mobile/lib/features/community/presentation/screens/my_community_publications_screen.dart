@@ -8,6 +8,7 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_text_theme.dart';
 import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/app_loading.dart';
+import '../../../chronique/models/chronique_date.dart';
 import '../../models/community_publication.dart';
 import '../state/my_community_publications_controller.dart';
 
@@ -98,6 +99,7 @@ class _MeScopeList extends ConsumerWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            ..._scheduledLines(item, colors),
                             if (item.communityName != null)
                               Text(
                                 item.communityName!,
@@ -114,6 +116,30 @@ class _MeScopeList extends ConsumerWidget {
               ],
             ),
     };
+  }
+
+  List<Widget> _scheduledLines(CommunityPublication item, LuminaColors colors) {
+    if (item.status != 'scheduled') {
+      return const [];
+    }
+    final style = AppTextTheme.labelSmall.copyWith(color: colors.textSecondary);
+    final when = formatOptionalChroniqueDate(item.asChronique().scheduledAt);
+    return [
+      Text(
+        'Programmée',
+        key: ValueKey('me-pub-scheduled-label-${item.id}'),
+        style: style,
+      ),
+      if (when != null) ...[
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          when,
+          key: ValueKey('me-pub-scheduled-at-${item.id}'),
+          style: style,
+        ),
+      ],
+      const SizedBox(height: AppSpacing.sm),
+    ];
   }
 
   void _open(BuildContext context, CommunityPublication item) {
