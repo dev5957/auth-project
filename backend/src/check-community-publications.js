@@ -66,6 +66,16 @@ function sqlKey(sql) {
   return String(sql).replace(/\s+/g, ' ').trim().toUpperCase();
 }
 
+function sameMediaId(left, right) {
+  if (left === right) {
+    return true;
+  }
+  if (left == null || right == null) {
+    return false;
+  }
+  return String(left) === String(right);
+}
+
 function createMemory() {
   const users = [
     { id: OWNER_ID, login: 'owner1' },
@@ -82,10 +92,22 @@ function createMemory() {
     publications: [],
     media: [],
     storageDeleted: [],
+    ops: [],
+    deleteRowCountOverride: null,
+    failSqlDelete: false,
+    failStorageDelete: false,
   };
   let nextPubId = 1;
   let nextMediaId = 1;
+  let snapshot = null;
   const objects = new Map();
+
+  function cloneState() {
+    return {
+      publications: state.publications.map((item) => ({ ...item })),
+      media: state.media.map((item) => ({ ...item })),
+    };
+  }
 
   const storage = {
     async createDirectUpload({ storageKey }) {
@@ -99,6 +121,10 @@ function createMemory() {
       return { byteSize: obj.byteSize };
     },
     async delete(storageKey) {
+      state.ops.push('storage-delete');
+      if (state.failStorageDelete) {
+        throw new Error('r2 delete failed');
+      }
       objects.delete(storageKey);
       state.storageDeleted.push(storageKey);
     },
@@ -112,7 +138,23 @@ function createMemory() {
 
   async function query(sql, params = []) {
     const key = sqlKey(sql);
-    if (key === 'BEGIN' || key === 'COMMIT' || key === 'ROLLBACK') {
+    if (key === 'BEGIN') {
+      snapshot = cloneState();
+      state.ops.push('begin');
+      return { rows: [], rowCount: 0 };
+    }
+    if (key === 'COMMIT') {
+      snapshot = null;
+      state.ops.push('commit');
+      return { rows: [], rowCount: 0 };
+    }
+    if (key === 'ROLLBACK') {
+      if (snapshot) {
+        state.publications = snapshot.publications;
+        state.media = snapshot.media;
+        snapshot = null;
+      }
+      state.ops.push('rollback');
       return { rows: [], rowCount: 0 };
     }
 
@@ -457,9 +499,31 @@ function createMemory() {
       return { rows: [{ max_order: max }], rowCount: 1 };
     }
 
+    if (
+      key.startsWith('DELETE FROM COMMUNITY_PUBLICATION_MEDIA WHERE ID = $1') &&
+      key.includes('COMMUNITY_PUBLICATION_ID = $2')
+    ) {
+      if (state.failSqlDelete) {
+        state.ops.push('sql-delete-error');
+        throw new Error('sql delete failed');
+      }
+      state.ops.push('sql-delete');
+      if (state.deleteRowCountOverride != null) {
+        const rowCount = state.deleteRowCountOverride;
+        state.deleteRowCountOverride = null;
+        return { rows: [], rowCount };
+      }
+      const before = state.media.length;
+      state.media = state.media.filter(
+        (item) =>
+          !(sameMediaId(item.id, params[0]) && sameMediaId(item.community_publication_id, params[1]))
+      );
+      return { rows: [], rowCount: before - state.media.length };
+    }
+
     if (key.startsWith('DELETE FROM COMMUNITY_PUBLICATION_MEDIA WHERE ID = $1')) {
       const before = state.media.length;
-      state.media = state.media.filter((item) => Number(item.id) !== Number(params[0]));
+      state.media = state.media.filter((item) => !sameMediaId(item.id, params[0]));
       return { rows: [], rowCount: before - state.media.length };
     }
 
@@ -865,6 +929,15 @@ async function main() {
     !db.state.media.some((item) => Number(item.id) === Number(m1.media.id)),
     'author can delete ready media'
   );
+  const multiAfterDelete = db.state.publications.find((item) => Number(item.id) === Number(multi.id));
+  const remainingMultiBytes = db.state.media
+    .filter(
+      (item) =>
+        Number(item.community_publication_id) === Number(multi.id) &&
+        (item.status === 'ready' || item.status === 'pending_upload')
+    )
+    .reduce((sum, item) => sum + Number(item.byte_size), 0);
+  assert(Number(multiAfterDelete.media_total_bytes) === remainingMultiBytes, 'quota after one delete');
   await expectReject(
     createMediaUpload(
       MEMBER_ID,
@@ -928,7 +1001,8 @@ async function main() {
   const mineExpired = await listMine(MEMBER_ID, { scope: 'expired' }, deps);
   assert(mineExpired.items.some((item) => Number(item.id) === Number(ephemeral.id)), 'expired in me');
 
-  expiredRow.purge_after = new Date(Date.now() - 1000);
+  const expiredLive = db.state.publications.find((item) => Number(item.id) === Number(ephemeral.id));
+  expiredLive.purge_after = new Date(Date.now() - 1000);
   await runPurgeExpiredJob(deps);
   assert(!db.state.publications.some((item) => Number(item.id) === Number(ephemeral.id)), 'purged after 30d window');
 
@@ -977,7 +1051,209 @@ async function main() {
   await expectReject(getPublication(OWNER_ID, COMMUNITY_ID, 999999, deps), 404);
   await deleteMedia(ADMIN_ID, COMMUNITY_ID, tooMany.id, db.state.media.filter((m) => Number(m.community_publication_id) === Number(tooMany.id))[0].id, deps);
 
+  await runDeleteMediaContractChecks();
+
   console.log('Community publications checks succeeded.');
+}
+
+async function uploadReadyImage(authorId, publicationId, byteSize, deps, db) {
+  const payload = await createMediaUpload(
+    authorId,
+    COMMUNITY_ID,
+    publicationId,
+    { kind: 'image', source_type: 'gallery', content_type: 'image/jpeg', byte_size: byteSize },
+    deps
+  );
+  db.storage.put(
+    db.state.media.find((item) => Number(item.id) === Number(payload.media.id)).storage_key,
+    byteSize
+  );
+  await completeMedia(authorId, COMMUNITY_ID, publicationId, payload.media.id, deps);
+  return payload;
+}
+
+async function runDeleteMediaContractChecks() {
+  const db = createMemory();
+  const deps = { db, storage: db.storage };
+
+  const last = await createPublication(
+    MEMBER_ID,
+    COMMUNITY_ID,
+    validBody({ title: 'Delete last media', initial_media_count: 1 }),
+    deps
+  );
+  const lastUpload = await uploadReadyImage(MEMBER_ID, last.id, 157908, deps, db);
+  db.state.ops = [];
+  const lastResult = await deleteMedia(MEMBER_ID, COMMUNITY_ID, last.id, lastUpload.media.id, deps);
+  assert(lastResult.deleted === true, 'A deleted true');
+  assert(
+    !db.state.media.some((item) => sameMediaId(item.id, lastUpload.media.id)),
+    'A media row gone'
+  );
+  const lastPub = db.state.publications.find((item) => Number(item.id) === Number(last.id));
+  assert(Number(lastPub.media_total_bytes) === 0, 'A media_total_bytes 0');
+  const lastSql = db.state.ops.indexOf('sql-delete');
+  const lastCommit = db.state.ops.indexOf('commit');
+  const lastR2 = db.state.ops.indexOf('storage-delete');
+  assert(lastSql !== -1 && lastCommit !== -1 && lastR2 !== -1, 'A ops present');
+  assert(lastSql < lastCommit, 'A sql before commit');
+  assert(lastCommit < lastR2, 'A commit before r2');
+
+  const many = await createPublication(
+    MEMBER_ID,
+    COMMUNITY_ID,
+    validBody({ title: 'Delete one of many', initial_media_count: 2 }),
+    deps
+  );
+  const keepUpload = await uploadReadyImage(MEMBER_ID, many.id, 100, deps, db);
+  const dropUpload = await uploadReadyImage(MEMBER_ID, many.id, 250, deps, db);
+  db.state.ops = [];
+  const manyResult = await deleteMedia(MEMBER_ID, COMMUNITY_ID, many.id, dropUpload.media.id, deps);
+  assert(manyResult.deleted === true, 'B deleted true');
+  assert(
+    !db.state.media.some((item) => sameMediaId(item.id, dropUpload.media.id)),
+    'B targeted media gone'
+  );
+  assert(
+    db.state.media.some(
+      (item) => sameMediaId(item.id, keepUpload.media.id) && item.status === 'ready'
+    ),
+    'B other media kept'
+  );
+  const manyPub = db.state.publications.find((item) => Number(item.id) === Number(many.id));
+  assert(Number(manyPub.media_total_bytes) === 100, 'B remaining bytes');
+
+  const zero = await createPublication(
+    MEMBER_ID,
+    COMMUNITY_ID,
+    validBody({ title: 'Delete rowcount 0', initial_media_count: 1 }),
+    deps
+  );
+  const zeroUpload = await uploadReadyImage(MEMBER_ID, zero.id, 40, deps, db);
+  db.state.deleteRowCountOverride = 0;
+  db.state.ops = [];
+  await expectReject(deleteMedia(MEMBER_ID, COMMUNITY_ID, zero.id, zeroUpload.media.id, deps), 404);
+  assert(
+    db.state.media.some((item) => sameMediaId(item.id, zeroUpload.media.id)),
+    'C media row kept'
+  );
+  assert(!db.state.ops.includes('storage-delete'), 'C no r2 after rowCount 0');
+  assert(db.state.ops.includes('rollback'), 'C sql not committed as success');
+
+  const big = await createPublication(
+    MEMBER_ID,
+    COMMUNITY_ID,
+    validBody({ title: 'Delete bigint string id', initial_media_count: 1 }),
+    deps
+  );
+  const bigUpload = await uploadReadyImage(MEMBER_ID, big.id, 80, deps, db);
+  const bigRow = db.state.media.find((item) => Number(item.id) === Number(bigUpload.media.id));
+  bigRow.id = String(bigRow.id);
+  bigRow.community_publication_id = String(bigRow.community_publication_id);
+  db.state.ops = [];
+  const bigResult = await deleteMedia(MEMBER_ID, COMMUNITY_ID, big.id, bigUpload.media.id, deps);
+  assert(bigResult.deleted === true, 'D deleted true with string bigint id');
+  assert(
+    !db.state.media.some((item) => String(item.id) === String(bigUpload.media.id)),
+    'D string id row gone'
+  );
+  const bigPub = db.state.publications.find((item) => Number(item.id) === Number(big.id));
+  assert(Number(bigPub.media_total_bytes) === 0, 'D bytes 0');
+
+  const authPub = await createPublication(
+    MEMBER_ID,
+    COMMUNITY_ID,
+    validBody({ title: 'Delete authz', initial_media_count: 1 }),
+    deps
+  );
+  const authUpload = await uploadReadyImage(MEMBER_ID, authPub.id, 15, deps, db);
+  await expectReject(
+    deleteMedia(OWNER_ID, COMMUNITY_ID, authPub.id, authUpload.media.id, deps),
+    403
+  );
+  await expectReject(deleteMedia(99, COMMUNITY_ID, authPub.id, authUpload.media.id, deps), 404);
+  const authorDelete = await deleteMedia(MEMBER_ID, COMMUNITY_ID, authPub.id, authUpload.media.id, deps);
+  assert(authorDelete.deleted === true, 'E author can delete');
+
+  const orderPub = await createPublication(
+    MEMBER_ID,
+    COMMUNITY_ID,
+    validBody({ title: 'Delete order', initial_media_count: 1 }),
+    deps
+  );
+  const orderUpload = await uploadReadyImage(MEMBER_ID, orderPub.id, 20, deps, db);
+  db.state.ops = [];
+  await deleteMedia(MEMBER_ID, COMMUNITY_ID, orderPub.id, orderUpload.media.id, deps);
+  const sqlAt = db.state.ops.indexOf('sql-delete');
+  const commitAt = db.state.ops.indexOf('commit');
+  const r2At = db.state.ops.indexOf('storage-delete');
+  assert(sqlAt !== -1 && commitAt !== -1 && r2At !== -1, 'F ops recorded');
+  assert(sqlAt < commitAt && commitAt < r2At, 'F sql then commit then r2');
+
+  const failSqlPub = await createPublication(
+    MEMBER_ID,
+    COMMUNITY_ID,
+    validBody({ title: 'Delete sql fail', initial_media_count: 1 }),
+    deps
+  );
+  const failSqlUpload = await uploadReadyImage(MEMBER_ID, failSqlPub.id, 30, deps, db);
+  db.state.failSqlDelete = true;
+  db.state.ops = [];
+  try {
+    await deleteMedia(MEMBER_ID, COMMUNITY_ID, failSqlPub.id, failSqlUpload.media.id, deps);
+    throw new Error('expected sql delete failure');
+  } catch (err) {
+    assert(!(err instanceof AppError), 'G not treated as success');
+    assert(err && err.message === 'sql delete failed', 'G sql error message');
+  }
+  db.state.failSqlDelete = false;
+  assert(
+    db.state.media.some((item) => sameMediaId(item.id, failSqlUpload.media.id)),
+    'G media row remains after rollback'
+  );
+  const failSqlPubRow = db.state.publications.find((item) => Number(item.id) === Number(failSqlPub.id));
+  assert(Number(failSqlPubRow.media_total_bytes) === 30, 'G bytes unchanged');
+  assert(!db.state.ops.includes('storage-delete'), 'G no r2 before sql validation');
+  assert(db.state.ops.includes('rollback'), 'G rolled back');
+  assert(!db.state.ops.includes('commit'), 'G no commit');
+
+  const failR2Pub = await createPublication(
+    MEMBER_ID,
+    COMMUNITY_ID,
+    validBody({ title: 'Delete r2 fail', initial_media_count: 1 }),
+    deps
+  );
+  const failR2Upload = await uploadReadyImage(MEMBER_ID, failR2Pub.id, 45, deps, db);
+  db.state.failStorageDelete = true;
+  db.state.ops = [];
+  const logged = [];
+  const originalError = console.error;
+  console.error = (...args) => {
+    logged.push(args.map((item) => String(item)).join(' '));
+  };
+  let failR2Result;
+  try {
+    failR2Result = await deleteMedia(MEMBER_ID, COMMUNITY_ID, failR2Pub.id, failR2Upload.media.id, deps);
+  } finally {
+    console.error = originalError;
+    db.state.failStorageDelete = false;
+  }
+  assert(failR2Result && failR2Result.deleted === true, 'H sql success despite r2');
+  assert(
+    !db.state.media.some((item) => sameMediaId(item.id, failR2Upload.media.id)),
+    'H media row stays deleted'
+  );
+  const failR2PubRow = db.state.publications.find((item) => Number(item.id) === Number(failR2Pub.id));
+  assert(Number(failR2PubRow.media_total_bytes) === 0, 'H bytes remain 0');
+  assert(
+    logged.some((line) => line.includes('[community-media] storage delete failed')),
+    'H r2 failure logged'
+  );
+  const hSql = db.state.ops.indexOf('sql-delete');
+  const hCommit = db.state.ops.indexOf('commit');
+  const hR2 = db.state.ops.indexOf('storage-delete');
+  assert(hSql !== -1 && hCommit !== -1 && hR2 !== -1, 'H ops present');
+  assert(hSql < hCommit && hCommit < hR2, 'H r2 only after commit');
 }
 
 main().catch((err) => {

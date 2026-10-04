@@ -272,6 +272,18 @@ async function completeMedia(userId, rawCommunityId, rawId, rawMediaId, deps = {
   });
 }
 
+function isSingleDeletedRow(rowCount) {
+  return rowCount === 1 || rowCount === 1n || rowCount === '1';
+}
+
+function logStorageDeleteFailure(publicationId, mediaId, err) {
+  const message = err && typeof err.message === 'string' ? err.message : 'storage delete failed';
+  console.error(
+    '[community-media] storage delete failed',
+    `publication_id=${publicationId} media_id=${mediaId} message=${message}`
+  );
+}
+
 async function deleteMedia(userId, rawCommunityId, rawId, rawMediaId, deps = {}) {
   const communityId = parseCommunityId(rawCommunityId);
   const publicationId = parseId(rawId, 'id is invalid');
@@ -280,7 +292,7 @@ async function deleteMedia(userId, rawCommunityId, rawId, rawMediaId, deps = {})
   const storage = getStorage(deps.storage);
   const db = deps.db || pool;
 
-  return withTransaction(db, async (client) => {
+  const removed = await withTransaction(db, async (client) => {
     await loadOwnedWritable(client, communityId, publicationId, userId);
     const found = await client.query(
       `SELECT * FROM community_publication_media
@@ -292,19 +304,32 @@ async function deleteMedia(userId, rawCommunityId, rawId, rawMediaId, deps = {})
     if (!media) {
       throw new AppError(404, 'Media not found');
     }
-    for (const key of collectStorageKeys(media)) {
-      try {
-        await storage.delete(key);
-      } catch (_) {
-        // continue cleanup
-      }
+    const deleted = await client.query(
+      `DELETE FROM community_publication_media
+       WHERE id = $1
+         AND community_publication_id = $2`,
+      [media.id, media.community_publication_id]
+    );
+    if (!isSingleDeletedRow(deleted.rowCount)) {
+      throw new AppError(404, 'Media not found');
     }
-    await client.query(`DELETE FROM community_publication_media WHERE id = $1`, [media.id]);
     const usage = await quotaUsage(client, publicationId);
     await setMediaTotalBytes(client, publicationId, usage.bytes);
     await maybeCloseInitialMediaIntake(client, publicationId);
-    return { deleted: true };
+    return {
+      keys: collectStorageKeys(media),
+      mediaId: media.id,
+    };
   });
+
+  for (const key of removed.keys) {
+    try {
+      await storage.delete(key);
+    } catch (err) {
+      logStorageDeleteFailure(publicationId, removed.mediaId, err);
+    }
+  }
+  return { deleted: true };
 }
 
 async function abandonDraftsAndPendingUploads(client, communityId, userId, deps = {}) {
