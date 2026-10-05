@@ -27,7 +27,9 @@ import 'package:mobile/core/widgets/app_button.dart';
 import 'package:mobile/core/widgets/app_card.dart';
 import 'package:mobile/core/widgets/app_loading.dart';
 import 'package:mobile/features/community/presentation/screens/community_search_screen.dart';
+import 'package:mobile/features/chronique/models/chronique.dart';
 import 'package:mobile/features/chronique/models/chronique_date.dart';
+import 'package:mobile/features/chronique/presentation/widgets/chronique_media_viewer.dart';
 import 'package:mobile/features/community/presentation/screens/community_publication_detail_screen.dart';
 import 'package:mobile/features/community/presentation/screens/create_community_publication_screen.dart';
 import 'package:mobile/features/community/presentation/screens/create_community_screen.dart';
@@ -2957,6 +2959,200 @@ void main() {
     expect(find.byKey(const ValueKey('community-feed-item-21')), findsOneWidget);
     expect(find.text('Titre actif'), findsOneWidget);
     expect(find.byKey(const ValueKey('community-feed-item-22')), findsNothing);
+  });
+
+  CommunityPublication feedPublication({
+    required int id,
+    required List<ChroniqueMedia> media,
+  }) {
+    return CommunityPublication(
+      id: id,
+      communityId: 3,
+      author: const CommunityPublicationAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
+      title: 'Publication media',
+      body: 'Texte de publication active assez long.',
+      status: 'active',
+      media: media,
+    );
+  }
+
+  Future<void> openCommunityFeedMedia(
+    WidgetTester tester,
+    _FakeCommunityApi api, {
+    required ChroniqueMedia media,
+  }) async {
+    api.publications = [feedPublication(id: 21, media: [media])];
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    await tester.scrollUntilVisible(
+      find.byKey(ValueKey('chronique-feed-media-${media.id}')),
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> tapCommunityFeedMedia(WidgetTester tester, int mediaId) async {
+    await tester.tap(find.byKey(ValueKey('chronique-feed-media-$mediaId')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+  }
+
+  test('community publication JSON maps signed media urls including video thumbnail', () {
+    final publication = CommunityPublication.fromJson({
+      'id': 21,
+      'community_id': 3,
+      'author': {'user_id': 1, 'login': 'tgjjk', 'is_former_member': false},
+      'body': 'Texte de publication active assez long.',
+      'status': 'active',
+      'media': [
+        {
+          'id': 1,
+          'kind': 'image',
+          'status': 'ready',
+          'read_url': 'https://example.test/pic.jpg',
+          'read_expires_at': '2026-10-05T10:16:00.000Z',
+        },
+        {
+          'id': 2,
+          'kind': 'video',
+          'status': 'ready',
+          'read_url': 'https://example.test/clip.mp4',
+          'read_expires_at': '2026-10-05T10:16:00.000Z',
+          'thumbnail_url': 'https://example.test/clip.jpg',
+          'thumbnail_expires_at': '2026-10-05T10:16:00.000Z',
+        },
+      ],
+    });
+    expect(publication.media[0].readUrl, 'https://example.test/pic.jpg');
+    expect(publication.media[0].thumbnailUrl, isNull);
+    expect(publication.media[1].readUrl, 'https://example.test/clip.mp4');
+    expect(publication.media[1].thumbnailUrl, 'https://example.test/clip.jpg');
+    expect(publication.media[1].thumbnailExpiresAt, DateTime.parse('2026-10-05T10:16:00.000Z'));
+  });
+
+  testWidgets('community feed image is shown and tap opens the viewer', (tester) async {
+    const image = ChroniqueMedia(
+      id: 10,
+      kind: 'image',
+      status: 'ready',
+      contentType: 'image/jpeg',
+      sortOrder: 0,
+      readUrl: 'https://example.test/a.jpg',
+    );
+    final api = _FakeCommunityApi();
+    await openCommunityFeedMedia(tester, api, media: image);
+    expect(find.byKey(const ValueKey('chronique-feed-media-10')), findsOneWidget);
+    expect(find.byType(Image), findsWidgets);
+    await tapCommunityFeedMedia(tester, 10);
+    expect(find.byType(ChroniqueMediaViewerPage), findsOneWidget);
+    expect(find.text('Image'), findsWidgets);
+    expect(
+      api.networkOps.where((op) => op.contains('/publications/21')),
+      isEmpty,
+    );
+  });
+
+  testWidgets('community feed video with thumbnail shows poster and tap opens player', (tester) async {
+    const video = ChroniqueMedia(
+      id: 11,
+      kind: 'video',
+      status: 'ready',
+      contentType: 'video/mp4',
+      originalFilename: 'clip.mp4',
+      sortOrder: 0,
+      readUrl: 'https://example.test/clip.mp4',
+      thumbnailUrl: 'https://example.test/clip.jpg',
+    );
+    final api = _FakeCommunityApi();
+    await openCommunityFeedMedia(tester, api, media: video);
+    expect(find.byKey(const ValueKey('chronique-feed-video-thumb')), findsOneWidget);
+    expect(find.byIcon(Icons.play_circle), findsWidgets);
+    await tapCommunityFeedMedia(tester, 11);
+    expect(find.byType(ChroniqueMediaViewerPage), findsOneWidget);
+    expect(find.byKey(const ValueKey('chronique-media-viewer-video')), findsOneWidget);
+  });
+
+  testWidgets('community feed video without thumbnail keeps fallback and tap still opens player', (
+    tester,
+  ) async {
+    const video = ChroniqueMedia(
+      id: 12,
+      kind: 'video',
+      status: 'ready',
+      contentType: 'video/mp4',
+      originalFilename: 'clip.mp4',
+      sortOrder: 0,
+      readUrl: 'https://example.test/clip.mp4',
+    );
+    final api = _FakeCommunityApi();
+    await openCommunityFeedMedia(tester, api, media: video);
+    expect(find.byKey(const ValueKey('chronique-feed-video-thumb')), findsNothing);
+    expect(find.text('Vidéo'), findsOneWidget);
+    await tapCommunityFeedMedia(tester, 12);
+    expect(find.byType(ChroniqueMediaViewerPage), findsOneWidget);
+    expect(find.byKey(const ValueKey('chronique-media-viewer-video')), findsOneWidget);
+  });
+
+  testWidgets('community feed audio chrome tap opens the audio viewer', (tester) async {
+    const audio = ChroniqueMedia(
+      id: 13,
+      kind: 'audio',
+      status: 'ready',
+      contentType: 'audio/mpeg',
+      originalFilename: 'voix.mp3',
+      sortOrder: 0,
+      readUrl: 'https://example.test/voix.mp3',
+    );
+    final api = _FakeCommunityApi();
+    await openCommunityFeedMedia(tester, api, media: audio);
+    expect(find.text('voix.mp3'), findsOneWidget);
+    await tapCommunityFeedMedia(tester, 13);
+    expect(find.byType(ChroniqueMediaViewerPage), findsOneWidget);
+    expect(find.byKey(const ValueKey('chronique-media-viewer-audio')), findsOneWidget);
+  });
+
+  testWidgets('community feed document chrome tap opens the document viewer', (tester) async {
+    const document = ChroniqueMedia(
+      id: 14,
+      kind: 'document',
+      status: 'ready',
+      contentType: 'application/pdf',
+      originalFilename: 'note.pdf',
+      sortOrder: 0,
+      readUrl: 'https://example.test/note.pdf',
+    );
+    final api = _FakeCommunityApi();
+    await openCommunityFeedMedia(tester, api, media: document);
+    expect(find.text('note.pdf'), findsOneWidget);
+    expect(find.byIcon(Icons.picture_as_pdf_outlined), findsOneWidget);
+    await tapCommunityFeedMedia(tester, 14);
+    expect(find.byType(ChroniqueMediaViewerPage), findsOneWidget);
+    expect(find.byKey(const ValueKey('chronique-media-viewer-document')), findsOneWidget);
+  });
+
+  testWidgets('non-member community feed error does not expose media tiles', (tester) async {
+    final api = _FakeCommunityApi()
+      ..failListPublications = const ApiException(message: 'Community not found', statusCode: 404)
+      ..publications = [
+        feedPublication(
+          id: 21,
+          media: const [
+            ChroniqueMedia(
+              id: 10,
+              kind: 'image',
+              status: 'ready',
+              readUrl: 'https://example.test/secret.jpg',
+            ),
+          ],
+        ),
+      ];
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    expect(find.byKey(const ValueKey('community-feed-error')), findsOneWidget);
+    expect(find.text('Community not found'), findsOneWidget);
+    expect(find.byKey(const ValueKey('chronique-feed-media-10')), findsNothing);
+    expect(find.byKey(const ValueKey('community-feed-item-21')), findsNothing);
   });
 
   testWidgets('community assistant has three steps without public audience or themes', (

@@ -27,10 +27,12 @@ const {
   runPurgeExpiredJob,
 } = require('./services/communityPublicationJobs');
 const { leaveCommunity, removeMember } = require('./services/communityService');
+const { thumbnailStorageKey } = require('./services/mediaStorageKeys');
 
 const OWNER_ID = 1;
 const MEMBER_ID = 2;
 const ADMIN_ID = 3;
+const STRANGER_ID = 99;
 const COMMUNITY_ID = 10;
 
 function assert(condition, message) {
@@ -81,6 +83,7 @@ function createMemory() {
     { id: OWNER_ID, login: 'owner1' },
     { id: MEMBER_ID, login: 'member2' },
     { id: ADMIN_ID, login: 'admin3' },
+    { id: STRANGER_ID, login: 'stranger99' },
   ];
   const state = {
     communities: [{ id: COMMUNITY_ID, name: 'Jardin secret', created_by: OWNER_ID }],
@@ -92,6 +95,7 @@ function createMemory() {
     publications: [],
     media: [],
     storageDeleted: [],
+    readUrlCalls: [],
     ops: [],
     deleteRowCountOverride: null,
     failSqlDelete: false,
@@ -129,6 +133,7 @@ function createMemory() {
       state.storageDeleted.push(storageKey);
     },
     async createReadUrl(storageKey) {
+      state.readUrlCalls.push(storageKey);
       return { url: `https://read.test/${storageKey}`, expires_at: new Date(Date.now() + 900000) };
     },
     put(storageKey, byteSize) {
@@ -601,7 +606,22 @@ function assertSignedReadyMedia(item, storageKey) {
   assert(typeof item.read_url === 'string' && item.read_url === `https://read.test/${storageKey}`, 'read_url from storage');
   assert(typeof item.read_expires_at === 'string' && item.read_expires_at.length > 0, 'read_expires_at');
   assert(!Object.prototype.hasOwnProperty.call(item, 'storage_key'), 'storage_key field');
-  assert(!Object.prototype.hasOwnProperty.call(item, 'thumbnail_url'), 'no thumbnail_url');
+}
+
+function assertNoThumbnail(item, label) {
+  assert(!Object.prototype.hasOwnProperty.call(item, 'thumbnail_url'), `${label} no thumbnail_url`);
+  assert(!Object.prototype.hasOwnProperty.call(item, 'thumbnail_expires_at'), `${label} no thumbnail_expires_at`);
+}
+
+function assertSignedThumbnail(item, thumbKey) {
+  assert(
+    typeof item.thumbnail_url === 'string' && item.thumbnail_url === `https://read.test/${thumbKey}`,
+    'thumbnail_url from storage'
+  );
+  assert(
+    typeof item.thumbnail_expires_at === 'string' && item.thumbnail_expires_at.length > 0,
+    'thumbnail_expires_at'
+  );
 }
 
 function validBody(overrides = {}) {
@@ -877,6 +897,11 @@ async function main() {
     deps
   );
 
+  const strangerReads = db.state.readUrlCalls.length;
+  await expectReject(listFeed(STRANGER_ID, COMMUNITY_ID, {}, deps), 404);
+  await expectReject(getPublication(STRANGER_ID, COMMUNITY_ID, readyPub.id, deps), 404);
+  assert(db.state.readUrlCalls.length === strangerReads, 'non-member does not sign urls');
+
   const feedHydrated = await listFeed(OWNER_ID, COMMUNITY_ID, {}, deps);
   const textFeed = feedHydrated.items.find((item) => Number(item.id) === Number(textOnly.id));
   assert(textFeed, 'text-only still on feed');
@@ -890,18 +915,25 @@ async function main() {
     .sort((a, b) => Number(a.sort_order) - Number(b.sort_order) || Number(a.id) - Number(b.id))
     .map((item) => item.storage_key);
   assert(multiKeys.length === 3, 'three ready keys');
-  multiFeed.media.forEach((item, index) => assertSignedReadyMedia(item, multiKeys[index]));
+  multiFeed.media.forEach((item, index) => {
+    assertSignedReadyMedia(item, multiKeys[index]);
+    assertNoThumbnail(item, 'image');
+  });
   assert(new Set(multiFeed.media.map((item) => item.read_url)).size === 3, 'distinct read_url');
   assertNoStorageKey(multiFeed);
 
   const readyFeed = feedHydrated.items.find((item) => Number(item.id) === Number(readyPub.id));
   assert(readyFeed && readyFeed.media.length === 1, 'feed ready-only omits pending');
   assertSignedReadyMedia(readyFeed.media[0], readyKey);
+  assertNoThumbnail(readyFeed.media[0], 'image');
   assertNoStorageKey(readyFeed);
 
   const gotMulti = await getPublication(OWNER_ID, COMMUNITY_ID, multi.id, deps);
   assert(gotMulti.media.length === 3, 'get hydrates all ready');
-  gotMulti.media.forEach((item, index) => assertSignedReadyMedia(item, multiKeys[index]));
+  gotMulti.media.forEach((item, index) => {
+    assertSignedReadyMedia(item, multiKeys[index]);
+    assertNoThumbnail(item, 'image');
+  });
   assertNoStorageKey(gotMulti);
 
   const gotReady = await getPublication(MEMBER_ID, COMMUNITY_ID, readyPub.id, deps);
@@ -909,6 +941,7 @@ async function main() {
   const gotPendingItem = gotReady.media.find((item) => item.status === 'pending_upload');
   assert(gotReadyItem, 'get includes ready');
   assertSignedReadyMedia(gotReadyItem, readyKey);
+  assertNoThumbnail(gotReadyItem, 'image');
   assert(gotPendingItem, 'get includes pending');
   assert(!Object.prototype.hasOwnProperty.call(gotPendingItem, 'read_url'), 'pending omits read_url');
   assertNoStorageKey(gotReady);
@@ -916,13 +949,99 @@ async function main() {
   const mineCurrent = await listMine(MEMBER_ID, { scope: 'current' }, deps);
   const mineMulti = mineCurrent.items.find((item) => Number(item.id) === Number(multi.id));
   assert(mineMulti && mineMulti.media.length === 3, 'listMine hydrates ready');
-  mineMulti.media.forEach((item, index) => assertSignedReadyMedia(item, multiKeys[index]));
+  mineMulti.media.forEach((item, index) => {
+    assertSignedReadyMedia(item, multiKeys[index]);
+    assertNoThumbnail(item, 'image');
+  });
   assertNoStorageKey(mineMulti);
 
   const mineOne = await getMine(MEMBER_ID, multi.id, deps);
   assert(mineOne.media.length === 3, 'getMine hydrates ready');
-  mineOne.media.forEach((item, index) => assertSignedReadyMedia(item, multiKeys[index]));
+  mineOne.media.forEach((item, index) => {
+    assertSignedReadyMedia(item, multiKeys[index]);
+    assertNoThumbnail(item, 'image');
+  });
   assertNoStorageKey(mineOne);
+
+  const kindsPub = await createPublication(
+    MEMBER_ID,
+    COMMUNITY_ID,
+    validBody({ title: 'Kinds media', initial_media_count: 5 }),
+    deps
+  );
+  const kindsImage = await createMediaUpload(
+    MEMBER_ID,
+    COMMUNITY_ID,
+    kindsPub.id,
+    { kind: 'image', source_type: 'gallery', content_type: 'image/jpeg', byte_size: 80 },
+    deps
+  );
+  await completeCreatedUpload(MEMBER_ID, kindsPub.id, kindsImage);
+  const kindsVideoThumb = await createMediaUpload(
+    MEMBER_ID,
+    COMMUNITY_ID,
+    kindsPub.id,
+    { kind: 'video', source_type: 'gallery', content_type: 'video/mp4', byte_size: 400 },
+    deps
+  );
+  await completeCreatedUpload(MEMBER_ID, kindsPub.id, kindsVideoThumb);
+  const videoThumbRow = db.state.media.find((item) => Number(item.id) === Number(kindsVideoThumb.media.id));
+  const videoThumbKey = thumbnailStorageKey(videoThumbRow.storage_key);
+  assert(videoThumbKey, 'video thumbnail key');
+  db.storage.put(videoThumbKey, 12);
+  const kindsVideoBare = await createMediaUpload(
+    MEMBER_ID,
+    COMMUNITY_ID,
+    kindsPub.id,
+    { kind: 'video', source_type: 'gallery', content_type: 'video/mp4', byte_size: 300 },
+    deps
+  );
+  await completeCreatedUpload(MEMBER_ID, kindsPub.id, kindsVideoBare);
+  const kindsAudio = await createMediaUpload(
+    MEMBER_ID,
+    COMMUNITY_ID,
+    kindsPub.id,
+    { kind: 'audio', source_type: 'upload', content_type: 'audio/mpeg', byte_size: 60 },
+    deps
+  );
+  await completeCreatedUpload(MEMBER_ID, kindsPub.id, kindsAudio);
+  const kindsDocument = await createMediaUpload(
+    MEMBER_ID,
+    COMMUNITY_ID,
+    kindsPub.id,
+    { kind: 'document', source_type: 'upload', content_type: 'application/pdf', byte_size: 40 },
+    deps
+  );
+  await completeCreatedUpload(MEMBER_ID, kindsPub.id, kindsDocument);
+
+  const kindsFeed = await listFeed(OWNER_ID, COMMUNITY_ID, {}, deps);
+  const kindsItem = kindsFeed.items.find((item) => Number(item.id) === Number(kindsPub.id));
+  assert(kindsItem && kindsItem.media.length === 5, 'five ready kinds on feed');
+  const imageItem = kindsItem.media.find((item) => item.kind === 'image');
+  const videos = kindsItem.media.filter((item) => item.kind === 'video');
+  const audioItem = kindsItem.media.find((item) => item.kind === 'audio');
+  const documentItem = kindsItem.media.find((item) => item.kind === 'document');
+  const imageRow = db.state.media.find((item) => Number(item.id) === Number(kindsImage.media.id));
+  const videoBareRow = db.state.media.find((item) => Number(item.id) === Number(kindsVideoBare.media.id));
+  const audioRow = db.state.media.find((item) => Number(item.id) === Number(kindsAudio.media.id));
+  const documentRow = db.state.media.find((item) => Number(item.id) === Number(kindsDocument.media.id));
+  assertSignedReadyMedia(imageItem, imageRow.storage_key);
+  assertNoThumbnail(imageItem, 'image');
+  const videoWithThumb = videos.find((item) => Number(item.id) === Number(kindsVideoThumb.media.id));
+  const videoWithoutThumb = videos.find((item) => Number(item.id) === Number(kindsVideoBare.media.id));
+  assertSignedReadyMedia(videoWithThumb, videoThumbRow.storage_key);
+  assertSignedThumbnail(videoWithThumb, videoThumbKey);
+  assertSignedReadyMedia(videoWithoutThumb, videoBareRow.storage_key);
+  assertNoThumbnail(videoWithoutThumb, 'video without thumb');
+  assertSignedReadyMedia(audioItem, audioRow.storage_key);
+  assertNoThumbnail(audioItem, 'audio');
+  assertSignedReadyMedia(documentItem, documentRow.storage_key);
+  assertNoThumbnail(documentItem, 'document');
+  assertNoStorageKey(kindsItem);
+
+  const strangerAfterKinds = db.state.readUrlCalls.length;
+  await expectReject(listFeed(STRANGER_ID, COMMUNITY_ID, {}, deps), 404);
+  assert(db.state.readUrlCalls.length === strangerAfterKinds, 'non-member does not sign thumbnail');
 
   await deleteMedia(MEMBER_ID, COMMUNITY_ID, multi.id, m1.media.id, deps);
   assert(
@@ -969,18 +1088,22 @@ async function main() {
     'active kept after leave'
   );
 
+  const formerMemberReads = db.state.readUrlCalls.length;
   await expectReject(listFeed(MEMBER_ID, COMMUNITY_ID, {}, deps), 404);
   await expectReject(getPublication(MEMBER_ID, COMMUNITY_ID, readyPub.id, deps), 404);
   await expectReject(patchPublication(MEMBER_ID, COMMUNITY_ID, readyPub.id, { title: 'x' }, deps), 404);
+  assert(db.state.readUrlCalls.length === formerMemberReads, 'former member feed does not sign urls');
   const mineLeft = await listMine(MEMBER_ID, { scope: 'left' }, deps);
   assert(mineLeft.items.some((item) => Number(item.id) === Number(readyPub.id)), 'left scope has kept pub');
   assert(mineLeft.items.every((item) => item.status !== 'draft'), 'no drafts in me');
   const leftReady = mineLeft.items.find((item) => Number(item.id) === Number(readyPub.id));
   assert(leftReady.media.length === 1, 'left mine still hydrates ready');
   assertSignedReadyMedia(leftReady.media[0], readyKey);
+  assertNoThumbnail(leftReady.media[0], 'image');
   assertNoStorageKey(leftReady);
   const getMineLeft = await getMine(MEMBER_ID, readyPub.id, deps);
   assertSignedReadyMedia(getMineLeft.media[0], readyKey);
+  assertNoThumbnail(getMineLeft.media[0], 'image');
   assertNoStorageKey(getMineLeft);
 
   await runPublishScheduledJob({ ...deps, now: new Date(Date.now() + 2 * 86400000) });

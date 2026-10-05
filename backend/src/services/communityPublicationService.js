@@ -1,6 +1,7 @@
 const pool = require('../db');
 const AppError = require('../errors/AppError');
 const { getStorage } = require('./storageService');
+const { thumbnailStorageKey } = require('./mediaStorageKeys');
 const {
   parseCreateInput,
   parsePatchInput,
@@ -157,7 +158,44 @@ async function toPublicMediaForGet(row, storage) {
       media.read_expires_at = toIso(signed.expires_at);
     }
   }
+  await attachSignedThumbnail(media, row, storage);
   return media;
+}
+
+function logThumbnailReadFailure(row, err) {
+  const statusCode = err && typeof err.statusCode === 'number' ? err.statusCode : null;
+  const message = err && typeof err.message === 'string' ? err.message : 'thumbnail url failed';
+  console.error(
+    '[community-media-thumbnail] signature failed',
+    `publication_id=${row && row.community_publication_id} media_id=${row && row.id}` +
+      (statusCode != null ? ` status=${statusCode}` : '') +
+      ` message=${message}`
+  );
+}
+
+async function attachSignedThumbnail(media, row, storage) {
+  if (media == null || row.kind !== 'video' || storage == null) {
+    return;
+  }
+  const thumbKey = thumbnailStorageKey(row.storage_key);
+  if (!thumbKey) {
+    return;
+  }
+  try {
+    const found = await storage.head(thumbKey);
+    if (!found) {
+      return;
+    }
+    const signed = await storage.createReadUrl(thumbKey);
+    if (signed && typeof signed.url === 'string' && signed.url.trim() !== '') {
+      media.thumbnail_url = signed.url;
+      if (signed.expires_at != null) {
+        media.thumbnail_expires_at = toIso(signed.expires_at);
+      }
+    }
+  } catch (err) {
+    logThumbnailReadFailure(row, err);
+  }
 }
 
 async function toPublicMediaList(rows, deps = {}, { readyOnly = false } = {}) {
