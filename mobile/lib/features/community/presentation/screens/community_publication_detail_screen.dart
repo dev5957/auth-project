@@ -20,6 +20,8 @@ import '../../providers/community_providers.dart';
 import '../state/community_detail_controller.dart';
 import '../state/community_feed_controller.dart';
 import '../state/my_community_publications_controller.dart';
+import '../widgets/community_comments_section.dart';
+import '../widgets/community_publication_social_bar.dart';
 
 class CommunityPublicationDetailScreen extends ConsumerStatefulWidget {
   const CommunityPublicationDetailScreen({
@@ -274,6 +276,47 @@ class _CommunityPublicationDetailScreenState
     }
   }
 
+  Future<void> _toggleLike() async {
+    final publication = _publication;
+    if (publication == null || publication.status != 'active') {
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      final result = publication.likedByMe
+          ? await ref.read(communityRepositoryProvider).unlikePublication(
+                communityId: widget.communityId,
+                publicationId: widget.publicationId,
+              )
+          : await ref.read(communityRepositoryProvider).likePublication(
+                communityId: widget.communityId,
+                publicationId: widget.publicationId,
+              );
+      if (!mounted) {
+        return;
+      }
+      final updated = publication.copyWith(
+        likedByMe: result.likedByMe,
+        likeCount: result.likeCount,
+      );
+      setState(() {
+        _busy = false;
+        _publication = updated;
+      });
+      if (widget.communityId > 0) {
+        ref.read(communityFeedControllerProvider(widget.communityId).notifier).applyPublication(updated);
+      }
+    } on ApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _busy = false;
+        _error = error.message;
+      });
+    }
+  }
+
   Future<void> _deleteMedia(int mediaId) async {
     setState(() => _busy = true);
     try {
@@ -369,6 +412,32 @@ class _CommunityPublicationDetailScreenState
                                   child: Text('Supprimer le média ${media.originalFilename ?? media.id}'),
                                 ),
                               ),
+                      ],
+                      if (publication.status == 'active') ...[
+                        const SizedBox(height: AppSpacing.md),
+                        CommunityPublicationSocialBar(
+                          publication: publication,
+                          likeEnabled: !_busy,
+                          onLike: _toggleLike,
+                        ),
+                        CommunityCommentsSection(
+                          communityId: widget.communityId,
+                          publicationId: widget.publicationId,
+                          commentsEnabled: publication.commentsEnabled,
+                          isPublicationAuthor: _isAuthor,
+                          myRole: _myRole,
+                          onCountDelta: (delta) {
+                            final current = _publication;
+                            if (current == null) {
+                              return;
+                            }
+                            setState(() {
+                              _publication = current.copyWith(
+                                commentCount: (current.commentCount + delta).clamp(0, 1 << 30),
+                              );
+                            });
+                          },
+                        ),
                       ],
                       if (_error != null) ...[
                         const SizedBox(height: AppSpacing.md),

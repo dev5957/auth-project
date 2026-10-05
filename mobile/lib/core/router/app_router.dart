@@ -19,6 +19,7 @@ import '../../features/chronique/presentation/screens/expired_chroniques_screen.
 import '../../features/chronique/presentation/screens/mon_fil_screen.dart';
 import '../../features/chronique/presentation/screens/upcoming_chroniques_screen.dart';
 import '../../features/community/models/community_publication.dart';
+import '../../features/community/presentation/screens/community_comment_traces_screen.dart';
 import '../../features/community/presentation/screens/community_detail_screen.dart';
 import '../../features/community/presentation/screens/community_list_screen.dart';
 import '../../features/community/presentation/screens/community_publication_detail_screen.dart';
@@ -158,6 +159,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.myCommunityPublications,
         builder: (context, state) => const MyCommunityPublicationsScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.myCommunityCommentTraces,
+        builder: (context, state) => const CommunityCommentTracesScreen(),
       ),
       GoRoute(
         path: AppRoutes.myCommunityPublicationDetailPath,

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_exception.dart';
 import '../models/community.dart';
+import '../models/community_comment.dart';
 import '../models/community_publication.dart';
 import '../models/join_request.dart';
 import '../../chronique/models/chronique_media_upload.dart';
@@ -390,6 +391,126 @@ class CommunityApiService {
       accessToken: accessToken,
     );
     return CommunityPublication.fromJson(_asMap(json['publication'] ?? json));
+  }
+
+  Future<CommunityLikeState> likePublication({
+    required String accessToken,
+    required int communityId,
+    required int publicationId,
+  }) async {
+    final json = await _send(
+      'PUT',
+      '/communities/$communityId/publications/$publicationId/like',
+      accessToken: accessToken,
+    );
+    return CommunityLikeState.fromJson(json);
+  }
+
+  Future<CommunityLikeState> unlikePublication({
+    required String accessToken,
+    required int communityId,
+    required int publicationId,
+  }) async {
+    final json = await _send(
+      'DELETE',
+      '/communities/$communityId/publications/$publicationId/like',
+      accessToken: accessToken,
+    );
+    return CommunityLikeState.fromJson(json);
+  }
+
+  Future<CommunityCommentPage> listComments({
+    required String accessToken,
+    required int communityId,
+    required int publicationId,
+    String? beforeAt,
+    int? beforeId,
+  }) async {
+    final json = await _send(
+      'GET',
+      '/communities/$communityId/publications/$publicationId/comments',
+      accessToken: accessToken,
+      queryParameters: <String, dynamic>{
+        if (beforeAt != null) 'before_at': beforeAt,
+        if (beforeId != null) 'before_id': beforeId,
+      },
+    );
+    return CommunityCommentPage.fromJson(json);
+  }
+
+  Future<CommunityComment> createComment({
+    required String accessToken,
+    required int communityId,
+    required int publicationId,
+    required String body,
+  }) async {
+    final json = await _send(
+      'POST',
+      '/communities/$communityId/publications/$publicationId/comments',
+      accessToken: accessToken,
+      data: <String, dynamic>{'body': body},
+    );
+    return CommunityComment.fromJson(_asMap(json['comment'] ?? json));
+  }
+
+  Future<CommunityComment> updateComment({
+    required String accessToken,
+    required int communityId,
+    required int publicationId,
+    required int commentId,
+    required String body,
+  }) async {
+    final json = await _send(
+      'PATCH',
+      '/communities/$communityId/publications/$publicationId/comments/$commentId',
+      accessToken: accessToken,
+      data: <String, dynamic>{'body': body},
+    );
+    return CommunityComment.fromJson(_asMap(json['comment'] ?? json));
+  }
+
+  Future<void> deleteComment({
+    required String accessToken,
+    required int communityId,
+    required int publicationId,
+    required int commentId,
+  }) async {
+    await _send(
+      'DELETE',
+      '/communities/$communityId/publications/$publicationId/comments/$commentId',
+      accessToken: accessToken,
+    );
+  }
+
+  Future<CommunityComment> restoreComment({
+    required String accessToken,
+    required int communityId,
+    required int publicationId,
+    required int commentId,
+  }) async {
+    final json = await _send(
+      'POST',
+      '/communities/$communityId/publications/$publicationId/comments/$commentId/restore',
+      accessToken: accessToken,
+    );
+    return CommunityComment.fromJson(_asMap(json['comment'] ?? json));
+  }
+
+  Future<CommunityCommentTracePage> listMyCommentTraces({
+    required String accessToken,
+    String? beforeAt,
+    int? beforeId,
+  }) async {
+    final json = await _send(
+      'GET',
+      '/me/community-comment-traces',
+      accessToken: accessToken,
+      queryParameters: <String, dynamic>{
+        if (beforeAt != null) 'before_at': beforeAt,
+        if (beforeId != null) 'before_id': beforeId,
+      },
+    );
+    return CommunityCommentTracePage.fromJson(json);
   }
 
   Future<ChroniqueMediaUploadSession> createPublicationMediaUpload({

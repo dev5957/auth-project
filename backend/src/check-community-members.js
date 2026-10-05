@@ -136,7 +136,11 @@ function createMembersMemory() {
       return { rows: [], rowCount: 0 };
     }
 
-    if (key.includes('COMMUNITY_PUBLICATIONS') || key.includes('COMMUNITY_PUBLICATION_MEDIA')) {
+    if (
+      key.includes('COMMUNITY_PUBLICATIONS') ||
+      key.includes('COMMUNITY_PUBLICATION_MEDIA') ||
+      key.includes('COMMUNITY_PUBLICATION_LIKES')
+    ) {
       return { rows: [], rowCount: 0 };
     }
 

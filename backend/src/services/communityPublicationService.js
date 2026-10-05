@@ -99,7 +99,7 @@ async function loadAuthorLogin(client, userId) {
   return result.rows[0] || { id: userId, login: 'unknown' };
 }
 
-function toPublicPublication(row, { isFormerMember, media = [] } = {}) {
+function toPublicPublication(row, { isFormerMember, media = [], likedByMe = false } = {}) {
   return {
     id: formatId(row.id),
     community_id: formatId(row.community_id),
@@ -122,6 +122,9 @@ function toPublicPublication(row, { isFormerMember, media = [] } = {}) {
     comments_enabled: Boolean(row.comments_enabled),
     deleted_by_user_id: row.deleted_by_user_id == null ? null : formatId(row.deleted_by_user_id),
     media_total_bytes: Number(row.media_total_bytes) || 0,
+    like_count: Number(row.like_count) || 0,
+    comment_count: Number(row.comment_count) || 0,
+    liked_by_me: Boolean(likedByMe),
     created_at: toIso(row.created_at),
     updated_at: toIso(row.updated_at),
     media,
@@ -233,6 +236,18 @@ async function loadMediaRows(client, publicationId) {
   return result.rows;
 }
 
+async function publicationLikedByMe(client, publicationId, userId) {
+  const found = await client.query(
+    `SELECT 1
+     FROM community_publication_likes
+     WHERE community_publication_id = $1
+       AND user_id = $2
+     LIMIT 1`,
+    [publicationId, userId]
+  );
+  return found.rowCount === 1;
+}
+
 async function createPublication(userId, rawCommunityId, body, deps = {}) {
   const communityId = parseCommunityId(rawCommunityId);
   const input = parseCreateInput(body);
@@ -327,10 +342,12 @@ async function listFeed(userId, rawCommunityId, query, deps = {}) {
     const items = [];
     for (const row of page) {
       const mediaRows = await loadMediaRows(client, row.id);
+      const liked = await publicationLikedByMe(client, row.id, userId);
       items.push(
         toPublicPublication(row, {
           isFormerMember: row.is_former_member,
           media: await toPublicMediaList(mediaRows, deps, { readyOnly: true }),
+          likedByMe: liked,
         })
       );
     }
@@ -380,9 +397,11 @@ async function getPublication(userId, rawCommunityId, rawId, deps = {}) {
     }
     const enriched = await attachAuthorAndFormer(client, row);
     const mediaRows = await loadMediaRows(client, row.id);
+    const liked = await publicationLikedByMe(client, row.id, userId);
     return toPublicPublication(enriched, {
       isFormerMember: enriched.isFormerMember,
       media: await toPublicMediaList(mediaRows, deps),
+      likedByMe: liked,
     });
   });
 }
@@ -469,6 +488,8 @@ async function deletePublication(userId, rawCommunityId, rawId, deps = {}) {
       throw new AppError(404, NOT_FOUND);
     }
     assertCanDelete(row, userId, membership);
+    const { deleteInteractionsForPublication } = require('./communityPublicationLikeService');
+    await deleteInteractionsForPublication(client, id);
     const now = deps.now || new Date();
     await client.query(
       `UPDATE community_publications
@@ -597,10 +618,12 @@ async function listMine(userId, query, deps = {}) {
     const items = [];
     for (const row of page) {
       const mediaRows = await loadMediaRows(client, row.id);
+      const liked = await publicationLikedByMe(client, row.id, userId);
       items.push(
         toPublicPublication(row, {
           isFormerMember: row.is_former_member,
           media: await toPublicMediaList(mediaRows, deps, { readyOnly: true }),
+          likedByMe: liked,
         })
       );
     }
@@ -637,11 +660,13 @@ async function getMine(userId, rawId, deps = {}) {
     }
     const enriched = await attachAuthorAndFormer(client, row);
     const mediaRows = await loadMediaRows(client, row.id);
+    const liked = await publicationLikedByMe(client, row.id, userId);
     return toPublicPublication(
       { ...enriched, community_name: row.community_name },
       {
         isFormerMember: enriched.isFormerMember,
         media: await toPublicMediaList(mediaRows, deps, { readyOnly: true }),
+        likedByMe: liked,
       }
     );
   });

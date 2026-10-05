@@ -54,6 +54,9 @@ abstract final class AppRoutes {
   /// Publications communautaires de l’utilisateur.
   static const String myCommunityPublications = '/me/community-publications';
 
+  /// Traces personnelles de commentaires sur publications expirées.
+  static const String myCommunityCommentTraces = '/me/community-comment-traces';
+
   static const String communityPublicationCreatePath =
       '/communities/:communityId/publications/create';
 
@@ -112,6 +115,7 @@ abstract final class AppRoutes {
         location == invitations ||
         location == joinRequests ||
         location == myCommunityPublications ||
+        location == myCommunityCommentTraces ||
         _exploreDetailLocation.hasMatch(location) ||
         _exploreEditLocation.hasMatch(location) ||
         _communityInviteLocation.hasMatch(location) ||

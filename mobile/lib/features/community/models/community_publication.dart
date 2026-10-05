@@ -38,6 +38,9 @@ class CommunityPublication {
     this.expiredAt,
     this.isTimeLimited = false,
     this.commentsEnabled = false,
+    this.likeCount = 0,
+    this.commentCount = 0,
+    this.likedByMe = false,
     this.deletedByUserId,
     this.media = const [],
   });
@@ -56,6 +59,9 @@ class CommunityPublication {
   final bool isTimeLimited;
   final int? deletedByUserId;
   final bool commentsEnabled;
+  final int likeCount;
+  final int commentCount;
+  final bool likedByMe;
   final List<ChroniqueMedia> media;
 
   factory CommunityPublication.fromJson(Map<String, dynamic> json) {
@@ -81,12 +87,46 @@ class CommunityPublication {
           : parseChroniqueId(json['deleted_by_user_id']),
       isTimeLimited: json['is_time_limited'] == true,
       commentsEnabled: json['comments_enabled'] == true,
+      likeCount: _parseCount(json['like_count']),
+      commentCount: _parseCount(json['comment_count']),
+      likedByMe: json['liked_by_me'] == true,
       media: mediaRaw is List
           ? [
               for (final item in mediaRaw)
                 if (item is Map) ChroniqueMedia.fromJson(Map<String, dynamic>.from(item)),
             ]
           : const [],
+    );
+  }
+
+  CommunityPublication copyWith({
+    int? likeCount,
+    int? commentCount,
+    bool? likedByMe,
+    String? title,
+    String? body,
+    String? status,
+    List<ChroniqueMedia>? media,
+  }) {
+    return CommunityPublication(
+      id: id,
+      communityId: communityId,
+      communityName: communityName,
+      author: author,
+      title: title ?? this.title,
+      body: body ?? this.body,
+      status: status ?? this.status,
+      scheduledAt: scheduledAt,
+      publishedAt: publishedAt,
+      expiresAt: expiresAt,
+      expiredAt: expiredAt,
+      isTimeLimited: isTimeLimited,
+      commentsEnabled: commentsEnabled,
+      likeCount: likeCount ?? this.likeCount,
+      commentCount: commentCount ?? this.commentCount,
+      likedByMe: likedByMe ?? this.likedByMe,
+      deletedByUserId: deletedByUserId,
+      media: media ?? this.media,
     );
   }
 
@@ -127,4 +167,17 @@ class CommunityPublicationPage {
           : null,
     );
   }
+}
+
+int _parseCount(Object? value) {
+  if (value is int) {
+    return value;
+  }
+  if (value is num) {
+    return value.toInt();
+  }
+  if (value is String) {
+    return int.tryParse(value) ?? 0;
+  }
+  return 0;
 }

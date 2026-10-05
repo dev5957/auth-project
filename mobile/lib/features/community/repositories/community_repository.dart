@@ -1,6 +1,7 @@
 import '../../../core/network/api_exception.dart';
 import '../../auth/data/storage/auth_token_storage.dart';
 import '../models/community.dart';
+import '../models/community_comment.dart';
 import '../models/community_publication.dart';
 import '../models/join_request.dart';
 import '../../chronique/models/chronique_media_upload.dart';
@@ -311,6 +312,124 @@ class CommunityRepository {
   Future<CommunityPublication> getMyPublication(int publicationId) {
     return _withToken(
       (token) => _api.getMyPublication(accessToken: token, publicationId: publicationId),
+    );
+  }
+
+  Future<CommunityLikeState> likePublication({
+    required int communityId,
+    required int publicationId,
+  }) {
+    return _withToken(
+      (token) => _api.likePublication(
+        accessToken: token,
+        communityId: communityId,
+        publicationId: publicationId,
+      ),
+    );
+  }
+
+  Future<CommunityLikeState> unlikePublication({
+    required int communityId,
+    required int publicationId,
+  }) {
+    return _withToken(
+      (token) => _api.unlikePublication(
+        accessToken: token,
+        communityId: communityId,
+        publicationId: publicationId,
+      ),
+    );
+  }
+
+  Future<CommunityCommentPage> listComments({
+    required int communityId,
+    required int publicationId,
+    String? beforeAt,
+    int? beforeId,
+  }) {
+    return _withToken(
+      (token) => _api.listComments(
+        accessToken: token,
+        communityId: communityId,
+        publicationId: publicationId,
+        beforeAt: beforeAt,
+        beforeId: beforeId,
+      ),
+    );
+  }
+
+  Future<CommunityComment> createComment({
+    required int communityId,
+    required int publicationId,
+    required String body,
+  }) {
+    return _withToken(
+      (token) => _api.createComment(
+        accessToken: token,
+        communityId: communityId,
+        publicationId: publicationId,
+        body: body,
+      ),
+    );
+  }
+
+  Future<CommunityComment> updateComment({
+    required int communityId,
+    required int publicationId,
+    required int commentId,
+    required String body,
+  }) {
+    return _withToken(
+      (token) => _api.updateComment(
+        accessToken: token,
+        communityId: communityId,
+        publicationId: publicationId,
+        commentId: commentId,
+        body: body,
+      ),
+    );
+  }
+
+  Future<void> deleteComment({
+    required int communityId,
+    required int publicationId,
+    required int commentId,
+  }) {
+    return _withToken(
+      (token) => _api.deleteComment(
+        accessToken: token,
+        communityId: communityId,
+        publicationId: publicationId,
+        commentId: commentId,
+      ),
+    );
+  }
+
+  Future<CommunityComment> restoreComment({
+    required int communityId,
+    required int publicationId,
+    required int commentId,
+  }) {
+    return _withToken(
+      (token) => _api.restoreComment(
+        accessToken: token,
+        communityId: communityId,
+        publicationId: publicationId,
+        commentId: commentId,
+      ),
+    );
+  }
+
+  Future<CommunityCommentTracePage> listMyCommentTraces({
+    String? beforeAt,
+    int? beforeId,
+  }) {
+    return _withToken(
+      (token) => _api.listMyCommentTraces(
+        accessToken: token,
+        beforeAt: beforeAt,
+        beforeId: beforeId,
+      ),
     );
   }
 

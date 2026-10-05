@@ -94,6 +94,9 @@ function createMemory() {
     ],
     publications: [],
     media: [],
+    likes: [],
+    comments: [],
+    traces: [],
     storageDeleted: [],
     readUrlCalls: [],
     ops: [],
@@ -103,6 +106,9 @@ function createMemory() {
   };
   let nextPubId = 1;
   let nextMediaId = 1;
+  let nextLikeId = 1;
+  let nextCommentId = 1;
+  let nextTraceId = 1;
   let snapshot = null;
   const objects = new Map();
 
@@ -110,6 +116,9 @@ function createMemory() {
     return {
       publications: state.publications.map((item) => ({ ...item })),
       media: state.media.map((item) => ({ ...item })),
+      likes: state.likes.map((item) => ({ ...item })),
+      comments: state.comments.map((item) => ({ ...item })),
+      traces: state.traces.map((item) => ({ ...item })),
     };
   }
 
@@ -157,6 +166,9 @@ function createMemory() {
       if (snapshot) {
         state.publications = snapshot.publications;
         state.media = snapshot.media;
+        state.likes = snapshot.likes;
+        state.comments = snapshot.comments;
+        state.traces = snapshot.traces;
         snapshot = null;
       }
       state.ops.push('rollback');
@@ -190,6 +202,8 @@ function createMemory() {
         expires_at: params[8],
         comments_enabled: params[9],
         media_total_bytes: 0,
+        like_count: 0,
+        comment_count: 0,
         initial_media_count: Number(params[10]) || 0,
         initial_media_open: params[11] === true,
         created_at: now,
@@ -580,6 +594,200 @@ function createMemory() {
         (item) => Number(item.community_id) === Number(params[0]) && item.role === 'owner'
       ).length;
       return { rows: [{ owner_count: count }], rowCount: 1 };
+    }
+
+    if (key.includes('FROM COMMUNITY_PUBLICATION_LIKES') && key.includes('DISTINCT')) {
+      const ids = [
+        ...new Set(
+          state.likes
+            .filter(
+              (item) => Number(item.community_id) === Number(params[0]) && Number(item.user_id) === Number(params[1])
+            )
+            .map((item) => Number(item.community_publication_id))
+        ),
+      ].sort((a, b) => a - b);
+      return {
+        rows: ids.map((community_publication_id) => ({ community_publication_id })),
+        rowCount: ids.length,
+      };
+    }
+
+    if (key.startsWith('SELECT ID') && key.includes('FROM COMMUNITY_PUBLICATIONS') && key.includes('ANY($1')) {
+      const ids = (Array.isArray(params[0]) ? params[0] : []).map((value) => Number(value));
+      const rows = state.publications
+        .filter((item) => ids.includes(Number(item.id)))
+        .sort((a, b) => Number(a.id) - Number(b.id))
+        .map((item) => ({ id: item.id }));
+      return { rows, rowCount: rows.length };
+    }
+
+    if (key.includes('FROM COMMUNITY_PUBLICATION_LIKES') && key.includes('GROUP BY COMMUNITY_PUBLICATION_ID')) {
+      const grouped = new Map();
+      for (const item of state.likes) {
+        if (Number(item.community_id) !== Number(params[0]) || Number(item.user_id) !== Number(params[1])) {
+          continue;
+        }
+        const id = Number(item.community_publication_id);
+        grouped.set(id, (grouped.get(id) || 0) + 1);
+      }
+      const rows = [...grouped.entries()].map(([community_publication_id, n]) => ({
+        community_publication_id,
+        n,
+      }));
+      return { rows, rowCount: rows.length };
+    }
+
+    if (key.startsWith('SELECT 1') && key.includes('FROM COMMUNITY_PUBLICATION_LIKES')) {
+      const row = state.likes.find(
+        (item) =>
+          Number(item.community_publication_id) === Number(params[0]) &&
+          Number(item.user_id) === Number(params[1])
+      );
+      return { rows: row ? [{ '?column?': 1 }] : [], rowCount: row ? 1 : 0 };
+    }
+
+    if (key.startsWith('INSERT INTO COMMUNITY_PUBLICATION_LIKES')) {
+      const exists = state.likes.some(
+        (item) =>
+          Number(item.community_publication_id) === Number(params[1]) &&
+          Number(item.user_id) === Number(params[2])
+      );
+      if (exists) {
+        return { rows: [], rowCount: 0 };
+      }
+      const row = {
+        id: nextLikeId,
+        community_id: params[0],
+        community_publication_id: params[1],
+        user_id: params[2],
+        created_at: new Date(),
+      };
+      nextLikeId += 1;
+      state.likes.push(row);
+      return { rows: [{ id: row.id }], rowCount: 1 };
+    }
+
+    if (key.startsWith('DELETE FROM COMMUNITY_PUBLICATION_LIKES') && key.includes('USER_ID = $2') && key.includes('COMMUNITY_PUBLICATION_ID')) {
+      const before = state.likes.length;
+      const removed = state.likes.filter(
+        (item) =>
+          Number(item.community_publication_id) === Number(params[0]) &&
+          Number(item.user_id) === Number(params[1])
+      );
+      state.likes = state.likes.filter(
+        (item) =>
+          !(
+            Number(item.community_publication_id) === Number(params[0]) &&
+            Number(item.user_id) === Number(params[1])
+          )
+      );
+      return { rows: removed.map((item) => ({ id: item.id })), rowCount: before - state.likes.length };
+    }
+
+    if (key.startsWith('DELETE FROM COMMUNITY_PUBLICATION_LIKES') && key.includes('COMMUNITY_ID = $1') && key.includes('USER_ID = $2')) {
+      const before = state.likes.length;
+      state.likes = state.likes.filter(
+        (item) => !(Number(item.community_id) === Number(params[0]) && Number(item.user_id) === Number(params[1]))
+      );
+      return { rows: [], rowCount: before - state.likes.length };
+    }
+
+    if (key.startsWith('DELETE FROM COMMUNITY_PUBLICATION_LIKES') && key.includes('COMMUNITY_PUBLICATION_ID = $1')) {
+      const before = state.likes.length;
+      state.likes = state.likes.filter((item) => Number(item.community_publication_id) !== Number(params[0]));
+      return { rows: [], rowCount: before - state.likes.length };
+    }
+
+    if (key.startsWith('DELETE FROM COMMUNITY_PUBLICATION_COMMENTS') && key.includes('COMMUNITY_PUBLICATION_ID = $1') && params.length === 1) {
+      const before = state.comments.length;
+      state.comments = state.comments.filter((item) => Number(item.community_publication_id) !== Number(params[0]));
+      return { rows: [], rowCount: before - state.comments.length };
+    }
+
+    if (key.startsWith('UPDATE COMMUNITY_PUBLICATIONS') && key.includes('LIKE_COUNT = GREATEST(LIKE_COUNT - $1')) {
+      const row = state.publications.find((item) => Number(item.id) === Number(params[1]));
+      if (!row) {
+        return { rows: [], rowCount: 0 };
+      }
+      row.like_count = Math.max((Number(row.like_count) || 0) - Number(params[0]), 0);
+      row.updated_at = new Date();
+      return { rows: [{ ...row }], rowCount: 1 };
+    }
+
+    if (key.startsWith('UPDATE COMMUNITY_PUBLICATIONS') && key.includes('LIKE_COUNT = LIKE_COUNT + 1')) {
+      const row = state.publications.find((item) => Number(item.id) === Number(params[0]));
+      if (!row) {
+        return { rows: [], rowCount: 0 };
+      }
+      row.like_count = (Number(row.like_count) || 0) + 1;
+      row.updated_at = new Date();
+      return { rows: [{ ...row }], rowCount: 1 };
+    }
+
+    if (key.startsWith('UPDATE COMMUNITY_PUBLICATIONS') && key.includes('LIKE_COUNT = GREATEST(LIKE_COUNT - 1')) {
+      const row = state.publications.find((item) => Number(item.id) === Number(params[0]));
+      if (!row) {
+        return { rows: [], rowCount: 0 };
+      }
+      row.like_count = Math.max((Number(row.like_count) || 0) - 1, 0);
+      row.updated_at = new Date();
+      return { rows: [{ ...row }], rowCount: 1 };
+    }
+
+    if (key.startsWith('UPDATE COMMUNITY_PUBLICATIONS') && key.includes('LIKE_COUNT = 0') && key.includes('COMMENT_COUNT = 0')) {
+      const row = state.publications.find((item) => Number(item.id) === Number(params[0]));
+      if (!row) {
+        return { rows: [], rowCount: 0 };
+      }
+      row.like_count = 0;
+      row.comment_count = 0;
+      row.updated_at = new Date();
+      return { rows: [{ ...row }], rowCount: 1 };
+    }
+
+    if (key.startsWith('UPDATE COMMUNITY_PUBLICATIONS') && key.includes('COMMENT_COUNT = GREATEST(COMMENT_COUNT + $1')) {
+      const row = state.publications.find((item) => Number(item.id) === Number(params[1]));
+      if (!row) {
+        return { rows: [], rowCount: 0 };
+      }
+      row.comment_count = Math.max((Number(row.comment_count) || 0) + Number(params[0]), 0);
+      row.updated_at = new Date();
+      return { rows: [{ ...row }], rowCount: 1 };
+    }
+
+    if (key.startsWith('INSERT INTO COMMUNITY_COMMENT_EPHEMERAL_TRACES')) {
+      const pub = state.publications.find((item) => Number(item.id) === Number(params[0]));
+      if (!pub) {
+        return { rows: [], rowCount: 0 };
+      }
+      const author = users.find((item) => Number(item.id) === Number(pub.author_user_id)) || { login: 'unknown' };
+      let inserted = 0;
+      for (const comment of state.comments) {
+        if (Number(comment.community_publication_id) !== Number(pub.id) || comment.status !== 'visible') {
+          continue;
+        }
+        if (state.traces.some((item) => Number(item.comment_id) === Number(comment.id))) {
+          continue;
+        }
+        state.traces.push({
+          id: nextTraceId,
+          user_id: comment.author_user_id,
+          community_id: comment.community_id,
+          community_publication_id: comment.community_publication_id,
+          publication_author_user_id: pub.author_user_id,
+          publication_author_login: author.login,
+          published_at: pub.published_at,
+          expired_at: pub.expired_at,
+          comment_id: comment.id,
+          comment_body: comment.body,
+          comment_created_at: comment.created_at,
+          is_ephemeral: true,
+          created_at: new Date(),
+        });
+        nextTraceId += 1;
+        inserted += 1;
+      }
+      return { rows: [], rowCount: inserted };
     }
 
     throw new Error(`unexpected sql: ${key.slice(0, 180)}`);

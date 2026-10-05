@@ -16,10 +16,12 @@ import 'package:mobile/features/auth/providers/auth_providers.dart';
 import 'package:mobile/features/auth/state/auth_state.dart';
 import 'package:mobile/features/community/models/community.dart';
 import 'package:mobile/features/community/models/community_fields.dart';
+import 'package:mobile/features/community/models/community_comment.dart';
 import 'package:mobile/features/community/models/community_publication.dart';
 import 'package:mobile/features/community/models/invitation_messages.dart';
 import 'package:mobile/features/community/models/join_request.dart';
 import 'package:mobile/features/community/models/join_request_messages.dart';
+import 'package:mobile/features/community/presentation/screens/community_comment_traces_screen.dart';
 import 'package:mobile/features/community/presentation/screens/community_detail_screen.dart';
 import 'package:mobile/features/community/presentation/screens/community_list_screen.dart';
 import 'package:mobile/core/theme/app_theme.dart';
@@ -485,6 +487,176 @@ class _FakeCommunityApi extends CommunityApiService {
     );
   }
 
+  List<CommunityComment> comments = const [];
+  List<CommunityCommentTrace> traces = const [];
+  final List<int> likedPublicationIds = <int>[];
+  final List<int> unlikedPublicationIds = <int>[];
+  int nextCommentId = 500;
+
+  CommunityPublication _withLike(CommunityPublication item, CommunityLikeState like) {
+    return item.copyWith(likedByMe: like.likedByMe, likeCount: like.likeCount);
+  }
+
+  CommunityPublication _byId(int publicationId) {
+    return [...publications, ...myPublications].firstWhere(
+      (item) => item.id == publicationId,
+      orElse: () => throw const ApiException(message: 'Not found', statusCode: 404),
+    );
+  }
+
+  void _replacePublication(CommunityPublication updated) {
+    publications = [
+      for (final item in publications)
+        if (item.id == updated.id) updated else item,
+    ];
+    myPublications = [
+      for (final item in myPublications)
+        if (item.id == updated.id) updated else item,
+    ];
+  }
+
+  @override
+  Future<CommunityLikeState> likePublication({
+    required String accessToken,
+    required int communityId,
+    required int publicationId,
+  }) async {
+    networkOps.add('PUT /communities/$communityId/publications/$publicationId/like');
+    likedPublicationIds.add(publicationId);
+    final current = _byId(publicationId);
+    final like = CommunityLikeState(
+      liked: true,
+      likeCount: current.likedByMe ? current.likeCount : current.likeCount + 1,
+      likedByMe: true,
+    );
+    _replacePublication(_withLike(current, like));
+    return like;
+  }
+
+  @override
+  Future<CommunityLikeState> unlikePublication({
+    required String accessToken,
+    required int communityId,
+    required int publicationId,
+  }) async {
+    networkOps.add('DELETE /communities/$communityId/publications/$publicationId/like');
+    unlikedPublicationIds.add(publicationId);
+    final current = _byId(publicationId);
+    final like = CommunityLikeState(
+      liked: false,
+      likeCount: current.likedByMe && current.likeCount > 0 ? current.likeCount - 1 : current.likeCount,
+      likedByMe: false,
+    );
+    _replacePublication(_withLike(current, like));
+    return like;
+  }
+
+  @override
+  Future<CommunityCommentPage> listComments({
+    required String accessToken,
+    required int communityId,
+    required int publicationId,
+    String? beforeAt,
+    int? beforeId,
+  }) async {
+    networkOps.add('GET /communities/$communityId/publications/$publicationId/comments');
+    return CommunityCommentPage(
+      items: [
+        for (final item in comments)
+          if (item.communityPublicationId == publicationId) item,
+      ],
+    );
+  }
+
+  @override
+  Future<CommunityComment> createComment({
+    required String accessToken,
+    required int communityId,
+    required int publicationId,
+    required String body,
+  }) async {
+    networkOps.add('POST /communities/$communityId/publications/$publicationId/comments');
+    final comment = CommunityComment(
+      id: nextCommentId++,
+      communityId: communityId,
+      communityPublicationId: publicationId,
+      body: body,
+      status: 'visible',
+      author: const CommunityCommentAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
+    );
+    comments = [comment, ...comments];
+    final current = _byId(publicationId);
+    _replacePublication(current.copyWith(commentCount: current.commentCount + 1));
+    return comment;
+  }
+
+  @override
+  Future<CommunityComment> updateComment({
+    required String accessToken,
+    required int communityId,
+    required int publicationId,
+    required int commentId,
+    required String body,
+  }) async {
+    networkOps.add('PATCH /communities/$communityId/publications/$publicationId/comments/$commentId');
+    comments = [
+      for (final item in comments)
+        if (item.id == commentId)
+          CommunityComment(
+            id: item.id,
+            communityId: item.communityId,
+            communityPublicationId: item.communityPublicationId,
+            body: body,
+            status: item.status,
+            author: item.author,
+            createdAt: item.createdAt,
+            updatedAt: item.updatedAt,
+            deletedAt: item.deletedAt,
+          )
+        else
+          item,
+    ];
+    return comments.firstWhere((item) => item.id == commentId);
+  }
+
+  @override
+  Future<void> deleteComment({
+    required String accessToken,
+    required int communityId,
+    required int publicationId,
+    required int commentId,
+  }) async {
+    networkOps.add('DELETE /communities/$communityId/publications/$publicationId/comments/$commentId');
+    comments = [for (final item in comments) if (item.id != commentId) item];
+    final current = _byId(publicationId);
+    _replacePublication(
+      current.copyWith(commentCount: current.commentCount > 0 ? current.commentCount - 1 : 0),
+    );
+  }
+
+  @override
+  Future<CommunityComment> restoreComment({
+    required String accessToken,
+    required int communityId,
+    required int publicationId,
+    required int commentId,
+  }) async {
+    networkOps.add(
+      'POST /communities/$communityId/publications/$publicationId/comments/$commentId/restore',
+    );
+    throw const ApiException(message: 'Not found', statusCode: 404);
+  }
+
+  @override
+  Future<CommunityCommentTracePage> listMyCommentTraces({
+    required String accessToken,
+    String? beforeAt,
+    int? beforeId,
+  }) async {
+    networkOps.add('GET /me/community-comment-traces');
+    return CommunityCommentTracePage(items: traces);
+  }
+
   bool _matchesMeScope(CommunityPublication item, String scope) {
     final currentOrScheduled = item.status == 'active' || item.status == 'scheduled';
     if (scope == 'expired') {
@@ -515,6 +687,9 @@ class _FakeCommunityApi extends CommunityApiService {
       expiredAt: item.expiredAt,
       isTimeLimited: item.isTimeLimited,
       commentsEnabled: item.commentsEnabled,
+      likeCount: item.likeCount,
+      commentCount: item.commentCount,
+      likedByMe: item.likedByMe,
       deletedByUserId: item.deletedByUserId,
       media: item.media,
     );
@@ -3029,6 +3204,25 @@ void main() {
     expect(publication.media[1].readUrl, 'https://example.test/clip.mp4');
     expect(publication.media[1].thumbnailUrl, 'https://example.test/clip.jpg');
     expect(publication.media[1].thumbnailExpiresAt, DateTime.parse('2026-10-05T10:16:00.000Z'));
+    expect(publication.likeCount, 0);
+    expect(publication.commentCount, 0);
+    expect(publication.likedByMe, isFalse);
+  });
+
+  test('community publication JSON maps interaction counters', () {
+    final publication = CommunityPublication.fromJson({
+      'id': 21,
+      'community_id': 3,
+      'author': {'user_id': 1, 'login': 'tgjjk', 'is_former_member': false},
+      'body': 'Texte de publication active assez long.',
+      'status': 'active',
+      'like_count': 4,
+      'comment_count': 2,
+      'liked_by_me': true,
+    });
+    expect(publication.likeCount, 4);
+    expect(publication.commentCount, 2);
+    expect(publication.likedByMe, isTrue);
   });
 
   testWidgets('community feed image is shown and tap opens the viewer', (tester) async {
@@ -3449,5 +3643,107 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('me-pub-expired-74')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('community-publication-menu')), findsNothing);
+  });
+
+  testWidgets('community feed shows social bar without module 2 share or like keys', (tester) async {
+    final api = _FakeCommunityApi()
+      ..publications = [
+        const CommunityPublication(
+          id: 21,
+          communityId: 3,
+          author: CommunityPublicationAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
+          title: 'Titre actif',
+          body: 'Texte de publication active assez long.',
+          status: 'active',
+          likeCount: 3,
+          commentCount: 1,
+        ),
+      ];
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    expect(find.byKey(const ValueKey('community-like-21')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-like-count-21')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-comment-count-21')), findsOneWidget);
+    expect(find.byKey(const ValueKey('chronique-like')), findsNothing);
+    expect(find.byKey(const ValueKey('chronique-share')), findsNothing);
+  });
+
+  testWidgets('community feed like calls PUT like', (tester) async {
+    final api = _FakeCommunityApi()
+      ..publications = [
+        const CommunityPublication(
+          id: 21,
+          communityId: 3,
+          author: CommunityPublicationAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
+          body: 'Texte de publication active assez long.',
+          status: 'active',
+        ),
+      ];
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    await tester.tap(find.byKey(const ValueKey('community-like-21')));
+    await tester.pumpAndSettle();
+    expect(api.likedPublicationIds, [21]);
+    expect(find.text('1'), findsWidgets);
+  });
+
+  testWidgets('community detail comments composer creates a comment', (tester) async {
+    final api = _FakeCommunityApi()
+      ..publications = [
+        const CommunityPublication(
+          id: 21,
+          communityId: 3,
+          author: CommunityPublicationAuthor(userId: 2, login: 'other', isFormerMember: false),
+          body: 'Texte de publication active assez long.',
+          status: 'active',
+          commentsEnabled: true,
+        ),
+      ];
+    await pumpPublicationDetail(tester, api, publicationId: 21);
+    expect(find.byKey(const ValueKey('community-comment-input')), findsOneWidget);
+    await tester.enterText(find.byKey(const ValueKey('community-comment-input')), 'Super soiree');
+    await tester.tap(find.byKey(const ValueKey('community-comment-submit')));
+    await tester.pumpAndSettle();
+    expect(api.networkOps, contains('POST /communities/3/publications/21/comments'));
+    expect(find.byKey(const ValueKey('community-comment-item-500')), findsOneWidget);
+    expect(find.text('Super soiree'), findsOneWidget);
+  });
+
+  testWidgets('community detail hides composer when comments are disabled', (tester) async {
+    final api = _FakeCommunityApi()
+      ..publications = [
+        const CommunityPublication(
+          id: 21,
+          communityId: 3,
+          author: CommunityPublicationAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
+          body: 'Texte de publication active assez long.',
+          status: 'active',
+          commentsEnabled: false,
+        ),
+      ];
+    await pumpPublicationDetail(tester, api, publicationId: 21);
+    expect(find.byKey(const ValueKey('community-comments-disabled')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-comment-submit')), findsNothing);
+  });
+
+  testWidgets('comment traces screen lists personal traces', (tester) async {
+    final api = _FakeCommunityApi()
+      ..traces = const [
+        CommunityCommentTrace(
+          id: 9,
+          communityId: 3,
+          commentId: 12,
+          commentBody: 'Visible keep',
+          isEphemeral: true,
+          publicationAuthorLogin: 'member2',
+        ),
+      ];
+    await openMyPublications(tester, api);
+    await tester.tap(find.byKey(const ValueKey('community-comment-traces-open')));
+    await tester.pumpAndSettle();
+    expect(find.byType(CommunityCommentTracesScreen), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-comment-trace-9')), findsOneWidget);
+    expect(find.text('Visible keep'), findsOneWidget);
+    expect(api.networkOps, contains('GET /me/community-comment-traces'));
   });
 }

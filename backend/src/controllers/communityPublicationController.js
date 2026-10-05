@@ -13,6 +13,18 @@ const {
   completeMedia,
   deleteMedia,
 } = require('../services/communityPublicationMediaService');
+const {
+  likePublication,
+  unlikePublication,
+} = require('../services/communityPublicationLikeService');
+const {
+  listComments,
+  createComment,
+  updateComment,
+  deleteComment,
+  restoreComment,
+  listMyCommentTraces,
+} = require('../services/communityPublicationCommentService');
 
 async function create(req, res, next) {
   try {
@@ -145,6 +157,104 @@ async function getMineAction(req, res, next) {
   }
 }
 
+async function like(req, res, next) {
+  try {
+    const result = await likePublication(req.user.userId, req.params.id, req.params.publicationId);
+    res.status(200).json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function unlike(req, res, next) {
+  try {
+    const result = await unlikePublication(req.user.userId, req.params.id, req.params.publicationId);
+    res.status(200).json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function listPublicationComments(req, res, next) {
+  try {
+    const result = await listComments(
+      req.user.userId,
+      req.params.id,
+      req.params.publicationId,
+      req.query
+    );
+    res.status(200).json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function createPublicationComment(req, res, next) {
+  try {
+    const comment = await createComment(
+      req.user.userId,
+      req.params.id,
+      req.params.publicationId,
+      req.body
+    );
+    res.status(201).json({ message: 'Comment created', comment });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function updatePublicationComment(req, res, next) {
+  try {
+    const comment = await updateComment(
+      req.user.userId,
+      req.params.id,
+      req.params.publicationId,
+      req.params.commentId,
+      req.body
+    );
+    res.status(200).json({ message: 'Comment updated', comment });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function removePublicationComment(req, res, next) {
+  try {
+    const result = await deleteComment(
+      req.user.userId,
+      req.params.id,
+      req.params.publicationId,
+      req.params.commentId
+    );
+    res.status(200).json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function restorePublicationComment(req, res, next) {
+  try {
+    const comment = await restoreComment(
+      req.user.userId,
+      req.params.id,
+      req.params.publicationId,
+      req.params.commentId
+    );
+    res.status(200).json({ message: 'Comment restored', comment });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function listMyCommentTracesAction(req, res, next) {
+  try {
+    const result = await listMyCommentTraces(req.user.userId, req.query);
+    res.status(200).json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   create,
   list,
@@ -157,4 +267,12 @@ module.exports = {
   removeMedia,
   listMineAction,
   getMineAction,
+  like,
+  unlike,
+  listPublicationComments,
+  createPublicationComment,
+  updatePublicationComment,
+  removePublicationComment,
+  restorePublicationComment,
+  listMyCommentTracesAction,
 };

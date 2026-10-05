@@ -3,6 +3,7 @@ const AppError = require('../errors/AppError');
 const { getStorage } = require('./storageService');
 const { STATUS, PURGE_DELAY_DAYS } = require('../validators/communityPublicationFields');
 const { collectStorageKeys } = require('./communityPublicationMediaService');
+const { withTransaction } = require('./communityPublicationService');
 
 const DEFAULT_LIMIT = 100;
 
@@ -84,11 +85,48 @@ async function runPublishScheduledJob(deps = {}) {
   return updated;
 }
 
+async function expireLockedPublication(client, row, now, snapshotVisibleCommentTraces) {
+  const locked = await client.query(
+    `SELECT *
+     FROM community_publications
+     WHERE id = $1
+     FOR UPDATE`,
+    [row.id]
+  );
+  const current = locked.rows[0];
+  if (!current || current.status !== STATUS.ACTIVE || !current.is_time_limited) {
+    return null;
+  }
+  const expiresAt = asDate(current.expires_at);
+  if (!expiresAt || expiresAt.getTime() > now.getTime()) {
+    return null;
+  }
+  const expiredAt = asDate(current.expired_at) || now;
+  const purgeAfter = asDate(current.purge_after) || addDays(expiredAt, PURGE_DELAY_DAYS);
+  const saved = await client.query(
+    `UPDATE community_publications
+     SET status = 'expired',
+         expired_at = $1,
+         purge_after = $2,
+         updated_at = $3
+     WHERE id = $4
+       AND status = 'active'
+     RETURNING *`,
+    [expiredAt, purgeAfter, now, current.id]
+  );
+  if (!saved.rows[0]) {
+    return null;
+  }
+  await snapshotVisibleCommentTraces((sql, params) => client.query(sql, params), saved.rows[0]);
+  return saved.rows[0];
+}
+
 async function runExpireActiveJob(deps = {}) {
   requireDatabase();
   const now = deps.now || new Date();
   const limit = deps.limit || DEFAULT_LIMIT;
   const query = getQuery(deps);
+  const db = deps.db || pool;
   const due = await query(
     `SELECT *
      FROM community_publications
@@ -99,23 +137,14 @@ async function runExpireActiveJob(deps = {}) {
      LIMIT $2`,
     [now, limit]
   );
+  const { snapshotVisibleCommentTraces } = require('./communityPublicationCommentService');
   const updated = [];
   for (const row of due.rows) {
-    const expiredAt = asDate(row.expired_at) || now;
-    const purgeAfter = asDate(row.purge_after) || addDays(expiredAt, PURGE_DELAY_DAYS);
-    const saved = await query(
-      `UPDATE community_publications
-       SET status = 'expired',
-           expired_at = $1,
-           purge_after = $2,
-           updated_at = $3
-       WHERE id = $4
-         AND status = 'active'
-       RETURNING *`,
-      [expiredAt, purgeAfter, now, row.id]
+    const saved = await withTransaction(db, async (client) =>
+      expireLockedPublication(client, row, now, snapshotVisibleCommentTraces)
     );
-    if (saved.rows[0]) {
-      updated.push(saved.rows[0]);
+    if (saved) {
+      updated.push(saved);
     }
   }
   return updated;

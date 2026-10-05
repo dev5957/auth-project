@@ -44,6 +44,36 @@ class CommunityFeedController extends AutoDisposeFamilyNotifier<CommunityFeedSta
       state = const CommunityFeedError('Impossible de charger les publications');
     }
   }
+
+  void applyPublication(CommunityPublication updated) {
+    final current = state;
+    if (current is! CommunityFeedReady) {
+      return;
+    }
+    state = CommunityFeedReady([
+      for (final item in current.items)
+        if (item.id == updated.id) updated else item,
+    ]);
+  }
+
+  Future<void> toggleLike(CommunityPublication item) async {
+    try {
+      final result = item.likedByMe
+          ? await ref.read(communityRepositoryProvider).unlikePublication(
+                communityId: item.communityId,
+                publicationId: item.id,
+              )
+          : await ref.read(communityRepositoryProvider).likePublication(
+                communityId: item.communityId,
+                publicationId: item.id,
+              );
+      applyPublication(
+        item.copyWith(likedByMe: result.likedByMe, likeCount: result.likeCount),
+      );
+    } catch (_) {
+      // Keep the current counters; the next feed load reconciles.
+    }
+  }
 }
 
 final communityFeedControllerProvider =

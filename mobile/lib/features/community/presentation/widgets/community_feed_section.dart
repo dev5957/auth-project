@@ -12,6 +12,7 @@ import '../../../chronique/presentation/widgets/chronique_card.dart';
 import '../../../chronique/presentation/widgets/chronique_media_viewer.dart';
 import '../../models/community.dart';
 import '../state/community_feed_controller.dart';
+import 'community_publication_social_bar.dart';
 
 class CommunityFeedSection extends ConsumerWidget {
   const CommunityFeedSection({
@@ -72,6 +73,15 @@ class CommunityFeedSection extends ConsumerWidget {
                               ),
                               onMediaSelected: (media) =>
                                   openChroniqueFeedMedia(context, media),
+                            ),
+                            CommunityPublicationSocialBar(
+                              publication: item,
+                              onLike: () => ref
+                                  .read(communityFeedControllerProvider(community.id).notifier)
+                                  .toggleLike(item),
+                              onComments: () => context.push(
+                                AppRoutes.communityPublicationDetail(community.id, item.id),
+                              ),
                             ),
                           ],
                         ),

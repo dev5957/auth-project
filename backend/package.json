@@ -33,6 +33,8 @@
     "test:community-members": "node src/check-community-members.js",
     "test:community-publication-schema": "node src/check-community-publication-schema.js",
     "test:community-publications": "node src/check-community-publications.js",
+    "test:community-publication-interactions-schema": "node src/check-community-publication-interactions-schema.js",
+    "test:community-publication-interactions": "node src/check-community-publication-interactions.js",
     "test:user-search": "node src/check-user-search.js",
     "test:chronique-full-flow": "node src/check-chronique-full-flow.js",
     "test:chronique-read-url": "node src/check-chronique-read-url.js",

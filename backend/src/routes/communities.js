@@ -29,6 +29,13 @@ const {
   createUpload,
   completeUpload,
   removeMedia,
+  like: likePublication,
+  unlike: unlikePublication,
+  listPublicationComments,
+  createPublicationComment,
+  updatePublicationComment,
+  removePublicationComment,
+  restorePublicationComment,
 } = require('../controllers/communityPublicationController');
 const { requireAuth } = require('../middleware/authMiddleware');
 const { createRateLimiter } = require('../middleware/rateLimit');
@@ -60,6 +67,33 @@ router.post('/:id/join-requests/:requestId/decline', communityRateLimit.write, d
 router.get('/:id/publications', communityRateLimit.read, listPublications);
 router.post('/:id/publications', communityRateLimit.write, createPublication);
 router.post('/:id/publications/:publicationId/restore', communityRateLimit.write, restorePublication);
+router.put('/:id/publications/:publicationId/like', communityRateLimit.write, likePublication);
+router.delete('/:id/publications/:publicationId/like', communityRateLimit.write, unlikePublication);
+router.get(
+  '/:id/publications/:publicationId/comments',
+  communityRateLimit.read,
+  listPublicationComments
+);
+router.post(
+  '/:id/publications/:publicationId/comments',
+  communityRateLimit.write,
+  createPublicationComment
+);
+router.post(
+  '/:id/publications/:publicationId/comments/:commentId/restore',
+  communityRateLimit.write,
+  restorePublicationComment
+);
+router.patch(
+  '/:id/publications/:publicationId/comments/:commentId',
+  communityRateLimit.write,
+  updatePublicationComment
+);
+router.delete(
+  '/:id/publications/:publicationId/comments/:commentId',
+  communityRateLimit.write,
+  removePublicationComment
+);
 router.post('/:id/publications/:publicationId/media/uploads', communityRateLimit.write, createUpload);
 router.post(
   '/:id/publications/:publicationId/media/:mediaId/complete',

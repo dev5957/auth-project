@@ -43,6 +43,14 @@ class _MyCommunityPublicationsScreenState extends ConsumerState<MyCommunityPubli
       backgroundColor: colors.bgBase,
       appBar: AppBar(
         title: const Text('Mes publications communautaires'),
+        actions: [
+          IconButton(
+            key: const ValueKey('community-comment-traces-open'),
+            tooltip: 'Traces de commentaires',
+            onPressed: () => context.push(AppRoutes.myCommunityCommentTraces),
+            icon: const Icon(Icons.history),
+          ),
+        ],
         bottom: TabBar(
           controller: _tabs,
           tabs: const [

@@ -15,6 +15,7 @@ const communityRoutes = require('./routes/communities');
 const invitationRoutes = require('./routes/invitations');
 const joinRequestRoutes = require('./routes/joinRequests');
 const meCommunityPublicationRoutes = require('./routes/meCommunityPublications');
+const meCommunityCommentTraceRoutes = require('./routes/meCommunityCommentTraces');
 const userRoutes = require('./routes/users');
 const errorHandler = require('./middleware/errorHandler');
 const { corsMiddleware } = require('./middleware/cors');
@@ -42,6 +43,7 @@ app.use('/communities', communityRoutes);
 app.use('/invitations', invitationRoutes);
 app.use('/join-requests', joinRequestRoutes);
 app.use('/me/community-publications', meCommunityPublicationRoutes);
+app.use('/me/community-comment-traces', meCommunityCommentTraceRoutes);
 app.use('/users', userRoutes);
 
 app.use(errorHandler);
