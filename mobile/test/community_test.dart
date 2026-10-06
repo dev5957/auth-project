@@ -318,6 +318,7 @@ class _FakeCommunityApi extends CommunityApiService {
   List<CommunityPublication> publications = const [];
   List<CommunityPublication> myPublications = const [];
   final List<Map<String, dynamic>> createPublicationCalls = <Map<String, dynamic>>[];
+  final List<CommunityPublication> _removedPublications = <CommunityPublication>[];
   final List<int> deletedPublicationIds = <int>[];
   final List<int> restoredPublicationIds = <int>[];
   final List<int> patchedPublicationIds = <int>[];
@@ -445,6 +446,16 @@ class _FakeCommunityApi extends CommunityApiService {
     if (failDeletePublication != null) {
       throw failDeletePublication!;
     }
+    for (final item in publications) {
+      if (item.id == publicationId) {
+        _removedPublications.add(item);
+      }
+    }
+    for (final item in myPublications) {
+      if (item.id == publicationId && !_removedPublications.any((removed) => removed.id == item.id)) {
+        _removedPublications.add(item);
+      }
+    }
     publications = [for (final item in publications) if (item.id != publicationId) item];
     myPublications = [for (final item in myPublications) if (item.id != publicationId) item];
   }
@@ -460,7 +471,18 @@ class _FakeCommunityApi extends CommunityApiService {
     if (failRestorePublication != null) {
       throw failRestorePublication!;
     }
-    throw const ApiException(message: 'Not found', statusCode: 404);
+    final index = _removedPublications.lastIndexWhere((item) => item.id == publicationId);
+    if (index < 0) {
+      throw const ApiException(message: 'Not found', statusCode: 404);
+    }
+    final restored = _removedPublications.removeAt(index);
+    if (!publications.any((item) => item.id == restored.id) && restored.status == 'active') {
+      publications = [...publications, restored];
+    }
+    if (!myPublications.any((item) => item.id == restored.id)) {
+      myPublications = [...myPublications, restored];
+    }
+    return restored;
   }
 
   @override
@@ -3624,8 +3646,18 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Elle ne sera plus programmée.'), findsOneWidget);
     await tester.tap(find.widgetWithText(TextButton, 'Supprimer'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    for (var i = 0; i < 80; i++) {
+      if (find.byKey(const ValueKey('community-publication-restore-action')).evaluate().isNotEmpty) {
+        break;
+      }
+      await tester.pump(const Duration(milliseconds: 50));
+    }
     expect(api.deletedPublicationIds, [70]);
+    expect(find.byKey(const ValueKey('community-publication-restore-action')), findsWidgets);
+    expect(find.text('Publication supprimée'), findsWidgets);
+    ScaffoldMessenger.of(tester.element(find.byType(MyCommunityPublicationsScreen))).hideCurrentSnackBar();
+    await tester.pumpAndSettle();
     expect(find.byType(MyCommunityPublicationsScreen), findsOneWidget);
     expect(find.text('Publication programmee assez longue.'), findsNothing);
   });
@@ -4173,6 +4205,79 @@ void main() {
     expect(readyFeedPublication(container).likeCount, 1);
     expect(readyFeedPublication(container).likedByMe, isTrue);
     expect(readyFeedPublication(container).commentCount, 0);
+  });
+
+  testWidgets('author delete shows a 10 second restore snackbar after leaving detail', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final api = _FakeCommunityApi()
+      ..publications = [
+        const CommunityPublication(
+          id: 21,
+          communityId: 3,
+          author: CommunityPublicationAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
+          body: 'Texte de publication active assez long.',
+          status: 'active',
+          commentsEnabled: true,
+        ),
+      ];
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    await tester.tap(find.byKey(const ValueKey('community-feed-item-21')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('community-publication-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Supprimer'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Supprimer'));
+    await tester.pump();
+    for (var i = 0; i < 80; i++) {
+      if (find.text('Publication supprimée').evaluate().isNotEmpty) {
+        break;
+      }
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(api.deletedPublicationIds, [21]);
+    expect(find.byKey(const ValueKey('community-publication-restore-action')), findsWidgets);
+    expect(find.text('Publication supprimée'), findsWidgets);
+    expect(find.byType(CommunityDetailScreen), findsOneWidget);
+    tester.widget<SnackBarAction>(find.byType(SnackBarAction).last).onPressed!();
+    await tester.pump();
+    for (var i = 0; i < 40; i++) {
+      if (api.restoredPublicationIds.isNotEmpty) {
+        break;
+      }
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(api.restoredPublicationIds, [21]);
+    expect(api.networkOps, contains('POST /communities/3/publications/21/restore'));
+  });
+
+  testWidgets('moderator delete of another author does not show restore snackbar', (tester) async {
+    final api = _FakeCommunityApi()
+      ..publications = [
+        const CommunityPublication(
+          id: 21,
+          communityId: 3,
+          author: CommunityPublicationAuthor(userId: 2, login: 'other', isFormerMember: false),
+          body: 'Texte de publication active assez long.',
+          status: 'active',
+        ),
+      ];
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    await tester.tap(find.byKey(const ValueKey('community-feed-item-21')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('community-publication-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Supprimer'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Supprimer'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(api.deletedPublicationIds, [21]);
+    expect(find.text('Publication supprimée'), findsNothing);
+    expect(find.byKey(const ValueKey('community-publication-restore-action')), findsNothing);
   });
 
   testWidgets('member community navigation has feed and members but not management', (tester) async {

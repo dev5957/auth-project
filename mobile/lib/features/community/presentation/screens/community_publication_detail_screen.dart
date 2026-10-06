@@ -228,14 +228,31 @@ class _CommunityPublicationDetailScreenState
       }
       final wasAuthor = _isAuthor;
       final repository = ref.read(communityRepositoryProvider);
-      await _reloadRelatedLists();
+      final communityId = widget.communityId;
+      final publicationId = widget.publicationId;
+      final feedController = communityId > 0
+          ? ref.read(communityFeedControllerProvider(communityId).notifier)
+          : null;
+      final currentMine = ref.read(myCommunityPublicationsControllerProvider('current').notifier);
+      final leftMine = ref.read(myCommunityPublicationsControllerProvider('left').notifier);
+      final expiredMine = ref.read(myCommunityPublicationsControllerProvider('expired').notifier);
+      Future<void> reloadLists() async {
+        await feedController?.load();
+        await currentMine.load();
+        await leftMine.load();
+        await expiredMine.load();
+      }
+
       if (!mounted) {
         return;
       }
+      final messenger = ScaffoldMessenger.of(context);
+      context.pop();
       if (wasAuthor) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           SnackBar(
             content: const Text('Publication supprimée'),
+            duration: const Duration(seconds: 10),
             action: SnackBarAction(
               key: const ValueKey('community-publication-restore-action'),
               label: 'Restaurer',
@@ -243,10 +260,10 @@ class _CommunityPublicationDetailScreenState
                 unawaited(() async {
                   try {
                     await repository.restorePublication(
-                      communityId: widget.communityId,
-                      publicationId: widget.publicationId,
+                      communityId: communityId,
+                      publicationId: publicationId,
                     );
-                    await _reloadRelatedLists();
+                    await reloadLists();
                   } catch (_) {}
                 }());
               },
@@ -254,7 +271,7 @@ class _CommunityPublicationDetailScreenState
           ),
         );
       }
-      context.pop();
+      unawaited(reloadLists());
     } on ApiException catch (error) {
       if (!mounted) {
         return;
