@@ -5,20 +5,17 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/router/app_routes.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
-import '../../../../core/theme/app_text_theme.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_loading.dart';
 import '../../models/community.dart';
 import '../state/community_detail_controller.dart';
 import '../state/community_list_controller.dart';
 import '../widgets/community_feed_section.dart';
-import '../widgets/community_join_requests_section.dart';
-import '../widgets/community_leave_bar.dart';
-import '../widgets/community_media_placeholder.dart';
+import '../widgets/community_header.dart';
+import '../widgets/community_management_section.dart';
 import '../widgets/community_member_dialogs.dart';
-import '../widgets/community_member_tile.dart';
+import '../widgets/community_members_section.dart';
 import '../widgets/community_owner_leave_flow.dart';
-import '../widgets/sent_invitations_section.dart';
 
 class CommunityDetailScreen extends ConsumerWidget {
   const CommunityDetailScreen({super.key, required this.communityId});
@@ -173,69 +170,110 @@ class CommunityDetailScreen extends ConsumerWidget {
                 ],
               ),
             ),
-          CommunityDetailReady(:final data) => ListView(
-              padding: const EdgeInsets.all(AppSpacing.xxl),
-              children: [
-                const CommunityMediaPlaceholder(label: 'Bannière', height: 120),
-                const SizedBox(height: AppSpacing.lg),
-                const CommunityMediaPlaceholder(label: 'Avatar', height: 72),
-                const SizedBox(height: AppSpacing.lg),
-                Text(
-                  data.community.name,
-                  key: const ValueKey('community-detail-name'),
-                  style: AppTextTheme.titleMedium,
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                Text(
-                  data.community.myRole.label,
-                  key: const ValueKey('community-detail-role'),
-                  style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
-                ),
-                if (data.community.myRole == CommunityRole.owner ||
-                    data.community.myRole == CommunityRole.admin) ...[
-                  const SizedBox(height: AppSpacing.lg),
-                  AppButton(
-                    key: const ValueKey('community-detail-invite'),
-                    label: 'Inviter un membre',
-                    onPressed: () =>
-                        context.push(AppRoutes.communityInviteSearch(data.community.id)),
-                  ),
-                  SentInvitationsSection(communityId: data.community.id),
-                ],
-                if (data.community.myRole == CommunityRole.owner)
-                  CommunityJoinRequestsSection(communityId: data.community.id),
-                if (data.community.description != null) ...[
-                  const SizedBox(height: AppSpacing.md),
-                  Text(data.community.description!),
-                ],
-                CommunityFeedSection(community: data.community),
-                const SizedBox(height: AppSpacing.xl),
-                Text(
-                  'Membres (${data.community.memberCount})',
-                  style: AppTextTheme.titleMedium,
-                ),
-                const SizedBox(height: AppSpacing.md),
-                for (final member in data.members)
-                  CommunityMemberTile(
-                    member: member,
-                    viewerRole: data.community.myRole,
-                    onPromote: () => _onPromote(context, ref, member),
-                    onDemote: () => _onDemote(context, ref, member),
-                    onRemove: () => _onRemove(context, ref, member),
-                  ),
-                CommunityLeaveBar(
-                  myRole: data.community.myRole,
-                  onLeave: () => _onLeave(
-                    context,
-                    ref,
-                    data.community,
-                    data.members,
-                  ),
-                ),
-              ],
+          CommunityDetailReady(:final data) => _CommunityReadyShell(
+              data: data,
+              onPromote: (member) => _onPromote(context, ref, member),
+              onDemote: (member) => _onDemote(context, ref, member),
+              onRemove: (member) => _onRemove(context, ref, member),
+              onLeave: () => _onLeave(context, ref, data.community, data.members),
             ),
         },
       ),
+    );
+  }
+}
+
+class _CommunityReadyShell extends StatefulWidget {
+  const _CommunityReadyShell({
+    required this.data,
+    required this.onPromote,
+    required this.onDemote,
+    required this.onRemove,
+    required this.onLeave,
+  });
+
+  final CommunityDetailData data;
+  final ValueChanged<CommunityMember> onPromote;
+  final ValueChanged<CommunityMember> onDemote;
+  final ValueChanged<CommunityMember> onRemove;
+  final VoidCallback onLeave;
+
+  @override
+  State<_CommunityReadyShell> createState() => _CommunityReadyShellState();
+}
+
+class _CommunityReadyShellState extends State<_CommunityReadyShell>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabs;
+  late bool _canManage;
+
+  bool _manageFor(CommunityRole role) =>
+      role == CommunityRole.owner || role == CommunityRole.admin;
+
+  @override
+  void initState() {
+    super.initState();
+    _canManage = _manageFor(widget.data.community.myRole);
+    _tabs = TabController(length: _canManage ? 3 : 2, vsync: this);
+  }
+
+  @override
+  void didUpdateWidget(covariant _CommunityReadyShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final canManage = _manageFor(widget.data.community.myRole);
+    if (canManage == _canManage) {
+      return;
+    }
+    _tabs.dispose();
+    _canManage = canManage;
+    _tabs = TabController(length: _canManage ? 3 : 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabs.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final community = widget.data.community;
+    final colors = context.luminaColors;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        CommunityHeader(community: community),
+        TabBar(
+          controller: _tabs,
+          isScrollable: true,
+          tabAlignment: TabAlignment.start,
+          labelPadding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+          labelColor: colors.primary,
+          unselectedLabelColor: colors.textSecondary,
+          tabs: [
+            const Tab(key: ValueKey('community-nav-feed'), text: 'Fil'),
+            const Tab(key: ValueKey('community-nav-members'), text: 'Membres'),
+            if (_canManage) const Tab(key: ValueKey('community-nav-manage'), text: 'Gestion'),
+          ],
+        ),
+        Expanded(
+          child: TabBarView(
+            controller: _tabs,
+            children: [
+              CommunityFeedSection(community: community),
+              CommunityMembersSection(
+                community: community,
+                members: widget.data.members,
+                onPromote: widget.onPromote,
+                onDemote: widget.onDemote,
+                onRemove: widget.onRemove,
+                onLeave: widget.onLeave,
+              ),
+              if (_canManage) CommunityManagementSection(community: community),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

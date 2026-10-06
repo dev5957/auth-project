@@ -6,7 +6,6 @@ import '../../../../core/router/app_routes.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_text_theme.dart';
-import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_loading.dart';
 import '../../../chronique/presentation/widgets/chronique_card.dart';
 import '../../../chronique/presentation/widgets/chronique_media_viewer.dart';
@@ -26,20 +25,42 @@ class CommunityFeedSection extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = context.luminaColors;
     final state = ref.watch(communityFeedControllerProvider(community.id));
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return ListView(
+      key: const ValueKey('community-feed-scroll'),
+      padding: const EdgeInsets.fromLTRB(AppSpacing.xxl, AppSpacing.md, AppSpacing.xxl, AppSpacing.xxl),
       children: [
-        const SizedBox(height: AppSpacing.xl),
-        const Text('Publications', style: AppTextTheme.titleMedium),
-        const SizedBox(height: AppSpacing.md),
-        AppButton(
-          key: const ValueKey('community-publish-open'),
-          label: 'Publier',
-          onPressed: () => context.push(
-            AppRoutes.communityPublicationCreate(community.id),
-            extra: community.name,
+        Material(
+          color: colors.bgSurface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppSpacing.lg),
+            side: BorderSide(color: colors.border),
+          ),
+          child: InkWell(
+            key: const ValueKey('community-publish-open'),
+            onTap: () => context.push(
+              AppRoutes.communityPublicationCreate(community.id),
+              extra: community.name,
+            ),
+            borderRadius: BorderRadius.circular(AppSpacing.lg),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.md),
+              child: Row(
+                children: [
+                  Icon(Icons.edit_outlined, color: colors.textSecondary),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: Text(
+                      'Exprimez-vous dans la communauté…',
+                      style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
+        const SizedBox(height: AppSpacing.lg),
+        const Text('Publications', style: AppTextTheme.titleMedium),
         const SizedBox(height: AppSpacing.md),
         switch (state) {
           CommunityFeedLoading() => const AppLoading(),

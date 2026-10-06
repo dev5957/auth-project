@@ -1494,16 +1494,36 @@ void main() {
   }
 
   Future<void> revealCommunityFeed(WidgetTester tester) async {
+    await tester.tap(find.byKey(const ValueKey('community-nav-feed')));
+    await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
       find.byKey(const ValueKey('community-publish-open')),
       200,
-      scrollable: find.byType(Scrollable).first,
+      scrollable: find.descendant(
+        of: find.byKey(const ValueKey('community-feed-scroll')),
+        matching: find.byType(Scrollable),
+      ),
     );
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> openCommunityMembersTab(WidgetTester tester) async {
+    final tab = find.byKey(const ValueKey('community-nav-members'));
+    await tester.ensureVisible(tab);
+    await tester.tap(tab);
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> openCommunityManagementTab(WidgetTester tester) async {
+    final tab = find.byKey(const ValueKey('community-nav-manage'));
+    await tester.ensureVisible(tab);
+    await tester.tap(tab);
     await tester.pumpAndSettle();
   }
 
   Future<void> openUserSearch(WidgetTester tester, _FakeCommunityApi api) async {
     await openCommunityDetail(tester, api);
+    await openCommunityMembersTab(tester);
     await tester.tap(find.byKey(const ValueKey('community-detail-invite')));
     await tester.pumpAndSettle();
   }
@@ -1511,6 +1531,7 @@ void main() {
   testWidgets('owner sees invite member button', (tester) async {
     final api = _FakeCommunityApi();
     await openCommunityDetail(tester, api);
+    await openCommunityMembersTab(tester);
     expect(find.byKey(const ValueKey('community-detail-invite')), findsOneWidget);
     expect(find.text('Inviter un membre'), findsOneWidget);
   });
@@ -1519,6 +1540,7 @@ void main() {
     final api = _FakeCommunityApi();
     setListedRole(api, CommunityRole.admin);
     await openCommunityDetail(tester, api);
+    await openCommunityMembersTab(tester);
     expect(find.byKey(const ValueKey('community-detail-invite')), findsOneWidget);
     expect(find.text('Inviter un membre'), findsOneWidget);
   });
@@ -1527,6 +1549,8 @@ void main() {
     final api = _FakeCommunityApi();
     setListedRole(api, CommunityRole.member);
     await openCommunityDetail(tester, api);
+    expect(find.byKey(const ValueKey('community-nav-manage')), findsNothing);
+    await openCommunityMembersTab(tester);
     expect(find.byKey(const ValueKey('community-detail-invite')), findsNothing);
     expect(find.text('Inviter un membre'), findsNothing);
   });
@@ -2334,6 +2358,7 @@ void main() {
         ),
       ];
     await openCommunityDetail(tester, api);
+    await openCommunityManagementTab(tester);
     expect(find.byKey(const ValueKey('community-sent-invitations-title')), findsOneWidget);
     expect(find.text('Invitations envoyées'), findsOneWidget);
     expect(find.text('En attente'), findsOneWidget);
@@ -2357,6 +2382,7 @@ void main() {
       ];
     setListedRole(api, CommunityRole.admin);
     await openCommunityDetail(tester, api);
+    await openCommunityManagementTab(tester);
     expect(find.byKey(const ValueKey('community-sent-invitations-title')), findsOneWidget);
     expect(find.text('Invitations envoyées'), findsOneWidget);
     expect(api.listSentInvitationsCalls, 1);
@@ -2370,6 +2396,7 @@ void main() {
     final api = _FakeCommunityApi();
     setListedRole(api, CommunityRole.member);
     await openCommunityDetail(tester, api);
+    expect(find.byKey(const ValueKey('community-nav-manage')), findsNothing);
     expect(find.text('Invitations envoyées'), findsNothing);
     expect(api.listSentInvitationsCalls, 0);
   });
@@ -2377,6 +2404,7 @@ void main() {
   testWidgets('owner sent invitations empty state', (tester) async {
     final api = _FakeCommunityApi();
     await openCommunityDetail(tester, api);
+    await openCommunityManagementTab(tester);
     expect(find.byKey(const ValueKey('community-sent-invitations-empty')), findsOneWidget);
     expect(find.text(InvitationMessages.sentEmpty), findsOneWidget);
   });
@@ -2389,6 +2417,11 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('community-list-item-3')));
     await tester.pump();
     await tester.pump();
+    final manageTab = find.byKey(const ValueKey('community-nav-manage'));
+    await tester.ensureVisible(manageTab);
+    await tester.tap(manageTab);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
     expect(find.byKey(const ValueKey('community-sent-invitations-title')), findsOneWidget);
     expect(find.byType(AppLoading), findsWidgets);
     for (final hold in api.listSentHolds) {
@@ -2404,6 +2437,7 @@ void main() {
     final api = _FakeCommunityApi()
       ..failListSentInvitations = const ApiException(message: 'Network error');
     await openCommunityDetail(tester, api);
+    await openCommunityManagementTab(tester);
     expect(find.byKey(const ValueKey('community-sent-invitations-error')), findsOneWidget);
     api.failListSentInvitations = null;
     api.sentInvitations = const [
@@ -2609,6 +2643,7 @@ void main() {
         OwnerJoinRequest(id: 33, status: 'declined', requesterLogin: 'leo'),
       ];
     await openCommunityDetail(tester, api);
+    await openCommunityManagementTab(tester);
     expect(find.byKey(const ValueKey('community-join-requests-title')), findsOneWidget);
     expect(find.text('Demandes d’adhésion'), findsOneWidget);
     expect(find.byKey(const ValueKey('community-join-request-pending-31')), findsOneWidget);
@@ -2627,6 +2662,7 @@ void main() {
       ];
     setListedRole(api, CommunityRole.admin);
     await openCommunityDetail(tester, api);
+    await openCommunityManagementTab(tester);
     expect(find.byKey(const ValueKey('community-join-requests-title')), findsNothing);
     expect(find.byKey(const ValueKey('community-join-accept-31')), findsNothing);
     expect(api.listCommunityJoinRequestsCalls, 0);
@@ -2636,6 +2672,7 @@ void main() {
     final api = _FakeCommunityApi();
     setListedRole(api, CommunityRole.member);
     await openCommunityDetail(tester, api);
+    expect(find.byKey(const ValueKey('community-nav-manage')), findsNothing);
     expect(find.text('Demandes d’adhésion'), findsNothing);
     expect(api.listCommunityJoinRequestsCalls, 0);
   });
@@ -3046,6 +3083,7 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(800, 2400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpAndSettle();
+    await openCommunityMembersTab(tester);
     await tester.ensureVisible(find.byKey(const ValueKey('community-leave')));
     await tester.tap(find.byKey(const ValueKey('community-leave')));
     await tester.pumpAndSettle();
@@ -4135,5 +4173,31 @@ void main() {
     expect(readyFeedPublication(container).likeCount, 1);
     expect(readyFeedPublication(container).likedByMe, isTrue);
     expect(readyFeedPublication(container).commentCount, 0);
+  });
+
+  testWidgets('member community navigation has feed and members but not management', (tester) async {
+    final api = _FakeCommunityApi();
+    setListedRole(api, CommunityRole.member);
+    await openCommunityDetail(tester, api);
+    expect(find.byKey(const ValueKey('community-nav-feed')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-nav-members')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-nav-manage')), findsNothing);
+    expect(find.byKey(const ValueKey('community-publish-open')), findsOneWidget);
+    await openCommunityMembersTab(tester);
+    expect(find.byKey(const ValueKey('community-detail-invite')), findsNothing);
+    expect(find.byKey(const ValueKey('community-leave')), findsOneWidget);
+  });
+
+  testWidgets('owner community navigation exposes management', (tester) async {
+    final api = _FakeCommunityApi();
+    await openCommunityDetail(tester, api);
+    expect(find.byKey(const ValueKey('community-nav-feed')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-nav-members')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-nav-manage')), findsOneWidget);
+    await openCommunityMembersTab(tester);
+    expect(find.byKey(const ValueKey('community-detail-invite')), findsOneWidget);
+    await openCommunityManagementTab(tester);
+    expect(find.byKey(const ValueKey('community-sent-invitations-title')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-join-requests-title')), findsOneWidget);
   });
 }
