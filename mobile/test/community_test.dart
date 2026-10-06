@@ -3709,6 +3709,94 @@ void main() {
     expect(find.text('Super soiree'), findsOneWidget);
   });
 
+  CommunityPublication _activePublication({int id = 21}) {
+    return CommunityPublication(
+      id: id,
+      communityId: 3,
+      author: const CommunityPublicationAuthor(userId: 2, login: 'other', isFormerMember: false),
+      body: 'Texte de publication active assez long.',
+      status: 'active',
+      commentsEnabled: true,
+    );
+  }
+
+  CommunityComment _moderatedComment({int publicationId = 21}) {
+    return CommunityComment(
+      id: 2,
+      communityId: 3,
+      communityPublicationId: publicationId,
+      body: 'Commentaire masque',
+      status: 'moderated',
+      author: const CommunityCommentAuthor(userId: 2, login: 'other', isFormerMember: false),
+    );
+  }
+
+  testWidgets('owner sees restore on moderated comment after community detail becomes ready', (
+    tester,
+  ) async {
+    final api = _FakeCommunityApi()
+      ..holdGet = true
+      ..publications = [_activePublication()]
+      ..comments = [_moderatedComment()];
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authTokenStorageProvider.overrideWithValue(
+            InMemoryAuthTokenStorage(accessToken: 'access-test', refreshToken: 'refresh-test'),
+          ),
+          authControllerProvider.overrideWith(() => _SeededAuthController()),
+          communityApiServiceProvider.overrideWithValue(api),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.light,
+          home: const CommunityPublicationDetailScreen(communityId: 3, publicationId: 21),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.byKey(const ValueKey('community-comment-moderated-2')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-comment-restore-2')), findsNothing);
+
+    expect(api.getHolds, isNotEmpty);
+    api.getHolds.single.complete(api.items.first);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('community-comment-restore-2')), findsOneWidget);
+    expect(find.text('Restaurer'), findsOneWidget);
+  });
+
+  testWidgets('admin sees restore on moderated comment', (tester) async {
+    final api = _FakeCommunityApi()
+      ..items[0] = Community(
+        id: 3,
+        name: 'Jardin secret',
+        visibility: 'private',
+        myRole: CommunityRole.admin,
+        memberCount: 1,
+      )
+      ..publications = [_activePublication()]
+      ..comments = [_moderatedComment()];
+    await pumpPublicationDetail(tester, api, publicationId: 21);
+    expect(find.byKey(const ValueKey('community-comment-restore-2')), findsOneWidget);
+  });
+
+  testWidgets('member does not see restore on moderated comment', (tester) async {
+    final api = _FakeCommunityApi()
+      ..items[0] = Community(
+        id: 3,
+        name: 'Jardin secret',
+        visibility: 'private',
+        myRole: CommunityRole.member,
+        memberCount: 1,
+      )
+      ..publications = [_activePublication()]
+      ..comments = [_moderatedComment()];
+    await pumpPublicationDetail(tester, api, publicationId: 21);
+    expect(find.byKey(const ValueKey('community-comment-moderated-2')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-comment-restore-2')), findsNothing);
+  });
+
   testWidgets('community detail hides composer when comments are disabled', (tester) async {
     final api = _FakeCommunityApi()
       ..publications = [

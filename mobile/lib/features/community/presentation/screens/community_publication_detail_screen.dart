@@ -55,11 +55,14 @@ class _CommunityPublicationDetailScreenState
   }
 
   CommunityRole? get _myRole {
-    final detail = ref.read(communityDetailControllerProvider(widget.communityId));
-    if (detail is CommunityDetailReady) {
-      return detail.data.community.myRole;
-    }
-    return null;
+    return ref.watch(
+      communityDetailControllerProvider(widget.communityId).select((state) {
+        if (state is CommunityDetailReady) {
+          return state.data.community.myRole;
+        }
+        return null;
+      }),
+    );
   }
 
   bool get _isAuthor {
