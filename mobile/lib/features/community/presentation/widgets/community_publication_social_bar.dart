@@ -48,6 +48,16 @@ class CommunityPublicationSocialBar extends StatelessWidget {
           key: ValueKey('community-comment-count-${publication.id}'),
           style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
         ),
+        if (!publication.commentsEnabled) ...[
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              'Commentaires désactivés',
+              key: ValueKey('community-comments-disabled-feed-${publication.id}'),
+              style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
+            ),
+          ),
+        ],
       ],
     );
   }

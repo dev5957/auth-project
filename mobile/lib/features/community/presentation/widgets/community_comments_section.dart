@@ -9,6 +9,7 @@ import '../../../../core/widgets/app_loading.dart';
 import '../../../../core/widgets/app_text_field.dart';
 import '../../../auth/providers/auth_controller.dart';
 import '../../../auth/state/auth_state.dart';
+import '../../../chronique/models/chronique_date.dart';
 import '../../models/community.dart';
 import '../../models/community_comment.dart';
 import '../state/community_comments_controller.dart';
@@ -39,6 +40,21 @@ class _CommunityCommentsSectionState extends ConsumerState<CommunityCommentsSect
   final _controller = TextEditingController();
   String? _composeError;
 
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_clearComposeErrorWhenValid);
+  }
+
+  void _clearComposeErrorWhenValid() {
+    if (_composeError == null) {
+      return;
+    }
+    if (CommunityCommentFields.bodyError(_controller.text) == null) {
+      setState(() => _composeError = null);
+    }
+  }
+
   CommunityCommentsKey get _key => (
         communityId: widget.communityId,
         publicationId: widget.publicationId,
@@ -61,6 +77,7 @@ class _CommunityCommentsSectionState extends ConsumerState<CommunityCommentsSect
 
   @override
   void dispose() {
+    _controller.removeListener(_clearComposeErrorWhenValid);
     _controller.dispose();
     super.dispose();
   }
@@ -118,9 +135,21 @@ class _CommunityCommentsSectionState extends ConsumerState<CommunityCommentsSect
 
   Future<void> _delete(CommunityComment comment) async {
     final ok = await ref.read(communityCommentsControllerProvider(_key).notifier).remove(comment.id);
-    if (ok && comment.isVisible) {
+    if (!mounted) {
+      return;
+    }
+    if (!ok) {
+      return;
+    }
+    if (comment.isVisible) {
       widget.onCountDelta?.call(-1);
     }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        key: ValueKey('community-comment-deleted'),
+        content: Text('Commentaire supprimé'),
+      ),
+    );
   }
 
   Future<void> _restore(CommunityComment comment) async {
@@ -241,6 +270,14 @@ class _CommunityCommentsSectionState extends ConsumerState<CommunityCommentsSect
               key: ValueKey('community-comment-item-${item.id}'),
               style: AppTextTheme.bodyMedium,
             ),
+          if (item.createdAt != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              formatOptionalChroniqueDate(DateTime.tryParse(item.createdAt!)) ?? item.createdAt!,
+              key: ValueKey('community-comment-at-${item.id}'),
+              style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
+            ),
+          ],
           if (item.isModerated && _isModerator)
             TextButton(
               key: ValueKey('community-comment-restore-${item.id}'),

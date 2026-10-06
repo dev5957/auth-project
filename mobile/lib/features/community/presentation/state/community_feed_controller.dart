@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../models/community_publication.dart';
 import '../../providers/community_providers.dart';
+import 'community_publication_sync.dart';
 
 sealed class CommunityFeedState {
   const CommunityFeedState();
@@ -24,6 +25,9 @@ final class CommunityFeedError extends CommunityFeedState {
 
 class CommunityFeedController extends AutoDisposeFamilyNotifier<CommunityFeedState, int> {
   late int _communityId;
+  final Map<int, CommunityPublicationInteractionPatch> _patches =
+      <int, CommunityPublicationInteractionPatch>{};
+  final Set<int> _likeInFlight = <int>{};
 
   @override
   CommunityFeedState build(int communityId) {
@@ -37,7 +41,7 @@ class CommunityFeedController extends AutoDisposeFamilyNotifier<CommunityFeedSta
     state = const CommunityFeedLoading();
     try {
       final page = await ref.read(communityRepositoryProvider).listPublications(id);
-      state = CommunityFeedReady(page.items);
+      state = CommunityFeedReady(takePublicationPatches(page.items, _patches));
     } on ApiException catch (error) {
       state = CommunityFeedError(error.message);
     } catch (_) {
@@ -45,33 +49,55 @@ class CommunityFeedController extends AutoDisposeFamilyNotifier<CommunityFeedSta
     }
   }
 
-  void applyPublication(CommunityPublication updated) {
+  void applyPublication(int publicationId, CommunityPublicationInteractionPatch patch) {
+    storePublicationPatch(_patches, publicationId, patch);
     final current = state;
     if (current is! CommunityFeedReady) {
       return;
     }
-    state = CommunityFeedReady([
-      for (final item in current.items)
-        if (item.id == updated.id) updated else item,
-    ]);
+    state = CommunityFeedReady(mergePublicationPatch(current.items, _patches));
   }
 
-  Future<void> toggleLike(CommunityPublication item) async {
+  CommunityPublication _sourceForLike(CommunityPublication item) {
+    final current = state;
+    if (current is CommunityFeedReady) {
+      for (final candidate in current.items) {
+        if (candidate.id == item.id) {
+          return candidate;
+        }
+      }
+    }
+    return item;
+  }
+
+  Future<bool> toggleLike(CommunityPublication item) async {
+    if (!_likeInFlight.add(item.id)) {
+      return true;
+    }
+    final current = _sourceForLike(item);
     try {
-      final result = item.likedByMe
+      final result = current.likedByMe
           ? await ref.read(communityRepositoryProvider).unlikePublication(
-                communityId: item.communityId,
-                publicationId: item.id,
+                communityId: current.communityId,
+                publicationId: current.id,
               )
           : await ref.read(communityRepositoryProvider).likePublication(
-                communityId: item.communityId,
-                publicationId: item.id,
+                communityId: current.communityId,
+                publicationId: current.id,
               );
-      applyPublication(
-        item.copyWith(likedByMe: result.likedByMe, likeCount: result.likeCount),
+      final patch = CommunityPublicationInteractionPatch(
+        likedByMe: result.likedByMe,
+        likeCount: result.likeCount,
       );
+      applyPublication(current.id, patch);
+      syncMyCommunityPublications(ref, publicationId: current.id, patch: patch);
+      return true;
+    } on ApiException {
+      return false;
     } catch (_) {
-      // Keep the current counters; the next feed load reconciles.
+      return false;
+    } finally {
+      _likeInFlight.remove(item.id);
     }
   }
 }

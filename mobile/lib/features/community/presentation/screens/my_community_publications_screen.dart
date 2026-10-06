@@ -107,7 +107,7 @@ class _MeScopeList extends ConsumerWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            ..._scheduledLines(item, colors),
+                            ..._historyLines(item, colors),
                             if (item.communityName != null)
                               Text(
                                 item.communityName!,
@@ -116,6 +116,12 @@ class _MeScopeList extends ConsumerWidget {
                             if (item.title != null && item.title!.isNotEmpty)
                               Text(item.title!, style: AppTextTheme.titleSmall),
                             Text(item.body, style: AppTextTheme.bodyMedium),
+                            const SizedBox(height: AppSpacing.xs),
+                            Text(
+                              '${item.likeCount} j’aime · ${item.commentCount} commentaires',
+                              key: ValueKey('me-pub-counts-$scope-${item.id}'),
+                              style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
+                            ),
                           ],
                         ),
                       ),
@@ -124,6 +130,38 @@ class _MeScopeList extends ConsumerWidget {
               ],
             ),
     };
+  }
+
+  List<Widget> _historyLines(CommunityPublication item, LuminaColors colors) {
+    final style = AppTextTheme.labelSmall.copyWith(color: colors.textSecondary);
+    if (item.status == 'scheduled') {
+      return _scheduledLines(item, colors);
+    }
+    if (item.status != 'expired') {
+      return const [];
+    }
+    final published = formatOptionalChroniqueDate(
+      item.publishedAt == null ? null : DateTime.tryParse(item.publishedAt!),
+    );
+    final expired = formatOptionalChroniqueDate(
+      item.expiredAt == null ? null : DateTime.tryParse(item.expiredAt!),
+    );
+    return [
+      Text(
+        'Expirée',
+        key: ValueKey('me-pub-expired-label-${item.id}'),
+        style: style,
+      ),
+      if (published != null) ...[
+        const SizedBox(height: AppSpacing.xs),
+        Text('Publiée le $published', style: style),
+      ],
+      if (expired != null) ...[
+        const SizedBox(height: AppSpacing.xs),
+        Text('Expirée le $expired', style: style),
+      ],
+      const SizedBox(height: AppSpacing.sm),
+    ];
   }
 
   List<Widget> _scheduledLines(CommunityPublication item, LuminaColors colors) {

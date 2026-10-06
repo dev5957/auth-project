@@ -17,8 +17,10 @@ import '../../../chronique/presentation/widgets/chronique_ready_remote_media_lis
 import '../../models/community.dart';
 import '../../models/community_publication.dart';
 import '../../providers/community_providers.dart';
+import '../../../chronique/models/chronique_date.dart';
 import '../state/community_detail_controller.dart';
 import '../state/community_feed_controller.dart';
+import '../state/community_publication_sync.dart';
 import '../state/my_community_publications_controller.dart';
 import '../widgets/community_comments_section.dart';
 import '../widgets/community_publication_social_bar.dart';
@@ -116,12 +118,26 @@ class _CommunityPublicationDetailScreenState
       !_readOnlyLeft &&
       (_publication?.status == 'active' || _publication?.status == 'scheduled');
 
+  void _syncPublication(CommunityPublicationInteractionPatch patch) {
+    final publication = _publication;
+    if (publication == null) {
+      return;
+    }
+    syncCommunityPublication(
+      ref,
+      publicationId: publication.id,
+      communityId: publication.communityId,
+      patch: patch,
+    );
+  }
+
   Future<void> _reloadRelatedLists() async {
     if (widget.communityId > 0) {
       await ref.read(communityFeedControllerProvider(widget.communityId).notifier).load();
     }
     await ref.read(myCommunityPublicationsControllerProvider('current').notifier).load();
     await ref.read(myCommunityPublicationsControllerProvider('left').notifier).load();
+    await ref.read(myCommunityPublicationsControllerProvider('expired').notifier).load();
   }
 
   @override
@@ -306,9 +322,12 @@ class _CommunityPublicationDetailScreenState
         _busy = false;
         _publication = updated;
       });
-      if (widget.communityId > 0) {
-        ref.read(communityFeedControllerProvider(widget.communityId).notifier).applyPublication(updated);
-      }
+      _syncPublication(
+        CommunityPublicationInteractionPatch(
+          likedByMe: result.likedByMe,
+          likeCount: result.likeCount,
+        ),
+      );
     } on ApiException catch (error) {
       if (!mounted) {
         return;
@@ -416,6 +435,7 @@ class _CommunityPublicationDetailScreenState
                                 ),
                               ),
                       ],
+                      if (publication.status == 'expired') ..._expiredHistory(publication, colors),
                       if (publication.status == 'active') ...[
                         const SizedBox(height: AppSpacing.md),
                         CommunityPublicationSocialBar(
@@ -434,11 +454,15 @@ class _CommunityPublicationDetailScreenState
                             if (current == null) {
                               return;
                             }
-                            setState(() {
-                              _publication = current.copyWith(
-                                commentCount: (current.commentCount + delta).clamp(0, 1 << 30),
-                              );
-                            });
+                            final updated = current.copyWith(
+                              commentCount: (current.commentCount + delta).clamp(0, 1 << 30),
+                            );
+                            setState(() => _publication = updated);
+                            _syncPublication(
+                              CommunityPublicationInteractionPatch(
+                                commentCount: updated.commentCount,
+                              ),
+                            );
                           },
                         ),
                       ],
@@ -458,5 +482,33 @@ class _CommunityPublicationDetailScreenState
                   ),
       ),
     );
+  }
+
+  List<Widget> _expiredHistory(CommunityPublication publication, LuminaColors colors) {
+    final style = AppTextTheme.labelSmall.copyWith(color: colors.textSecondary);
+    final published = formatOptionalChroniqueDate(
+      publication.publishedAt == null ? null : DateTime.tryParse(publication.publishedAt!),
+    );
+    final expired = formatOptionalChroniqueDate(
+      publication.expiredAt == null ? null : DateTime.tryParse(publication.expiredAt!),
+    );
+    return [
+      const SizedBox(height: AppSpacing.xl),
+      Text('Expirée', key: const ValueKey('community-publication-expired'), style: style),
+      if (published != null) ...[
+        const SizedBox(height: AppSpacing.xs),
+        Text('Publiée le $published', key: const ValueKey('community-publication-published-at'), style: style),
+      ],
+      if (expired != null) ...[
+        const SizedBox(height: AppSpacing.xs),
+        Text('Expirée le $expired', key: const ValueKey('community-publication-expired-at'), style: style),
+      ],
+      const SizedBox(height: AppSpacing.sm),
+      Text(
+        '${publication.likeCount} j’aime · ${publication.commentCount} commentaires',
+        key: const ValueKey('community-publication-expired-counts'),
+        style: style,
+      ),
+    ];
   }
 }

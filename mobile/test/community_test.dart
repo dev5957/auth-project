@@ -44,6 +44,8 @@ import 'package:mobile/features/community/presentation/widgets/community_leave_b
 import 'package:mobile/features/community/presentation/widgets/community_member_dialogs.dart';
 import 'package:mobile/features/community/presentation/widgets/community_member_tile.dart';
 import 'package:mobile/features/community/presentation/widgets/community_owner_leave_flow.dart';
+import 'package:mobile/features/community/presentation/state/community_feed_controller.dart';
+import 'package:mobile/features/community/presentation/state/community_publication_sync.dart';
 import 'package:mobile/features/community/presentation/state/community_search_controller.dart';
 import 'package:mobile/features/community/presentation/state/user_search_controller.dart';
 import 'package:mobile/features/community/providers/community_providers.dart';
@@ -487,6 +489,9 @@ class _FakeCommunityApi extends CommunityApiService {
     );
   }
 
+  ApiException? failLike;
+  bool holdLike = false;
+  final List<Completer<void>> likeHolds = <Completer<void>>[];
   List<CommunityComment> comments = const [];
   List<CommunityCommentTrace> traces = const [];
   final List<int> likedPublicationIds = <int>[];
@@ -522,6 +527,14 @@ class _FakeCommunityApi extends CommunityApiService {
     required int publicationId,
   }) async {
     networkOps.add('PUT /communities/$communityId/publications/$publicationId/like');
+    if (failLike != null) {
+      throw failLike!;
+    }
+    if (holdLike) {
+      final hold = Completer<void>();
+      likeHolds.add(hold);
+      await hold.future;
+    }
     likedPublicationIds.add(publicationId);
     final current = _byId(publicationId);
     final like = CommunityLikeState(
@@ -3824,6 +3837,9 @@ void main() {
           commentBody: 'Visible keep',
           isEphemeral: true,
           publicationAuthorLogin: 'member2',
+          publishedAt: '2026-10-01T10:00:00.000Z',
+          expiredAt: '2026-10-02T10:00:00.000Z',
+          commentCreatedAt: '2026-10-01T11:00:00.000Z',
         ),
       ];
     await openMyPublications(tester, api);
@@ -3832,6 +3848,292 @@ void main() {
     expect(find.byType(CommunityCommentTracesScreen), findsOneWidget);
     expect(find.byKey(const ValueKey('community-comment-trace-9')), findsOneWidget);
     expect(find.text('Visible keep'), findsOneWidget);
+    expect(find.text('Publication éphémère expirée'), findsOneWidget);
+    expect(find.textContaining('Publication de member2'), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-comment-trace-at-9')), findsOneWidget);
     expect(api.networkOps, contains('GET /me/community-comment-traces'));
+  });
+
+  testWidgets('invalid comment error clears after the text becomes valid', (tester) async {
+    final api = _FakeCommunityApi()..publications = [_activePublication()];
+    await pumpPublicationDetail(tester, api, publicationId: 21);
+    await tester.enterText(find.byKey(const ValueKey('community-comment-input')), 'x');
+    await tester.tap(find.byKey(const ValueKey('community-comment-submit')));
+    await tester.pump();
+    expect(find.text('Le commentaire doit contenir entre 2 et 200 caractères.'), findsOneWidget);
+    await tester.enterText(find.byKey(const ValueKey('community-comment-input')), 'Texte valide');
+    await tester.pump();
+    expect(find.text('Le commentaire doit contenir entre 2 et 200 caractères.'), findsNothing);
+  });
+
+  testWidgets('deleting own comment shows snackbar and updates the detail counter', (tester) async {
+    final api = _FakeCommunityApi()
+      ..publications = [
+        _activePublication().copyWith(commentCount: 1),
+      ]
+      ..comments = [
+        const CommunityComment(
+          id: 7,
+          communityId: 3,
+          communityPublicationId: 21,
+          body: 'Mon commentaire',
+          status: 'visible',
+          author: CommunityCommentAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
+        ),
+      ];
+    await pumpPublicationDetail(tester, api, publicationId: 21);
+    expect(find.byKey(const ValueKey('community-comment-count-21')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('community-comment-author-menu-7')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Supprimer'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('community-comment-deleted')), findsOneWidget);
+    expect(find.text('Commentaire supprimé'), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-comment-item-7')), findsNothing);
+  });
+
+  testWidgets('comment created in detail updates the feed counter after pop', (tester) async {
+    final api = _FakeCommunityApi()
+      ..publications = [
+        const CommunityPublication(
+          id: 21,
+          communityId: 3,
+          author: CommunityPublicationAuthor(userId: 2, login: 'other', isFormerMember: false),
+          body: 'Texte de publication active assez long.',
+          status: 'active',
+          commentsEnabled: true,
+        ),
+      ];
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    expect(find.byKey(const ValueKey('community-comment-count-21')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('community-feed-item-21')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('community-comment-input')), 'Super soiree');
+    await tester.tap(find.byKey(const ValueKey('community-comment-submit')));
+    await tester.pumpAndSettle();
+    tester.state<NavigatorState>(find.byType(Navigator).first).pop();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('community-comment-count-21')), findsOneWidget);
+    expect(
+      (tester.widget<Text>(find.byKey(const ValueKey('community-comment-count-21'))).data),
+      '1',
+    );
+  });
+
+  testWidgets('like from detail updates the feed after pop', (tester) async {
+    final api = _FakeCommunityApi()
+      ..publications = [
+        const CommunityPublication(
+          id: 21,
+          communityId: 3,
+          author: CommunityPublicationAuthor(userId: 2, login: 'other', isFormerMember: false),
+          body: 'Texte de publication active assez long.',
+          status: 'active',
+          commentsEnabled: true,
+        ),
+      ];
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    await tester.tap(find.byKey(const ValueKey('community-feed-item-21')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(CommunityPublicationDetailScreen),
+        matching: find.byKey(const ValueKey('community-like-21')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    tester.state<NavigatorState>(find.byType(Navigator).first).pop();
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(find.byKey(const ValueKey('community-like-count-21'))).data, '1');
+  });
+
+  testWidgets('failed feed like keeps the previous counter', (tester) async {
+    final api = _FakeCommunityApi()
+      ..failLike = const ApiException(message: 'Network down', statusCode: 503)
+      ..publications = [
+        const CommunityPublication(
+          id: 21,
+          communityId: 3,
+          author: CommunityPublicationAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
+          body: 'Texte de publication active assez long.',
+          status: 'active',
+        ),
+      ];
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    await tester.tap(find.byKey(const ValueKey('community-like-21')));
+    await tester.pumpAndSettle();
+    expect(api.likedPublicationIds, isEmpty);
+    expect(tester.widget<Text>(find.byKey(const ValueKey('community-like-count-21'))).data, '0');
+    expect(find.text('Impossible de mettre à jour le j’aime'), findsOneWidget);
+  });
+
+  testWidgets('feed shows comments disabled without opening a composer', (tester) async {
+    final api = _FakeCommunityApi()
+      ..publications = [
+        const CommunityPublication(
+          id: 21,
+          communityId: 3,
+          author: CommunityPublicationAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
+          body: 'Texte de publication active assez long.',
+          status: 'active',
+        ),
+      ];
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    expect(find.byKey(const ValueKey('community-comments-disabled-feed-21')), findsOneWidget);
+  });
+
+  testWidgets('expired mine publications are historical and read only', (tester) async {
+    final api = _FakeCommunityApi()
+      ..myPublications = [
+        const CommunityPublication(
+          id: 74,
+          communityId: 3,
+          communityName: 'Jardin secret',
+          author: CommunityPublicationAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
+          title: 'Soirée finie',
+          body: 'Publication expiree de lauteur.',
+          status: 'expired',
+          publishedAt: '2026-10-01T10:00:00.000Z',
+          expiredAt: '2026-10-02T10:00:00.000Z',
+          likeCount: 4,
+          commentCount: 2,
+        ),
+      ];
+    await openMyPublications(tester, api);
+    await tester.tap(find.byKey(const ValueKey('me-pubs-expired')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('me-pub-expired-label-74')), findsOneWidget);
+    expect(find.byKey(const ValueKey('me-pub-counts-expired-74')), findsOneWidget);
+    expect(find.text('4 j’aime · 2 commentaires'), findsWidgets);
+    await tester.tap(find.byKey(const ValueKey('me-pub-expired-74')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('community-publication-expired')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-publication-expired-counts')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-like-74')), findsNothing);
+    expect(find.byKey(const ValueKey('community-comment-input')), findsNothing);
+  });
+
+  Future<ProviderContainer> readyCommunityFeed(_FakeCommunityApi api) async {
+    final container = ProviderContainer(
+      overrides: [
+        authTokenStorageProvider.overrideWithValue(
+          InMemoryAuthTokenStorage(accessToken: 'access-test', refreshToken: 'refresh-test'),
+        ),
+        communityApiServiceProvider.overrideWithValue(api),
+      ],
+    );
+    container.listen(communityFeedControllerProvider(3), (_, __) {});
+    await Future<void>.delayed(Duration.zero);
+    expect(container.read(communityFeedControllerProvider(3)), isA<CommunityFeedReady>());
+    return container;
+  }
+
+  CommunityPublication readyFeedPublication(ProviderContainer container) {
+    return (container.read(communityFeedControllerProvider(3)) as CommunityFeedReady).items.single;
+  }
+
+  test('like patch does not restore a stale comment_count', () async {
+    final api = _FakeCommunityApi()
+      ..publications = [
+        _activePublication().copyWith(title: 'Ancien titre', commentCount: 5),
+      ];
+    final container = await readyCommunityFeed(api);
+    addTearDown(container.dispose);
+    final notifier = container.read(communityFeedControllerProvider(3).notifier);
+    notifier.applyPublication(21, const CommunityPublicationInteractionPatch(commentCount: 6));
+    expect(readyFeedPublication(container).commentCount, 6);
+
+    await notifier.toggleLike(readyFeedPublication(container));
+    expect(readyFeedPublication(container).commentCount, 6);
+    expect(readyFeedPublication(container).likeCount, 1);
+    expect(readyFeedPublication(container).likedByMe, isTrue);
+
+    api.publications = [
+      _activePublication().copyWith(
+        title: 'Nouveau titre',
+        commentCount: 7,
+        likeCount: 0,
+        likedByMe: false,
+      ),
+    ];
+    await notifier.load();
+    expect(readyFeedPublication(container).title, 'Nouveau titre');
+    expect(readyFeedPublication(container).commentCount, 6);
+    expect(readyFeedPublication(container).likeCount, 1);
+    expect(readyFeedPublication(container).likedByMe, isTrue);
+  });
+
+  test('toggleLike uses the controller publication instead of a stale widget item', () async {
+    final api = _FakeCommunityApi()
+      ..publications = [_activePublication().copyWith(commentCount: 6)];
+    final container = await readyCommunityFeed(api);
+    addTearDown(container.dispose);
+    final notifier = container.read(communityFeedControllerProvider(3).notifier);
+    final stale = readyFeedPublication(container).copyWith(commentCount: 5);
+    await notifier.toggleLike(stale);
+    expect(readyFeedPublication(container).commentCount, 6);
+    expect(readyFeedPublication(container).likeCount, 1);
+    expect(readyFeedPublication(container).likedByMe, isTrue);
+  });
+
+  testWidgets('comment then like keeps the updated comment_count on the feed', (tester) async {
+    final api = _FakeCommunityApi()
+      ..publications = [_activePublication().copyWith(commentCount: 5)];
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    expect(tester.widget<Text>(find.byKey(const ValueKey('community-comment-count-21'))).data, '5');
+    await tester.tap(find.byKey(const ValueKey('community-feed-item-21')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('community-comment-input')), 'Super soiree');
+    await tester.tap(find.byKey(const ValueKey('community-comment-submit')));
+    await tester.pumpAndSettle();
+    tester.state<NavigatorState>(find.byType(Navigator).first).pop();
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(find.byKey(const ValueKey('community-comment-count-21'))).data, '6');
+    await tester.tap(find.byKey(const ValueKey('community-like-21')));
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(find.byKey(const ValueKey('community-comment-count-21'))).data, '6');
+    expect(tester.widget<Text>(find.byKey(const ValueKey('community-like-count-21'))).data, '1');
+  });
+
+  testWidgets('feed like then unlike returns to the initial counters', (tester) async {
+    final api = _FakeCommunityApi()..publications = [_activePublication().copyWith(likeCount: 5)];
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    expect(tester.widget<Text>(find.byKey(const ValueKey('community-like-count-21'))).data, '5');
+    await tester.tap(find.byKey(const ValueKey('community-like-21')));
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(find.byKey(const ValueKey('community-like-count-21'))).data, '6');
+    await tester.tap(find.byKey(const ValueKey('community-like-21')));
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(find.byKey(const ValueKey('community-like-count-21'))).data, '5');
+    expect(find.byIcon(Icons.favorite_border), findsWidgets);
+  });
+
+  test('concurrent feed likes do not send a second mutation', () async {
+    final api = _FakeCommunityApi()
+      ..holdLike = true
+      ..publications = [_activePublication()];
+    final container = await readyCommunityFeed(api);
+    addTearDown(container.dispose);
+    final notifier = container.read(communityFeedControllerProvider(3).notifier);
+    final item = readyFeedPublication(container);
+    final first = notifier.toggleLike(item);
+    await Future<void>.delayed(Duration.zero);
+    expect(api.likeHolds, hasLength(1));
+    final second = notifier.toggleLike(item.copyWith(commentCount: 5));
+    await Future<void>.delayed(Duration.zero);
+    expect(api.likeHolds, hasLength(1));
+    api.likeHolds.single.complete();
+    expect(await first, isTrue);
+    expect(await second, isTrue);
+    expect(api.likedPublicationIds, [21]);
+    expect(readyFeedPublication(container).likeCount, 1);
+    expect(readyFeedPublication(container).likedByMe, isTrue);
+    expect(readyFeedPublication(container).commentCount, 0);
   });
 }

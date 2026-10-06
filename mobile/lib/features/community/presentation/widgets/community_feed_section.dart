@@ -76,9 +76,16 @@ class CommunityFeedSection extends ConsumerWidget {
                             ),
                             CommunityPublicationSocialBar(
                               publication: item,
-                              onLike: () => ref
-                                  .read(communityFeedControllerProvider(community.id).notifier)
-                                  .toggleLike(item),
+                              onLike: () async {
+                                final ok = await ref
+                                    .read(communityFeedControllerProvider(community.id).notifier)
+                                    .toggleLike(item);
+                                if (!ok && context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Impossible de mettre à jour le j’aime')),
+                                  );
+                                }
+                              },
                               onComments: () => context.push(
                                 AppRoutes.communityPublicationDetail(community.id, item.id),
                               ),
