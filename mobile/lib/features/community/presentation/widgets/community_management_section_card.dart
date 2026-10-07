@@ -31,7 +31,7 @@ class CommunityManagementSectionCard extends StatelessWidget {
         child: Theme(
           data: Theme.of(context).copyWith(dividerColor: colors.border),
           child: ExpansionTile(
-            initiallyExpanded: true,
+            initiallyExpanded: false,
             tilePadding: const EdgeInsets.symmetric(horizontal: AppSpacing.xxl),
             childrenPadding: const EdgeInsets.fromLTRB(
               AppSpacing.xxl,

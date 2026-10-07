@@ -1558,6 +1558,25 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  Future<void> expandCommunityManagementSection(
+    WidgetTester tester,
+    Key titleKey,
+  ) async {
+    final title = find.byKey(titleKey);
+    final manageScroll = find.descendant(
+      of: find.byKey(const ValueKey('community-manage-scroll')),
+      matching: find.byType(Scrollable),
+    );
+    if (manageScroll.evaluate().isNotEmpty) {
+      await tester.scrollUntilVisible(title, 120, scrollable: manageScroll.first);
+    } else {
+      await tester.ensureVisible(title);
+    }
+    await tester.pumpAndSettle();
+    await tester.tap(title);
+    await tester.pumpAndSettle();
+  }
+
   Future<void> openUserSearch(WidgetTester tester, _FakeCommunityApi api) async {
     await openCommunityDetail(tester, api);
     await openCommunityMembersTab(tester);
@@ -2400,6 +2419,14 @@ void main() {
     expect(find.byKey(const ValueKey('community-manage-invitations')), findsOneWidget);
     expect(find.text('Invitations envoyées'), findsOneWidget);
     expect(
+      find.byKey(const ValueKey('community-sent-invitation-login-21')).hitTestable(),
+      findsNothing,
+    );
+    await expandCommunityManagementSection(
+      tester,
+      const ValueKey('community-sent-invitations-title'),
+    );
+    expect(
       find.descendant(
         of: find.byKey(const ValueKey('community-manage-invitations')),
         matching: find.text('moh5'),
@@ -2437,6 +2464,18 @@ void main() {
     await openCommunityManagementTab(tester);
     expect(find.byKey(const ValueKey('community-sent-invitations-title')), findsOneWidget);
     expect(find.text('Invitations envoyées'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('community-sent-invitation-login-21')).hitTestable(),
+      findsNothing,
+    );
+    await expandCommunityManagementSection(
+      tester,
+      const ValueKey('community-sent-invitations-title'),
+    );
+    expect(
+      find.byKey(const ValueKey('community-sent-invitation-login-21')).hitTestable(),
+      findsOneWidget,
+    );
     expect(api.listSentInvitationsCalls, 1);
     expect(
       api.networkOps.where((op) => op == 'GET /communities/3/invitations'),
@@ -2457,6 +2496,14 @@ void main() {
     final api = _FakeCommunityApi();
     await openCommunityDetail(tester, api);
     await openCommunityManagementTab(tester);
+    expect(
+      find.byKey(const ValueKey('community-sent-invitations-empty')).hitTestable(),
+      findsNothing,
+    );
+    await expandCommunityManagementSection(
+      tester,
+      const ValueKey('community-sent-invitations-title'),
+    );
     expect(find.byKey(const ValueKey('community-sent-invitations-empty')), findsOneWidget);
     expect(find.text(InvitationMessages.sentEmpty), findsOneWidget);
   });
@@ -2475,6 +2522,9 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.byKey(const ValueKey('community-sent-invitations-title')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('community-sent-invitations-title')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
     expect(find.byType(AppLoading), findsWidgets);
     for (final hold in api.listSentHolds) {
       if (!hold.isCompleted) {
@@ -2490,6 +2540,10 @@ void main() {
       ..failListSentInvitations = const ApiException(message: 'Network error');
     await openCommunityDetail(tester, api);
     await openCommunityManagementTab(tester);
+    await expandCommunityManagementSection(
+      tester,
+      const ValueKey('community-sent-invitations-title'),
+    );
     expect(find.byKey(const ValueKey('community-sent-invitations-error')), findsOneWidget);
     api.failListSentInvitations = null;
     api.sentInvitations = const [
@@ -2700,6 +2754,16 @@ void main() {
     expect(find.byKey(const ValueKey('community-manage-join-requests')), findsOneWidget);
     expect(find.byKey(const ValueKey('community-manage-history')), findsOneWidget);
     expect(find.text('Demandes d’adhésion'), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-join-request-pending-31')), findsNothing);
+    expect(find.byKey(const ValueKey('community-join-history-32')), findsNothing);
+    await expandCommunityManagementSection(
+      tester,
+      const ValueKey('community-join-requests-title'),
+    );
+    await expandCommunityManagementSection(
+      tester,
+      const ValueKey('community-join-requests-history-title'),
+    );
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('community-manage-join-requests')),
@@ -2739,6 +2803,46 @@ void main() {
     expect(api.listCommunityJoinRequestsCalls, 0);
   });
 
+  testWidgets('owner management sections start collapsed and can open together', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final api = _FakeCommunityApi()
+      ..sentInvitations = const [
+        SentCommunityInvitation(id: 21, status: 'pending', inviteeLogin: 'moh5'),
+      ]
+      ..ownerJoinRequests = const [
+        OwnerJoinRequest(id: 31, status: 'pending', requesterLogin: 'invitee7'),
+        OwnerJoinRequest(id: 32, status: 'accepted', requesterLogin: 'ada'),
+      ];
+    await openCommunityDetail(tester, api);
+    await openCommunityManagementTab(tester);
+    expect(find.text('Invitations envoyées'), findsOneWidget);
+    expect(find.text('Demandes d’adhésion'), findsOneWidget);
+    expect(find.text('Historique'), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-sent-invitation-login-21')), findsNothing);
+    expect(find.byKey(const ValueKey('community-join-request-pending-31')), findsNothing);
+    expect(find.byKey(const ValueKey('community-join-history-32')), findsNothing);
+    await expandCommunityManagementSection(
+      tester,
+      const ValueKey('community-sent-invitations-title'),
+    );
+    expect(find.byKey(const ValueKey('community-sent-invitation-login-21')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-join-request-pending-31')), findsNothing);
+    await expandCommunityManagementSection(
+      tester,
+      const ValueKey('community-join-requests-title'),
+    );
+    expect(find.byKey(const ValueKey('community-sent-invitation-login-21')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-join-request-pending-31')), findsOneWidget);
+    await expandCommunityManagementSection(
+      tester,
+      const ValueKey('community-join-requests-history-title'),
+    );
+    expect(find.byKey(const ValueKey('community-sent-invitation-login-21')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-join-request-pending-31')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-join-history-32')), findsOneWidget);
+  });
+
   testWidgets('member does not see join request owner actions', (tester) async {
     final api = _FakeCommunityApi();
     setListedRole(api, CommunityRole.member);
@@ -2772,6 +2876,10 @@ void main() {
     );
     await tester.pump();
     await tester.pumpAndSettle();
+    await expandCommunityManagementSection(
+      tester,
+      const ValueKey('community-join-requests-title'),
+    );
   }
 
   testWidgets('owner accept moves request to history immediately', (tester) async {
@@ -2785,6 +2893,10 @@ void main() {
     expect(api.acceptedJoinRequestIds, [31]);
     expect(find.byKey(const ValueKey('community-join-accept-31')), findsNothing);
     expect(find.byKey(const ValueKey('community-join-request-pending-31')), findsNothing);
+    await expandCommunityManagementSection(
+      tester,
+      const ValueKey('community-join-requests-history-title'),
+    );
     expect(find.byKey(const ValueKey('community-join-history-31')), findsOneWidget);
     expect(find.text('Demande acceptée.'), findsOneWidget);
     expect(find.text('Acceptée'), findsOneWidget);
@@ -2805,6 +2917,10 @@ void main() {
     expect(api.declinedJoinRequestIds, [31]);
     expect(api.acceptedJoinRequestIds, isEmpty);
     expect(find.byKey(const ValueKey('community-join-decline-31')), findsNothing);
+    await expandCommunityManagementSection(
+      tester,
+      const ValueKey('community-join-requests-history-title'),
+    );
     expect(find.byKey(const ValueKey('community-join-history-31')), findsOneWidget);
     expect(find.text('Demande refusée.'), findsOneWidget);
     expect(find.text('Refusée'), findsOneWidget);
@@ -2826,6 +2942,10 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('community-join-accept-31')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('community-join-accept-31')), findsNothing);
+    await expandCommunityManagementSection(
+      tester,
+      const ValueKey('community-join-requests-history-title'),
+    );
     expect(find.byKey(const ValueKey('community-join-history-31')), findsOneWidget);
     expect(find.text('Cette demande a déjà été traitée.'), findsOneWidget);
     expect(api.listCommunityJoinRequestsCalls, greaterThan(1));
