@@ -9,15 +9,17 @@ import '../../../../core/theme/app_text_theme.dart';
 import '../../../../core/widgets/app_loading.dart';
 import '../../../auth/providers/auth_controller.dart';
 import '../../../auth/state/auth_state.dart';
+import '../../../chronique/models/chronique.dart';
 import '../../../chronique/presentation/widgets/chronique_card.dart';
 import '../../../chronique/presentation/widgets/chronique_media_viewer.dart';
 import '../../models/community.dart';
+import '../../models/community_publication.dart';
 import '../state/community_feed_controller.dart';
 import '../state/community_publication_sync.dart';
-import 'community_comments_section.dart';
+import 'community_comments_sheet.dart';
 import 'community_publication_social_bar.dart';
 
-class CommunityFeedSection extends ConsumerWidget {
+class CommunityFeedSection extends ConsumerStatefulWidget {
   const CommunityFeedSection({
     super.key,
     required this.community,
@@ -25,21 +27,77 @@ class CommunityFeedSection extends ConsumerWidget {
 
   final Community community;
 
-  int? _viewerId(WidgetRef ref) {
-    final auth = ref.watch(authControllerProvider);
+  @override
+  ConsumerState<CommunityFeedSection> createState() => _CommunityFeedSectionState();
+}
+
+class _CommunityFeedSectionState extends ConsumerState<CommunityFeedSection> {
+  final _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  int? get _viewerId {
+    final auth = ref.read(authControllerProvider);
     if (auth is AuthAuthenticated) {
       return auth.user.id;
     }
     return null;
   }
 
+  void _openMedia(BuildContext context, ChroniqueMedia media) {
+    FocusManager.instance.primaryFocus?.unfocus();
+    openChroniqueFeedMedia(context, media);
+  }
+
+  Future<void> _openComments(CommunityPublication item) async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final viewerId = _viewerId;
+    await showCommunityCommentsSheet(
+      context: context,
+      community: widget.community,
+      publication: item,
+      isPublicationAuthor: viewerId != null && item.author.userId == viewerId,
+      onCountDelta: (delta) {
+        var base = item.commentCount;
+        final feed = ref.read(communityFeedControllerProvider(widget.community.id));
+        if (feed is CommunityFeedReady) {
+          for (final candidate in feed.items) {
+            if (candidate.id == item.id) {
+              base = candidate.commentCount;
+              break;
+            }
+          }
+        }
+        final nextCount = (base + delta).clamp(0, 1 << 30);
+        final patch = CommunityPublicationInteractionPatch(
+          commentCount: nextCount,
+        );
+        ref.read(communityFeedControllerProvider(widget.community.id).notifier).applyPublication(
+              item.id,
+              patch,
+            );
+        syncCommunityPublication(
+          ref,
+          publicationId: item.id,
+          communityId: widget.community.id,
+          patch: patch,
+        );
+      },
+    );
+  }
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final colors = context.luminaColors;
+    final community = widget.community;
     final state = ref.watch(communityFeedControllerProvider(community.id));
-    final viewerId = _viewerId(ref);
     return ListView(
       key: const ValueKey('community-feed-scroll'),
+      controller: _scrollController,
       padding: const EdgeInsets.fromLTRB(AppSpacing.xxl, AppSpacing.md, AppSpacing.xxl, AppSpacing.xxl),
       children: [
         Material(
@@ -105,8 +163,7 @@ class CommunityFeedSection extends ConsumerWidget {
                               onTap: () => context.push(
                                 AppRoutes.communityPublicationDetail(community.id, item.id),
                               ),
-                              onMediaSelected: (media) =>
-                                  openChroniqueFeedMedia(context, media),
+                              onMediaSelected: (media) => _openMedia(context, media),
                             ),
                             CommunityPublicationSocialBar(
                               publication: item,
@@ -120,33 +177,7 @@ class CommunityFeedSection extends ConsumerWidget {
                                   );
                                 }
                               },
-                              onComments: () => context.push(
-                                AppRoutes.communityPublicationDetail(community.id, item.id),
-                              ),
-                            ),
-                            CommunityCommentsSection(
-                              key: ValueKey('community-feed-comments-${item.id}'),
-                              communityId: community.id,
-                              publicationId: item.id,
-                              commentsEnabled: item.commentsEnabled,
-                              isPublicationAuthor: viewerId != null && item.author.userId == viewerId,
-                              myRole: community.myRole,
-                              keyPrefix: 'community-feed-${item.id}',
-                              onCountDelta: (delta) {
-                                final nextCount = (item.commentCount + delta).clamp(0, 1 << 30);
-                                final patch = CommunityPublicationInteractionPatch(
-                                  commentCount: nextCount,
-                                );
-                                ref
-                                    .read(communityFeedControllerProvider(community.id).notifier)
-                                    .applyPublication(item.id, patch);
-                                syncCommunityPublication(
-                                  ref,
-                                  publicationId: item.id,
-                                  communityId: community.id,
-                                  patch: patch,
-                                );
-                              },
+                              onComments: () => _openComments(item),
                             ),
                           ],
                         ),

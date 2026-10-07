@@ -33,6 +33,7 @@ import 'package:mobile/features/chronique/models/chronique.dart';
 import 'package:mobile/features/chronique/models/chronique_date.dart';
 import 'package:mobile/features/chronique/presentation/widgets/chronique_media_viewer.dart';
 import 'package:mobile/features/community/presentation/screens/community_publication_detail_screen.dart';
+import 'package:mobile/features/community/presentation/widgets/community_comments_section.dart';
 import 'package:mobile/features/community/presentation/screens/create_community_publication_screen.dart';
 import 'package:mobile/features/community/presentation/screens/create_community_screen.dart';
 import 'package:mobile/features/community/presentation/screens/my_community_publications_screen.dart';
@@ -4537,28 +4538,81 @@ void main() {
     );
   });
 
-  testWidgets('feed comments are inline without opening detail', (tester) async {
+  testWidgets('feed comments open in a bottom sheet without opening detail', (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 1400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final api = _FakeCommunityApi()
       ..publications = [_activePublication()];
     await openCommunityDetail(tester, api);
     await revealCommunityFeed(tester);
-    await tester.scrollUntilVisible(
-      find.byKey(const ValueKey('community-feed-21-comment-input')),
-      200,
-      scrollable: find.descendant(
-        of: find.byKey(const ValueKey('community-feed-scroll')),
-        matching: find.byType(Scrollable),
-      ).first,
-    );
-    expect(find.byKey(const ValueKey('community-feed-comments-21')), findsOneWidget);
+    expect(find.byType(CommunityCommentsSection), findsNothing);
+    expect(find.byKey(const ValueKey('community-feed-21-comment-input')), findsNothing);
+    expect(find.byKey(const ValueKey('community-comments-21')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('community-comments-21')));
+    await tester.pumpAndSettle();
+    expect(find.byType(CommunityPublicationDetailScreen), findsNothing);
+    expect(find.byKey(const ValueKey('community-comments-sheet-21')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-feed-21-comment-input')), findsOneWidget);
     await tester.enterText(find.byKey(const ValueKey('community-feed-21-comment-input')), 'Depuis le fil');
     await tester.tap(find.byKey(const ValueKey('community-feed-21-comment-submit')));
     await tester.pumpAndSettle();
     expect(api.networkOps, contains('POST /communities/3/publications/21/comments'));
     expect(find.byKey(const ValueKey('community-feed-21-comment-item-500')), findsOneWidget);
     expect(tester.widget<Text>(find.byKey(const ValueKey('community-comment-count-21'))).data, '1');
+  });
+
+  testWidgets('feed comment sheet reply posts parent and can be cancelled', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final api = _FakeCommunityApi()
+      ..publications = [_activePublication().copyWith(commentCount: 1)]
+      ..comments = [
+        const CommunityComment(
+          id: 7,
+          communityId: 3,
+          communityPublicationId: 21,
+          body: 'Racine visible',
+          status: 'visible',
+          author: CommunityCommentAuthor(userId: 2, login: 'other', isFormerMember: false),
+        ),
+      ];
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    await tester.tap(find.byKey(const ValueKey('community-comments-21')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('community-feed-21-comment-reply-7')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('community-feed-21-comment-reply-7')));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('community-feed-21-comment-reply-mode')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('community-feed-21-comment-reply-cancel')));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('community-feed-21-comment-reply-mode')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('community-feed-21-comment-reply-7')));
+    await tester.pump();
+    await tester.enterText(find.byKey(const ValueKey('community-feed-21-comment-input')), 'Ma reponse');
+    await tester.tap(find.byKey(const ValueKey('community-feed-21-comment-submit')));
+    await tester.pumpAndSettle();
+    expect(api.createCommentCalls.single['parentCommentId'], 7);
+    expect(find.byKey(const ValueKey('community-feed-21-comment-item-500')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-feed-21-comment-reply-indent-500')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-feed-21-comment-reply-500')), findsNothing);
+    expect(tester.widget<Text>(find.byKey(const ValueKey('community-comment-count-21'))).data, '2');
+  });
+
+  testWidgets('closing the comment sheet returns to the feed', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final api = _FakeCommunityApi()..publications = [_activePublication()];
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    await tester.tap(find.byKey(const ValueKey('community-comments-21')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('community-comments-sheet-21')), findsOneWidget);
+    Navigator.of(tester.element(find.byKey(const ValueKey('community-comments-sheet-21')))).pop();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('community-comments-sheet-21')), findsNothing);
+    expect(find.byType(CommunityCommentsSection), findsNothing);
+    expect(find.byKey(const ValueKey('community-feed-item-21')), findsOneWidget);
     expect(find.byType(CommunityPublicationDetailScreen), findsNothing);
   });
 
@@ -4642,7 +4696,7 @@ void main() {
     expect(tester.widget<Text>(find.byKey(const ValueKey('community-comment-count-21'))).data, '0');
   });
 
-  testWidgets('feed and detail share the same comments controller', (tester) async {
+  testWidgets('comment created in detail keeps the feed counter after pop', (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 1400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final api = _FakeCommunityApi()
@@ -4651,12 +4705,14 @@ void main() {
     await revealCommunityFeed(tester);
     await tester.tap(find.byKey(const ValueKey('community-feed-item-21')));
     await tester.pumpAndSettle();
+    expect(find.byType(CommunityPublicationDetailScreen), findsOneWidget);
     await tester.enterText(find.byKey(const ValueKey('community-comment-input')), 'Partage etat');
     await tester.tap(find.byKey(const ValueKey('community-comment-submit')));
     await tester.pumpAndSettle();
     tester.state<NavigatorState>(find.byType(Navigator).first).pop();
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('community-feed-21-comment-item-500')), findsOneWidget);
+    expect(find.byType(CommunityPublicationDetailScreen), findsNothing);
+    expect(find.byKey(const ValueKey('community-feed-21-comment-input')), findsNothing);
     expect(tester.widget<Text>(find.byKey(const ValueKey('community-comment-count-21'))).data, '1');
   });
 

@@ -24,6 +24,7 @@ class CommunityCommentsSection extends ConsumerStatefulWidget {
     this.myRole,
     this.onCountDelta,
     this.keyPrefix = 'community',
+    this.composerAtBottom = false,
   });
 
   final int communityId;
@@ -33,6 +34,7 @@ class CommunityCommentsSection extends ConsumerStatefulWidget {
   final CommunityRole? myRole;
   final ValueChanged<int>? onCountDelta;
   final String keyPrefix;
+  final bool composerAtBottom;
 
   @override
   ConsumerState<CommunityCommentsSection> createState() => _CommunityCommentsSectionState();
@@ -196,80 +198,104 @@ class _CommunityCommentsSectionState extends ConsumerState<CommunityCommentsSect
   Widget build(BuildContext context) {
     final colors = context.luminaColors;
     final state = ref.watch(communityCommentsControllerProvider(_key));
-    final replyTo = _replyTo;
+    final composer = _composer(colors);
+    final list = _list(colors, state);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const SizedBox(height: AppSpacing.xl),
         const Text('Commentaires', style: AppTextTheme.titleSmall),
         const SizedBox(height: AppSpacing.md),
-        if (widget.commentsEnabled) ...[
-          if (replyTo != null) ...[
-            Row(
-              key: _uiKey('comment-reply-mode'),
-              children: [
-                Expanded(
-                  child: Text(
-                    'Réponse à ${replyTo.author.displayLabel}',
-                    key: _uiKey('comment-reply-target'),
-                    style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
-                  ),
-                ),
-                TextButton(
-                  key: _uiKey('comment-reply-cancel'),
-                  onPressed: _cancelReply,
-                  child: const Text('Annuler'),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.sm),
-          ],
-          AppTextField(
-            key: _uiKey('comment-input'),
-            controller: _controller,
-            hint: replyTo == null ? 'Écrire un commentaire' : 'Écrire une réponse',
-            minLines: 2,
-            maxLines: 4,
-            errorText: _composeError,
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          AppButton(
-            key: _uiKey('comment-submit'),
-            label: replyTo == null ? 'Commenter' : 'Répondre',
-            onPressed: _submit,
-          ),
-          const SizedBox(height: AppSpacing.md),
-        ] else
-          Text(
-            'Les commentaires sont désactivés',
-            key: _uiKey('comments-disabled'),
-            style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
-          ),
-        switch (state) {
-          CommunityCommentsLoading() => const AppLoading(),
-          CommunityCommentsError(:final message) => Text(
-              message,
-              key: _uiKey('comments-error'),
-            ),
-          CommunityCommentsReady(:final items, :final error) => Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (error != null)
-                  Text(error, style: AppTextTheme.labelSmall.copyWith(color: colors.danger)),
-                if (items.where((item) => item.isRoot).isEmpty)
-                  Text(
-                    'Aucun commentaire',
-                    key: _uiKey('comments-empty'),
-                    style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
-                  )
-                else
-                  for (final row in communityCommentDisplayRows(items))
-                    _tile(colors, row.comment, indented: row.indented),
-              ],
-            ),
-        },
+        if (widget.composerAtBottom) ...[
+          Expanded(child: list),
+          composer,
+        ] else ...[
+          composer,
+          list,
+        ],
       ],
     );
+  }
+
+  Widget _composer(LuminaColors colors) {
+    final replyTo = _replyTo;
+    if (!widget.commentsEnabled) {
+      return Text(
+        'Les commentaires sont désactivés',
+        key: _uiKey('comments-disabled'),
+        style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (replyTo != null) ...[
+          Row(
+            key: _uiKey('comment-reply-mode'),
+            children: [
+              Expanded(
+                child: Text(
+                  'Réponse à ${replyTo.author.displayLabel}',
+                  key: _uiKey('comment-reply-target'),
+                  style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
+                ),
+              ),
+              TextButton(
+                key: _uiKey('comment-reply-cancel'),
+                onPressed: _cancelReply,
+                child: const Text('Annuler'),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+        ],
+        AppTextField(
+          key: _uiKey('comment-input'),
+          controller: _controller,
+          hint: replyTo == null ? 'Écrire un commentaire' : 'Écrire une réponse',
+          minLines: 2,
+          maxLines: 4,
+          errorText: _composeError,
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        AppButton(
+          key: _uiKey('comment-submit'),
+          label: replyTo == null ? 'Commenter' : 'Répondre',
+          onPressed: _submit,
+        ),
+        const SizedBox(height: AppSpacing.md),
+      ],
+    );
+  }
+
+  Widget _list(LuminaColors colors, CommunityCommentsState state) {
+    final content = switch (state) {
+      CommunityCommentsLoading() => const AppLoading(),
+      CommunityCommentsError(:final message) => Text(
+          message,
+          key: _uiKey('comments-error'),
+        ),
+      CommunityCommentsReady(:final items, :final error) => Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (error != null)
+              Text(error, style: AppTextTheme.labelSmall.copyWith(color: colors.danger)),
+            if (items.where((item) => item.isRoot).isEmpty)
+              Text(
+                'Aucun commentaire',
+                key: _uiKey('comments-empty'),
+                style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
+              )
+            else
+              for (final row in communityCommentDisplayRows(items))
+                _tile(colors, row.comment, indented: row.indented),
+          ],
+        ),
+    };
+    if (!widget.composerAtBottom) {
+      return content;
+    }
+    return SingleChildScrollView(child: content);
   }
 
   Widget _tile(LuminaColors colors, CommunityComment item, {required bool indented}) {
