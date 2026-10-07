@@ -54,6 +54,7 @@ function toPublicComment(row) {
     id: formatId(row.id),
     community_id: formatId(row.community_id),
     community_publication_id: formatId(row.community_publication_id),
+    parent_comment_id: row.parent_comment_id == null ? null : formatId(row.parent_comment_id),
     body: row.body,
     status: row.status,
     created_at: toIso(row.created_at),
@@ -105,16 +106,25 @@ async function loadComment(client, communityId, publicationId, commentId) {
   return found.rows[0] || null;
 }
 
-async function bumpCommentCount(client, publicationId, delta) {
-  if (delta === 0) {
-    return;
-  }
+function canSeeModerated(membership, publication, userId) {
+  return Boolean(moderationRole(membership, publication, userId));
+}
+
+async function recountMemberVisibleComments(client, publicationId) {
   await client.query(
     `UPDATE community_publications
-     SET comment_count = GREATEST(comment_count + $1, 0),
-         updated_at = NOW()
-     WHERE id = $2`,
-    [delta, publicationId]
+     SET comment_count = (
+       SELECT COUNT(*)::bigint
+       FROM community_publication_comments c
+       LEFT JOIN community_publication_comments parent
+         ON parent.id = c.parent_comment_id
+       WHERE c.community_publication_id = $1
+         AND c.status = 'visible'
+         AND (c.parent_comment_id IS NULL OR parent.status = 'visible')
+     ),
+     updated_at = NOW()
+     WHERE id = $1`,
+    [publicationId]
   );
 }
 
@@ -128,13 +138,13 @@ async function listComments(userId, rawCommunityId, rawPublicationId, query, dep
   return withTransaction(db, async (client) => {
     const membership = await requireActiveMembership(client, communityId, userId);
     const publication = await client.query(
-      `SELECT status FROM community_publications WHERE id = $1 AND community_id = $2 LIMIT 1`,
+      `SELECT status, author_user_id FROM community_publications WHERE id = $1 AND community_id = $2 LIMIT 1`,
       [publicationId, communityId]
     );
     if (!publication.rows[0] || publication.rows[0].status !== STATUS.ACTIVE) {
       throw new AppError(404, NOT_FOUND);
     }
-    const includeModerated = isModerator(membership);
+    const includeModerated = canSeeModerated(membership, publication.rows[0], userId);
     const params = [publicationId];
     let cursorSql = '';
     if (beforeAt && beforeId) {
@@ -145,7 +155,7 @@ async function listComments(userId, rawCommunityId, rawPublicationId, query, dep
     const statusSql = includeModerated
       ? `AND c.status IN ('visible', 'moderated')`
       : `AND c.status = 'visible'`;
-    const result = await client.query(
+    const roots = await client.query(
       `SELECT c.*, u.login AS author_login,
               (m.user_id IS NULL) AS is_former_member
        FROM community_publication_comments c
@@ -154,20 +164,53 @@ async function listComments(userId, rawCommunityId, rawPublicationId, query, dep
          ON m.community_id = c.community_id
         AND m.user_id = c.author_user_id
        WHERE c.community_publication_id = $1
+         AND c.parent_comment_id IS NULL
          ${statusSql}
          ${cursorSql}
        ORDER BY c.created_at DESC, c.id DESC
        LIMIT $${params.length}`,
       params
     );
-    const hasMore = result.rows.length > limit;
-    const page = hasMore ? result.rows.slice(0, limit) : result.rows;
-    const last = page[page.length - 1];
+    const hasMore = roots.rows.length > limit;
+    const rootPage = hasMore ? roots.rows.slice(0, limit) : roots.rows;
+    let replyRows = [];
+    if (rootPage.length > 0) {
+      const replies = await client.query(
+        `SELECT c.*, u.login AS author_login,
+                (m.user_id IS NULL) AS is_former_member
+         FROM community_publication_comments c
+         INNER JOIN users u ON u.id = c.author_user_id
+         LEFT JOIN community_members m
+           ON m.community_id = c.community_id
+          AND m.user_id = c.author_user_id
+         WHERE c.parent_comment_id = ANY($1::bigint[])
+           ${statusSql}
+         ORDER BY c.created_at ASC, c.id ASC`,
+        [rootPage.map((row) => row.id)]
+      );
+      replyRows = replies.rows;
+    }
+    const repliesByParent = new Map();
+    for (const row of replyRows) {
+      const key = String(row.parent_comment_id);
+      if (!repliesByParent.has(key)) {
+        repliesByParent.set(key, []);
+      }
+      repliesByParent.get(key).push(row);
+    }
+    const items = [];
+    for (const root of rootPage) {
+      items.push(toPublicComment(root));
+      for (const reply of repliesByParent.get(String(root.id)) || []) {
+        items.push(toPublicComment(reply));
+      }
+    }
+    const lastRoot = rootPage[rootPage.length - 1];
     return {
-      items: page.map(toPublicComment),
+      items,
       next:
-        hasMore && last
-          ? { before_at: toIso(last.created_at), before_id: formatId(last.id) }
+        hasMore && lastRoot
+          ? { before_at: toIso(lastRoot.created_at), before_id: formatId(lastRoot.id) }
           : null,
     };
   });
@@ -186,19 +229,37 @@ async function createComment(userId, rawCommunityId, rawPublicationId, body, dep
     if (!publication.comments_enabled) {
       throw new AppError(400, 'comments are disabled');
     }
+    let parentCommentId = null;
+    if (input.parentCommentId != null) {
+      const parent = await client.query(
+        `SELECT * FROM community_publication_comments
+         WHERE id = $1 AND community_publication_id = $2 AND community_id = $3
+         FOR UPDATE`,
+        [input.parentCommentId, publicationId, communityId]
+      );
+      const parentRow = parent.rows[0];
+      if (!parentRow) {
+        throw new AppError(404, 'Comment not found');
+      }
+      if (parentRow.parent_comment_id != null) {
+        throw new AppError(400, 'parent_comment_id is invalid');
+      }
+      parentCommentId = parentRow.id;
+    }
     const inserted = await client.query(
       `INSERT INTO community_publication_comments (
          community_id,
          community_publication_id,
          author_user_id,
          body,
-         status
+         status,
+         parent_comment_id
        )
-       VALUES ($1, $2, $3, $4, $5)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
-      [communityId, publicationId, userId, input.body, COMMENT_STATUS.VISIBLE]
+      [communityId, publicationId, userId, input.body, COMMENT_STATUS.VISIBLE, parentCommentId]
     );
-    await bumpCommentCount(client, publicationId, 1);
+    await recountMemberVisibleComments(client, publicationId);
     const row = await loadComment(client, communityId, publicationId, inserted.rows[0].id);
     return toPublicComment(row);
   });
@@ -306,7 +367,7 @@ async function deleteComment(userId, rawCommunityId, rawPublicationId, rawCommen
     } else {
       throw new AppError(403, 'Forbidden');
     }
-    await bumpCommentCount(client, publicationId, -1);
+    await recountMemberVisibleComments(client, publicationId);
     return { deleted: true };
   });
 }
@@ -320,10 +381,10 @@ async function restoreComment(userId, rawCommunityId, rawPublicationId, rawComme
 
   return withTransaction(db, async (client) => {
     const membership = await requireActiveMembership(client, communityId, userId);
-    if (!isModerator(membership)) {
+    const publication = await lockActivePublication(client, communityId, publicationId);
+    if (!moderationRole(membership, publication, userId)) {
       throw new AppError(403, 'Forbidden');
     }
-    await lockActivePublication(client, communityId, publicationId);
     const comment = await client.query(
       `SELECT * FROM community_publication_comments
        WHERE id = $1 AND community_publication_id = $2 AND community_id = $3
@@ -349,7 +410,7 @@ async function restoreComment(userId, rawCommunityId, rawPublicationId, rawComme
       [COMMENT_STATUS.VISIBLE, commentId]
     );
     if (restored.rowCount === 1) {
-      await bumpCommentCount(client, publicationId, 1);
+      await recountMemberVisibleComments(client, publicationId);
     }
     return toPublicComment(await loadComment(client, communityId, publicationId, commentId));
   });

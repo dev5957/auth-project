@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 const SQL_PATH = path.join(__dirname, '..', 'sql', '017_create_community_publication_interactions.sql');
+const SQL_018_PATH = path.join(__dirname, '..', 'sql', '018_add_community_publication_comment_parent.sql');
 
 function assert(condition, message) {
   if (!condition) {
@@ -35,5 +36,18 @@ function inspectSqlFile() {
   console.log('SQL file OK (sql/017_create_community_publication_interactions.sql inspected, not applied).');
 }
 
+function inspectSql018() {
+  const sql = fs.readFileSync(SQL_018_PATH, 'utf8');
+  const code = sql.replace(/--.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  assert(/MANUELLEMENT/i.test(sql), '018 must be documented as manual');
+  assert(/parent_comment_id/i.test(sql), '018 parent_comment_id');
+  assert(/parent_same_publication_fkey/i.test(sql), '018 same publication FK');
+  assert(/parent_must_be_root/i.test(sql), '018 parent must be root');
+  assert(!/CREATE TABLE/i.test(code), '018 must not create a replies table');
+  assert(!/\bpublication_media\b/i.test(code.replace(/community_publication/g, '')), '018 must not alter publication_media');
+  console.log('SQL file OK (sql/018_add_community_publication_comment_parent.sql inspected, not applied).');
+}
+
 inspectSqlFile();
+inspectSql018();
 console.log('Community publication interactions schema check succeeded (fichier uniquement, sans Neon).');

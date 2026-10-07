@@ -54,12 +54,25 @@ function validPub(overrides = {}) {
   };
 }
 
+function memberVisibleComments(comments, publicationId) {
+  const rows = comments.filter((item) => Number(item.community_publication_id) === Number(publicationId));
+  const byId = new Map(rows.map((item) => [Number(item.id), item]));
+  return rows.filter((item) => {
+    if (item.status !== 'visible') {
+      return false;
+    }
+    if (item.parent_comment_id == null) {
+      return true;
+    }
+    const parent = byId.get(Number(item.parent_comment_id));
+    return Boolean(parent && parent.status === 'visible');
+  });
+}
+
 function assertCounts(db, publicationId) {
   const pub = db.state.publications.find((item) => Number(item.id) === Number(publicationId));
   const likes = db.state.likes.filter((item) => Number(item.community_publication_id) === Number(publicationId));
-  const visible = db.state.comments.filter(
-    (item) => Number(item.community_publication_id) === Number(publicationId) && item.status === 'visible'
-  );
+  const visible = memberVisibleComments(db.state.comments, publicationId);
   assert(Number(pub.like_count) === likes.length, `like_count ${pub.like_count} != ${likes.length}`);
   assert(Number(pub.comment_count) === visible.length, `comment_count ${pub.comment_count} != ${visible.length}`);
 }
@@ -208,11 +221,17 @@ function createMemory() {
         .map((item) => ({ id: item.id }));
       return { rows, rowCount: rows.length };
     }
-    if (key.startsWith('SELECT STATUS FROM COMMUNITY_PUBLICATIONS')) {
+    if (
+      key.startsWith('SELECT STATUS, AUTHOR_USER_ID FROM COMMUNITY_PUBLICATIONS') ||
+      key.startsWith('SELECT STATUS FROM COMMUNITY_PUBLICATIONS')
+    ) {
       const row = state.publications.find(
         (item) => Number(item.id) === Number(params[0]) && Number(item.community_id) === Number(params[1])
       );
-      return { rows: row ? [{ status: row.status }] : [], rowCount: row ? 1 : 0 };
+      return {
+        rows: row ? [{ status: row.status, author_user_id: row.author_user_id }] : [],
+        rowCount: row ? 1 : 0,
+      };
     }
     if (key.startsWith('SELECT * FROM COMMUNITY_PUBLICATION_MEDIA')) {
       return { rows: [], rowCount: 0 };
@@ -298,6 +317,11 @@ function createMemory() {
       row.comment_count = 0;
       return { rows: [{ ...row }], rowCount: 1 };
     }
+    if (key.startsWith('UPDATE COMMUNITY_PUBLICATIONS') && key.includes('COMMENT_COUNT = (')) {
+      const row = state.publications.find((item) => Number(item.id) === Number(params[0]));
+      row.comment_count = memberVisibleComments(state.comments, params[0]).length;
+      return { rows: [{ ...row }], rowCount: 1 };
+    }
     if (key.startsWith('UPDATE COMMUNITY_PUBLICATIONS') && key.includes('COMMENT_COUNT = GREATEST')) {
       const row = state.publications.find((item) => Number(item.id) === Number(params[1]));
       row.comment_count = Math.max((Number(row.comment_count) || 0) + Number(params[0]), 0);
@@ -356,6 +380,7 @@ function createMemory() {
         author_user_id: params[2],
         body: params[3],
         status: params[4],
+        parent_comment_id: params[5] == null ? null : params[5],
         created_at: new Date(),
         updated_at: new Date(),
         deleted_at: null,
@@ -366,6 +391,43 @@ function createMemory() {
       state.comments.push(row);
       return { rows: [{ ...row }], rowCount: 1 };
     }
+    function hydrateComment(item) {
+      return {
+        ...item,
+        author_login: (users.find((u) => Number(u.id) === Number(item.author_user_id)) || {}).login,
+        is_former_member: !state.members.some(
+          (m) => Number(m.community_id) === Number(item.community_id) && Number(m.user_id) === Number(item.author_user_id)
+        ),
+      };
+    }
+    if (key.includes('FROM COMMUNITY_PUBLICATION_COMMENTS C') && key.includes('PARENT_COMMENT_ID = ANY')) {
+      const includeModerated = key.includes("IN ('VISIBLE', 'MODERATED')");
+      const parentIds = (Array.isArray(params[0]) ? params[0] : []).map((value) => Number(value));
+      let rows = state.comments.filter((item) => parentIds.includes(Number(item.parent_comment_id)));
+      rows = rows.filter((item) =>
+        includeModerated ? item.status === 'visible' || item.status === 'moderated' : item.status === 'visible'
+      );
+      rows.sort((a, b) => new Date(a.created_at) - new Date(b.created_at) || Number(a.id) - Number(b.id));
+      rows = rows.map(hydrateComment);
+      return { rows, rowCount: rows.length };
+    }
+    if (
+      key.includes('FROM COMMUNITY_PUBLICATION_COMMENTS C') &&
+      key.includes('PARENT_COMMENT_ID IS NULL') &&
+      key.includes('ORDER BY C.CREATED_AT DESC')
+    ) {
+      const includeModerated = key.includes("IN ('VISIBLE', 'MODERATED')");
+      let rows = state.comments.filter(
+        (item) => Number(item.community_publication_id) === Number(params[0]) && item.parent_comment_id == null
+      );
+      rows = rows.filter((item) =>
+        includeModerated ? item.status === 'visible' || item.status === 'moderated' : item.status === 'visible'
+      );
+      rows.sort((a, b) => new Date(b.created_at) - new Date(a.created_at) || Number(b.id) - Number(a.id));
+      const limit = Number(params[params.length - 1]);
+      rows = rows.slice(0, limit).map(hydrateComment);
+      return { rows, rowCount: rows.length };
+    }
     if (key.includes('FROM COMMUNITY_PUBLICATION_COMMENTS C') && key.includes('ORDER BY C.CREATED_AT DESC')) {
       const includeModerated = key.includes("IN ('VISIBLE', 'MODERATED')");
       let rows = state.comments.filter((item) => Number(item.community_publication_id) === Number(params[0]));
@@ -374,13 +436,7 @@ function createMemory() {
       );
       rows.sort((a, b) => new Date(b.created_at) - new Date(a.created_at) || Number(b.id) - Number(a.id));
       const limit = Number(params[params.length - 1]);
-      rows = rows.slice(0, limit).map((item) => ({
-        ...item,
-        author_login: (users.find((u) => Number(u.id) === Number(item.author_user_id)) || {}).login,
-        is_former_member: !state.members.some(
-          (m) => Number(m.community_id) === Number(item.community_id) && Number(m.user_id) === Number(item.author_user_id)
-        ),
-      }));
+      rows = rows.slice(0, limit).map(hydrateComment);
       return { rows, rowCount: rows.length };
     }
     if (key.includes('FROM COMMUNITY_PUBLICATION_COMMENTS C') && key.includes('C.ID = $1')) {
@@ -642,8 +698,6 @@ async function main() {
   const restoredAfter = await restoreComment(ADMIN_B_ID, COMMUNITY_ID, pub.id, fifth.id, deps);
   assert(restoredAfter.status === 'visible', 'active admin restores after other left');
 
-  await expectReject(restoreComment(MEMBER_ID, COMMUNITY_ID, pub.id, fifth.id, deps), 403);
-
   const byAuthor = await createComment(OWNER_ID, COMMUNITY_ID, pub.id, { body: 'Auteur pub' }, deps);
   await deleteComment(MEMBER_ID, COMMUNITY_ID, pub.id, byAuthor.id, deps);
   assert(
@@ -652,6 +706,92 @@ async function main() {
     'publication author moderate'
   );
   assertCounts(db, pub.id);
+
+  const thread = await createPublication(MEMBER_ID, COMMUNITY_ID, validPub({ title: 'Fil reponses' }), deps);
+  const root = await createComment(OWNER_ID, COMMUNITY_ID, thread.id, { body: 'Commentaire racine' }, deps);
+  assert(root.parent_comment_id == null, 'root parent null');
+  const reply = await createComment(
+    MEMBER_B_ID,
+    COMMUNITY_ID,
+    thread.id,
+    { body: 'Une reponse', parent_comment_id: root.id },
+    deps
+  );
+  assert(Number(reply.parent_comment_id) === Number(root.id), 'reply parent_comment_id');
+  assertCounts(db, thread.id);
+  const threadListed = await listComments(MEMBER_B_ID, COMMUNITY_ID, thread.id, {}, deps);
+  assert(threadListed.items.length === 2, 'get returns root then reply');
+  assert(threadListed.items[0].parent_comment_id == null, 'get root parent null');
+  assert(Number(threadListed.items[1].parent_comment_id) === Number(root.id), 'get reply parent');
+  const selfReply = await createComment(
+    OWNER_ID,
+    COMMUNITY_ID,
+    thread.id,
+    { body: 'Self reply ok', parent_comment_id: root.id },
+    deps
+  );
+  assert(Number(selfReply.parent_comment_id) === Number(root.id), 'self-reply');
+  assertCounts(db, thread.id);
+  await expectReject(
+    createComment(OWNER_ID, COMMUNITY_ID, thread.id, { body: 'missing parent', parent_comment_id: 999999 }, deps),
+    404
+  );
+  await expectReject(
+    createComment(OWNER_ID, COMMUNITY_ID, thread.id, { body: 'other pub parent', parent_comment_id: comment.id }, deps),
+    404
+  );
+  await expectReject(
+    createComment(OWNER_ID, COMMUNITY_ID, thread.id, { body: 'nested reply', parent_comment_id: reply.id }, deps),
+    400
+  );
+
+  await deleteComment(MEMBER_ID, COMMUNITY_ID, thread.id, reply.id, deps);
+  assert(db.state.comments.find((item) => Number(item.id) === Number(reply.id)).status === 'moderated', 'author pub moderates reply');
+  const restoredReply = await restoreComment(MEMBER_ID, COMMUNITY_ID, thread.id, reply.id, deps);
+  assert(restoredReply.status === 'visible', 'author pub restores reply');
+  assertCounts(db, thread.id);
+
+  await deleteComment(MEMBER_ID, COMMUNITY_ID, thread.id, selfReply.id, deps);
+  assert(
+    db.state.comments.find((item) => Number(item.id) === Number(selfReply.id)).status === 'moderated',
+    'author pub moderates comment'
+  );
+  const restoredSelf = await restoreComment(MEMBER_ID, COMMUNITY_ID, thread.id, selfReply.id, deps);
+  assert(restoredSelf.status === 'visible', 'author pub restores comment');
+  assertCounts(db, thread.id);
+
+  const beforeParentMod = Number(db.state.publications.find((item) => Number(item.id) === Number(thread.id)).comment_count);
+  await deleteComment(MEMBER_ID, COMMUNITY_ID, thread.id, root.id, deps);
+  assert(db.state.comments.find((item) => Number(item.id) === Number(root.id)).status === 'moderated', 'parent moderated');
+  assert(db.state.comments.find((item) => Number(item.id) === Number(reply.id)).status === 'visible', 'child not cascaded');
+  const afterParentMod = Number(db.state.publications.find((item) => Number(item.id) === Number(thread.id)).comment_count);
+  assert(afterParentMod === 0, `parent moderate hides branch count got ${afterParentMod} from ${beforeParentMod}`);
+  const memberHidden = await listComments(MEMBER_B_ID, COMMUNITY_ID, thread.id, {}, deps);
+  assert(memberHidden.items.length === 0, 'member cannot see moderated branch');
+  const authorSees = await listComments(MEMBER_ID, COMMUNITY_ID, thread.id, {}, deps);
+  assert(authorSees.items.some((item) => Number(item.id) === Number(root.id) && item.status === 'moderated'), 'pub author sees moderated parent');
+  assert(authorSees.items.some((item) => Number(item.id) === Number(reply.id)), 'pub author sees replies of moderated parent');
+  const ownerSees = await listComments(OWNER_ID, COMMUNITY_ID, thread.id, {}, deps);
+  assert(ownerSees.items.some((item) => Number(item.id) === Number(root.id)), 'owner still sees moderated branch');
+  const restoredParent = await restoreComment(MEMBER_ID, COMMUNITY_ID, thread.id, root.id, deps);
+  assert(restoredParent.status === 'visible', 'author pub restores parent');
+  assertCounts(db, thread.id);
+  const memberAfterRestore = await listComments(MEMBER_B_ID, COMMUNITY_ID, thread.id, {}, deps);
+  assert(memberAfterRestore.items.length >= 2, 'branch visible again after restore');
+
+  const adminRoot = await createComment(MEMBER_B_ID, COMMUNITY_ID, thread.id, { body: 'Admin root' }, deps);
+  await deleteComment(OWNER_ID, COMMUNITY_ID, thread.id, adminRoot.id, deps);
+  const adminRestored = await restoreComment(ADMIN_B_ID, COMMUNITY_ID, thread.id, adminRoot.id, deps);
+  assert(adminRestored.status === 'visible', 'admin restore unchanged');
+  await expectReject(restoreComment(MEMBER_B_ID, COMMUNITY_ID, thread.id, adminRoot.id, deps), 403);
+  await expectReject(listComments(STRANGER_ID, COMMUNITY_ID, thread.id, {}, deps), 404);
+  await expectReject(createComment(STRANGER_ID, COMMUNITY_ID, thread.id, { body: 'nope' }, deps), 404);
+  await expectReject(createComment(OWNER_ID, COMMUNITY_ID, scheduled.id, { body: 'inactive' }, deps), 404);
+  await expectReject(
+    createComment(OWNER_ID, COMMUNITY_ID, disabled.id, { body: 'still disabled', parent_comment_id: root.id }, deps),
+    400
+  );
+  assertCounts(db, thread.id);
 
   await expectReject(deleteComment(MEMBER_ID, COMMUNITY_ID, pub.id, 999999, deps), 404);
   const visibleOwn = await createComment(MEMBER_ID, COMMUNITY_ID, pub.id, { body: 'Oracle own' }, deps);

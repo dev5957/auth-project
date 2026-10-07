@@ -31,6 +31,7 @@ class CommunityComment {
     required this.body,
     required this.status,
     required this.author,
+    this.parentCommentId,
     this.createdAt,
     this.updatedAt,
     this.deletedAt,
@@ -39,6 +40,7 @@ class CommunityComment {
   final int id;
   final int communityId;
   final int communityPublicationId;
+  final int? parentCommentId;
   final String body;
   final String status;
   final CommunityCommentAuthor author;
@@ -48,6 +50,28 @@ class CommunityComment {
 
   bool get isVisible => status == 'visible';
   bool get isModerated => status == 'moderated';
+  bool get isRoot => parentCommentId == null;
+  bool get isReply => parentCommentId != null;
+
+  CommunityComment copyWith({
+    String? body,
+    String? status,
+    int? parentCommentId,
+    bool clearParent = false,
+  }) {
+    return CommunityComment(
+      id: id,
+      communityId: communityId,
+      communityPublicationId: communityPublicationId,
+      parentCommentId: clearParent ? null : (parentCommentId ?? this.parentCommentId),
+      body: body ?? this.body,
+      status: status ?? this.status,
+      author: author,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+      deletedAt: deletedAt,
+    );
+  }
 
   factory CommunityComment.fromJson(Map<String, dynamic> json) {
     final authorRaw = json['author'];
@@ -58,6 +82,8 @@ class CommunityComment {
       id: parseChroniqueId(json['id']),
       communityId: parseChroniqueId(json['community_id']),
       communityPublicationId: parseChroniqueId(json['community_publication_id']),
+      parentCommentId:
+          json['parent_comment_id'] == null ? null : parseChroniqueId(json['parent_comment_id']),
       body: json['body'] is String ? json['body'] as String : '',
       status: json['status'] is String ? json['status'] as String : '',
       createdAt: json['created_at'] is String ? json['created_at'] as String : null,
@@ -66,6 +92,44 @@ class CommunityComment {
       author: CommunityCommentAuthor.fromJson(Map<String, dynamic>.from(authorRaw)),
     );
   }
+}
+
+int memberVisibleCommentCount(Iterable<CommunityComment> items) {
+  final byId = <int, CommunityComment>{
+    for (final item in items) item.id: item,
+  };
+  return items.where((item) {
+    if (!item.isVisible) {
+      return false;
+    }
+    final parentId = item.parentCommentId;
+    if (parentId == null) {
+      return true;
+    }
+    final parent = byId[parentId];
+    return parent != null && parent.isVisible;
+  }).length;
+}
+
+List<({CommunityComment comment, bool indented})> communityCommentDisplayRows(
+  Iterable<CommunityComment> items,
+) {
+  final roots = items.where((item) => item.isRoot).toList();
+  final replies = <int, List<CommunityComment>>{};
+  for (final item in items) {
+    final parentId = item.parentCommentId;
+    if (parentId == null) {
+      continue;
+    }
+    replies.putIfAbsent(parentId, () => <CommunityComment>[]).add(item);
+  }
+  return [
+    for (final root in roots) ...[
+      (comment: root, indented: false),
+      for (final reply in replies[root.id] ?? const <CommunityComment>[])
+        (comment: reply, indented: true),
+    ],
+  ];
 }
 
 class CommunityCommentPage {

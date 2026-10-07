@@ -53,18 +53,40 @@ class CommunityCommentsController
     }
   }
 
-  Future<bool> create(String body) async {
+  Future<bool> create(String body, {int? parentCommentId}) async {
     return _run((repo) async {
       final comment = await repo.createComment(
         communityId: _key.communityId,
         publicationId: _key.publicationId,
         body: body,
+        parentCommentId: parentCommentId,
       );
       final current = state;
       if (current is CommunityCommentsReady) {
-        state = CommunityCommentsReady([comment, ...current.items]);
+        state = CommunityCommentsReady(_insertCreated(current.items, comment));
       }
     });
+  }
+
+  List<CommunityComment> _insertCreated(List<CommunityComment> items, CommunityComment comment) {
+    if (comment.parentCommentId == null) {
+      return [comment, ...items];
+    }
+    final parentId = comment.parentCommentId!;
+    var insertAt = -1;
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].id == parentId || items[i].parentCommentId == parentId) {
+        insertAt = i + 1;
+      }
+    }
+    if (insertAt < 0) {
+      return [comment, ...items];
+    }
+    return [
+      ...items.take(insertAt),
+      comment,
+      ...items.skip(insertAt),
+    ];
   }
 
   Future<bool> update(int commentId, String body) async {

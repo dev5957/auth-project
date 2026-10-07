@@ -23,6 +23,7 @@ class CommunityCommentsSection extends ConsumerStatefulWidget {
     required this.isPublicationAuthor,
     this.myRole,
     this.onCountDelta,
+    this.keyPrefix = 'community',
   });
 
   final int communityId;
@@ -31,6 +32,7 @@ class CommunityCommentsSection extends ConsumerStatefulWidget {
   final bool isPublicationAuthor;
   final CommunityRole? myRole;
   final ValueChanged<int>? onCountDelta;
+  final String keyPrefix;
 
   @override
   ConsumerState<CommunityCommentsSection> createState() => _CommunityCommentsSectionState();
@@ -39,6 +41,7 @@ class CommunityCommentsSection extends ConsumerStatefulWidget {
 class _CommunityCommentsSectionState extends ConsumerState<CommunityCommentsSection> {
   final _controller = TextEditingController();
   String? _composeError;
+  CommunityComment? _replyTo;
 
   @override
   void initState() {
@@ -75,11 +78,23 @@ class _CommunityCommentsSectionState extends ConsumerState<CommunityCommentsSect
 
   bool get _canModerate => _isModerator || widget.isPublicationAuthor;
 
+  bool get _canRestore => _isModerator || widget.isPublicationAuthor;
+
+  Key _uiKey(String suffix) => ValueKey('${widget.keyPrefix}-$suffix');
+
   @override
   void dispose() {
     _controller.removeListener(_clearComposeErrorWhenValid);
     _controller.dispose();
     super.dispose();
+  }
+
+  int _visibleCount() {
+    final state = ref.read(communityCommentsControllerProvider(_key));
+    if (state is CommunityCommentsReady) {
+      return memberVisibleCommentCount(state.items);
+    }
+    return 0;
   }
 
   Future<void> _submit() async {
@@ -88,16 +103,31 @@ class _CommunityCommentsSectionState extends ConsumerState<CommunityCommentsSect
     if (error != null) {
       return;
     }
+    final before = _visibleCount();
+    final parentId = _replyTo?.id;
     final ok = await ref.read(communityCommentsControllerProvider(_key).notifier).create(
           _controller.text.trim(),
+          parentCommentId: parentId,
         );
     if (!mounted) {
       return;
     }
     if (ok) {
       _controller.clear();
-      widget.onCountDelta?.call(1);
+      setState(() => _replyTo = null);
+      widget.onCountDelta?.call(_visibleCount() - before);
     }
+  }
+
+  void _startReply(CommunityComment comment) {
+    setState(() {
+      _replyTo = comment;
+      _composeError = null;
+    });
+  }
+
+  void _cancelReply() {
+    setState(() => _replyTo = null);
   }
 
   Future<void> _edit(CommunityComment comment) async {
@@ -108,7 +138,7 @@ class _CommunityCommentsSectionState extends ConsumerState<CommunityCommentsSect
         return AlertDialog(
           title: const Text('Modifier le commentaire'),
           content: TextField(
-            key: const ValueKey('community-comment-edit-field'),
+            key: _uiKey('comment-edit-field'),
             controller: field,
             maxLength: 200,
             maxLines: 4,
@@ -116,7 +146,7 @@ class _CommunityCommentsSectionState extends ConsumerState<CommunityCommentsSect
           actions: [
             TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
             TextButton(
-              key: const ValueKey('community-comment-edit-save'),
+              key: _uiKey('comment-edit-save'),
               onPressed: () => Navigator.pop(context, field.text),
               child: const Text('Enregistrer'),
             ),
@@ -134,6 +164,7 @@ class _CommunityCommentsSectionState extends ConsumerState<CommunityCommentsSect
   }
 
   Future<void> _delete(CommunityComment comment) async {
+    final before = _visibleCount();
     final ok = await ref.read(communityCommentsControllerProvider(_key).notifier).remove(comment.id);
     if (!mounted) {
       return;
@@ -141,21 +172,23 @@ class _CommunityCommentsSectionState extends ConsumerState<CommunityCommentsSect
     if (!ok) {
       return;
     }
-    if (comment.isVisible) {
-      widget.onCountDelta?.call(-1);
-    }
+    widget.onCountDelta?.call(_visibleCount() - before);
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        key: ValueKey('community-comment-deleted'),
-        content: Text('Commentaire supprimé'),
+      SnackBar(
+        key: _uiKey('comment-deleted'),
+        content: const Text('Commentaire supprimé'),
       ),
     );
   }
 
   Future<void> _restore(CommunityComment comment) async {
+    final before = _visibleCount();
     final ok = await ref.read(communityCommentsControllerProvider(_key).notifier).restore(comment.id);
+    if (!mounted) {
+      return;
+    }
     if (ok) {
-      widget.onCountDelta?.call(1);
+      widget.onCountDelta?.call(_visibleCount() - before);
     }
   }
 
@@ -163,6 +196,7 @@ class _CommunityCommentsSectionState extends ConsumerState<CommunityCommentsSect
   Widget build(BuildContext context) {
     final colors = context.luminaColors;
     final state = ref.watch(communityCommentsControllerProvider(_key));
+    final replyTo = _replyTo;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -170,46 +204,67 @@ class _CommunityCommentsSectionState extends ConsumerState<CommunityCommentsSect
         const Text('Commentaires', style: AppTextTheme.titleSmall),
         const SizedBox(height: AppSpacing.md),
         if (widget.commentsEnabled) ...[
+          if (replyTo != null) ...[
+            Row(
+              key: _uiKey('comment-reply-mode'),
+              children: [
+                Expanded(
+                  child: Text(
+                    'Réponse à ${replyTo.author.displayLabel}',
+                    key: _uiKey('comment-reply-target'),
+                    style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
+                  ),
+                ),
+                TextButton(
+                  key: _uiKey('comment-reply-cancel'),
+                  onPressed: _cancelReply,
+                  child: const Text('Annuler'),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.sm),
+          ],
           AppTextField(
-            key: const ValueKey('community-comment-input'),
+            key: _uiKey('comment-input'),
             controller: _controller,
-            hint: 'Écrire un commentaire',
+            hint: replyTo == null ? 'Écrire un commentaire' : 'Écrire une réponse',
             minLines: 2,
             maxLines: 4,
             errorText: _composeError,
           ),
           const SizedBox(height: AppSpacing.sm),
           AppButton(
-            key: const ValueKey('community-comment-submit'),
-            label: 'Commenter',
+            key: _uiKey('comment-submit'),
+            label: replyTo == null ? 'Commenter' : 'Répondre',
             onPressed: _submit,
           ),
           const SizedBox(height: AppSpacing.md),
         ] else
           Text(
             'Les commentaires sont désactivés',
-            key: const ValueKey('community-comments-disabled'),
+            key: _uiKey('comments-disabled'),
             style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
           ),
         switch (state) {
           CommunityCommentsLoading() => const AppLoading(),
           CommunityCommentsError(:final message) => Text(
               message,
-              key: const ValueKey('community-comments-error'),
+              key: _uiKey('comments-error'),
             ),
           CommunityCommentsReady(:final items, :final error) => Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 if (error != null)
                   Text(error, style: AppTextTheme.labelSmall.copyWith(color: colors.danger)),
-                if (items.isEmpty)
+                if (items.where((item) => item.isRoot).isEmpty)
                   Text(
                     'Aucun commentaire',
-                    key: const ValueKey('community-comments-empty'),
+                    key: _uiKey('comments-empty'),
                     style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
                   )
                 else
-                  for (final item in items) _tile(colors, item),
+                  for (final row in communityCommentDisplayRows(items))
+                    _tile(colors, row.comment, indented: row.indented),
               ],
             ),
         },
@@ -217,12 +272,16 @@ class _CommunityCommentsSectionState extends ConsumerState<CommunityCommentsSect
     );
   }
 
-  Widget _tile(LuminaColors colors, CommunityComment item) {
+  Widget _tile(LuminaColors colors, CommunityComment item, {required bool indented}) {
     final viewer = _viewerId;
     final isAuthor = viewer != null && item.author.userId == viewer;
     return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.md),
+      padding: EdgeInsets.only(
+        bottom: AppSpacing.md,
+        left: indented ? AppSpacing.xxxl : 0,
+      ),
       child: Column(
+        key: indented ? _uiKey('comment-reply-indent-${item.id}') : _uiKey('comment-root-${item.id}'),
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
@@ -235,7 +294,7 @@ class _CommunityCommentsSectionState extends ConsumerState<CommunityCommentsSect
               ),
               if (item.isVisible && isAuthor)
                 PopupMenuButton<String>(
-                  key: ValueKey('community-comment-author-menu-${item.id}'),
+                  key: _uiKey('comment-author-menu-${item.id}'),
                   onSelected: (value) {
                     if (value == 'edit') {
                       _edit(item);
@@ -250,7 +309,7 @@ class _CommunityCommentsSectionState extends ConsumerState<CommunityCommentsSect
                 )
               else if (item.isVisible && _canModerate && !isAuthor)
                 PopupMenuButton<String>(
-                  key: ValueKey('community-comment-mod-menu-${item.id}'),
+                  key: _uiKey('comment-mod-menu-${item.id}'),
                   onSelected: (_) => _delete(item),
                   itemBuilder: (context) => const [
                     PopupMenuItem(value: 'moderate', child: Text('Modérer')),
@@ -261,26 +320,32 @@ class _CommunityCommentsSectionState extends ConsumerState<CommunityCommentsSect
           if (item.isModerated)
             Text(
               'Commentaire masqué',
-              key: ValueKey('community-comment-moderated-${item.id}'),
+              key: _uiKey('comment-moderated-${item.id}'),
               style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
             )
           else
             Text(
               item.body,
-              key: ValueKey('community-comment-item-${item.id}'),
+              key: _uiKey('comment-item-${item.id}'),
               style: AppTextTheme.bodyMedium,
             ),
           if (item.createdAt != null) ...[
             const SizedBox(height: 4),
             Text(
               formatOptionalChroniqueDate(DateTime.tryParse(item.createdAt!)) ?? item.createdAt!,
-              key: ValueKey('community-comment-at-${item.id}'),
+              key: _uiKey('comment-at-${item.id}'),
               style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
             ),
           ],
-          if (item.isModerated && _isModerator)
+          if (item.isRoot && item.isVisible && widget.commentsEnabled)
             TextButton(
-              key: ValueKey('community-comment-restore-${item.id}'),
+              key: _uiKey('comment-reply-${item.id}'),
+              onPressed: () => _startReply(item),
+              child: const Text('Répondre'),
+            ),
+          if (item.isModerated && _canRestore)
+            TextButton(
+              key: _uiKey('comment-restore-${item.id}'),
               onPressed: () => _restore(item),
               child: const Text('Restaurer'),
             ),

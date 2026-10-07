@@ -7,10 +7,14 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_text_theme.dart';
 import '../../../../core/widgets/app_loading.dart';
+import '../../../auth/providers/auth_controller.dart';
+import '../../../auth/state/auth_state.dart';
 import '../../../chronique/presentation/widgets/chronique_card.dart';
 import '../../../chronique/presentation/widgets/chronique_media_viewer.dart';
 import '../../models/community.dart';
 import '../state/community_feed_controller.dart';
+import '../state/community_publication_sync.dart';
+import 'community_comments_section.dart';
 import 'community_publication_social_bar.dart';
 
 class CommunityFeedSection extends ConsumerWidget {
@@ -21,10 +25,19 @@ class CommunityFeedSection extends ConsumerWidget {
 
   final Community community;
 
+  int? _viewerId(WidgetRef ref) {
+    final auth = ref.watch(authControllerProvider);
+    if (auth is AuthAuthenticated) {
+      return auth.user.id;
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = context.luminaColors;
     final state = ref.watch(communityFeedControllerProvider(community.id));
+    final viewerId = _viewerId(ref);
     return ListView(
       key: const ValueKey('community-feed-scroll'),
       padding: const EdgeInsets.fromLTRB(AppSpacing.xxl, AppSpacing.md, AppSpacing.xxl, AppSpacing.xxl),
@@ -110,6 +123,30 @@ class CommunityFeedSection extends ConsumerWidget {
                               onComments: () => context.push(
                                 AppRoutes.communityPublicationDetail(community.id, item.id),
                               ),
+                            ),
+                            CommunityCommentsSection(
+                              key: ValueKey('community-feed-comments-${item.id}'),
+                              communityId: community.id,
+                              publicationId: item.id,
+                              commentsEnabled: item.commentsEnabled,
+                              isPublicationAuthor: viewerId != null && item.author.userId == viewerId,
+                              myRole: community.myRole,
+                              keyPrefix: 'community-feed-${item.id}',
+                              onCountDelta: (delta) {
+                                final nextCount = (item.commentCount + delta).clamp(0, 1 << 30);
+                                final patch = CommunityPublicationInteractionPatch(
+                                  commentCount: nextCount,
+                                );
+                                ref
+                                    .read(communityFeedControllerProvider(community.id).notifier)
+                                    .applyPublication(item.id, patch);
+                                syncCommunityPublication(
+                                  ref,
+                                  publicationId: item.id,
+                                  communityId: community.id,
+                                  patch: patch,
+                                );
+                              },
                             ),
                           ],
                         ),

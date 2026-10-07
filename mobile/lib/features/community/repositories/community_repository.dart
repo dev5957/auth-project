@@ -362,6 +362,7 @@ class CommunityRepository {
     required int communityId,
     required int publicationId,
     required String body,
+    int? parentCommentId,
   }) {
     return _withToken(
       (token) => _api.createComment(
@@ -369,6 +370,7 @@ class CommunityRepository {
         communityId: communityId,
         publicationId: publicationId,
         body: body,
+        parentCommentId: parentCommentId,
       ),
     );
   }

@@ -516,6 +516,7 @@ class _FakeCommunityApi extends CommunityApiService {
   final List<Completer<void>> likeHolds = <Completer<void>>[];
   List<CommunityComment> comments = const [];
   List<CommunityCommentTrace> traces = const [];
+  final List<Map<String, dynamic>> createCommentCalls = <Map<String, dynamic>>[];
   final List<int> likedPublicationIds = <int>[];
   final List<int> unlikedPublicationIds = <int>[];
   int nextCommentId = 500;
@@ -609,19 +610,27 @@ class _FakeCommunityApi extends CommunityApiService {
     required int communityId,
     required int publicationId,
     required String body,
+    int? parentCommentId,
   }) async {
     networkOps.add('POST /communities/$communityId/publications/$publicationId/comments');
+    createCommentCalls.add(<String, dynamic>{
+      'body': body,
+      'parentCommentId': parentCommentId,
+    });
     final comment = CommunityComment(
       id: nextCommentId++,
       communityId: communityId,
       communityPublicationId: publicationId,
+      parentCommentId: parentCommentId,
       body: body,
       status: 'visible',
       author: const CommunityCommentAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
     );
     comments = [comment, ...comments];
     final current = _byId(publicationId);
-    _replacePublication(current.copyWith(commentCount: current.commentCount + 1));
+    _replacePublication(
+      current.copyWith(commentCount: memberVisibleCommentCount(comments.where((item) => item.communityPublicationId == publicationId))),
+    );
     return comment;
   }
 
@@ -636,20 +645,7 @@ class _FakeCommunityApi extends CommunityApiService {
     networkOps.add('PATCH /communities/$communityId/publications/$publicationId/comments/$commentId');
     comments = [
       for (final item in comments)
-        if (item.id == commentId)
-          CommunityComment(
-            id: item.id,
-            communityId: item.communityId,
-            communityPublicationId: item.communityPublicationId,
-            body: body,
-            status: item.status,
-            author: item.author,
-            createdAt: item.createdAt,
-            updatedAt: item.updatedAt,
-            deletedAt: item.deletedAt,
-          )
-        else
-          item,
+        if (item.id == commentId) item.copyWith(body: body) else item,
     ];
     return comments.firstWhere((item) => item.id == commentId);
   }
@@ -665,7 +661,11 @@ class _FakeCommunityApi extends CommunityApiService {
     comments = [for (final item in comments) if (item.id != commentId) item];
     final current = _byId(publicationId);
     _replacePublication(
-      current.copyWith(commentCount: current.commentCount > 0 ? current.commentCount - 1 : 0),
+      current.copyWith(
+        commentCount: memberVisibleCommentCount(
+          comments.where((item) => item.communityPublicationId == publicationId),
+        ),
+      ),
     );
   }
 
@@ -679,7 +679,19 @@ class _FakeCommunityApi extends CommunityApiService {
     networkOps.add(
       'POST /communities/$communityId/publications/$publicationId/comments/$commentId/restore',
     );
-    throw const ApiException(message: 'Not found', statusCode: 404);
+    comments = [
+      for (final item in comments)
+        if (item.id == commentId) item.copyWith(status: 'visible') else item,
+    ];
+    final current = _byId(publicationId);
+    _replacePublication(
+      current.copyWith(
+        commentCount: memberVisibleCommentCount(
+          comments.where((item) => item.communityPublicationId == publicationId),
+        ),
+      ),
+    );
+    return comments.firstWhere((item) => item.id == commentId);
   }
 
   @override
@@ -1526,7 +1538,7 @@ void main() {
       scrollable: find.descendant(
         of: find.byKey(const ValueKey('community-feed-scroll')),
         matching: find.byType(Scrollable),
-      ),
+      ).first,
     );
     await tester.pumpAndSettle();
   }
@@ -3271,7 +3283,10 @@ void main() {
     await tester.scrollUntilVisible(
       find.byKey(ValueKey('chronique-feed-media-${media.id}')),
       120,
-      scrollable: find.byType(Scrollable).first,
+      scrollable: find.descendant(
+        of: find.byKey(const ValueKey('community-feed-scroll')),
+        matching: find.byType(Scrollable),
+      ).first,
     );
     await tester.pumpAndSettle();
   }
@@ -3351,7 +3366,7 @@ void main() {
     expect(find.byType(ChroniqueMediaViewerPage), findsOneWidget);
     expect(find.text('Image'), findsWidgets);
     expect(
-      api.networkOps.where((op) => op.contains('/publications/21')),
+      api.networkOps.where((op) => op.contains('/publications/21') && !op.contains('/comments')),
       isEmpty,
     );
   });
@@ -3899,6 +3914,34 @@ void main() {
       ..comments = [_moderatedComment()];
     await pumpPublicationDetail(tester, api, publicationId: 21);
     expect(find.byKey(const ValueKey('community-comment-restore-2')), findsOneWidget);
+  });
+
+  testWidgets('publication author sees restore on moderated comment', (tester) async {
+    final api = _FakeCommunityApi()
+      ..items[0] = Community(
+        id: 3,
+        name: 'Jardin secret',
+        visibility: 'private',
+        myRole: CommunityRole.member,
+        memberCount: 1,
+      )
+      ..publications = [
+        CommunityPublication(
+          id: 21,
+          communityId: 3,
+          author: const CommunityPublicationAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
+          body: 'Texte de publication active assez long.',
+          status: 'active',
+          commentsEnabled: true,
+        ),
+      ]
+      ..comments = [_moderatedComment()];
+    await pumpPublicationDetail(tester, api, publicationId: 21);
+    expect(find.byKey(const ValueKey('community-comment-restore-2')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('community-comment-restore-2')));
+    await tester.pumpAndSettle();
+    expect(api.networkOps, contains('POST /communities/3/publications/21/comments/2/restore'));
+    expect(find.byKey(const ValueKey('community-comment-item-2')), findsOneWidget);
   });
 
   testWidgets('member does not see restore on moderated comment', (tester) async {
@@ -4462,6 +4505,159 @@ void main() {
     await openCommunityMembersTab(tester);
     expect(find.byKey(const ValueKey('community-detail-invite')), findsNothing);
     expect(find.byKey(const ValueKey('community-leave')), findsOneWidget);
+  });
+
+  test('community comment parses parent_comment_id', () {
+    final root = CommunityComment.fromJson({
+      'id': 1,
+      'community_id': 3,
+      'community_publication_id': 21,
+      'parent_comment_id': null,
+      'body': 'Racine',
+      'status': 'visible',
+      'author': {'user_id': 1, 'login': 'tgjjk', 'is_former_member': false},
+    });
+    final reply = CommunityComment.fromJson({
+      'id': 2,
+      'community_id': 3,
+      'community_publication_id': 21,
+      'parent_comment_id': 1,
+      'body': 'Reponse',
+      'status': 'visible',
+      'author': {'user_id': 2, 'login': 'other', 'is_former_member': false},
+    });
+    expect(root.parentCommentId, isNull);
+    expect(root.isRoot, isTrue);
+    expect(reply.parentCommentId, 1);
+    expect(reply.isReply, isTrue);
+    expect(memberVisibleCommentCount([root, reply]), 2);
+    expect(
+      memberVisibleCommentCount([root.copyWith(status: 'moderated'), reply]),
+      0,
+    );
+  });
+
+  testWidgets('feed comments are inline without opening detail', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final api = _FakeCommunityApi()
+      ..publications = [_activePublication()];
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('community-feed-21-comment-input')),
+      200,
+      scrollable: find.descendant(
+        of: find.byKey(const ValueKey('community-feed-scroll')),
+        matching: find.byType(Scrollable),
+      ).first,
+    );
+    expect(find.byKey(const ValueKey('community-feed-comments-21')), findsOneWidget);
+    await tester.enterText(find.byKey(const ValueKey('community-feed-21-comment-input')), 'Depuis le fil');
+    await tester.tap(find.byKey(const ValueKey('community-feed-21-comment-submit')));
+    await tester.pumpAndSettle();
+    expect(api.networkOps, contains('POST /communities/3/publications/21/comments'));
+    expect(find.byKey(const ValueKey('community-feed-21-comment-item-500')), findsOneWidget);
+    expect(tester.widget<Text>(find.byKey(const ValueKey('community-comment-count-21'))).data, '1');
+    expect(find.byType(CommunityPublicationDetailScreen), findsNothing);
+  });
+
+  testWidgets('reply is available on roots only and posts parent_comment_id', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final api = _FakeCommunityApi()
+      ..publications = [_activePublication().copyWith(commentCount: 1)]
+      ..comments = [
+        const CommunityComment(
+          id: 7,
+          communityId: 3,
+          communityPublicationId: 21,
+          body: 'Racine visible',
+          status: 'visible',
+          author: CommunityCommentAuthor(userId: 2, login: 'other', isFormerMember: false),
+        ),
+      ];
+    await pumpPublicationDetail(tester, api, publicationId: 21);
+    expect(find.byKey(const ValueKey('community-comment-reply-7')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('community-comment-reply-7')));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('community-comment-reply-mode')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-comment-reply-target')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('community-comment-reply-cancel')));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('community-comment-reply-mode')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('community-comment-reply-7')));
+    await tester.pump();
+    await tester.enterText(find.byKey(const ValueKey('community-comment-input')), 'Ma reponse');
+    await tester.tap(find.byKey(const ValueKey('community-comment-submit')));
+    await tester.pumpAndSettle();
+    expect(api.createCommentCalls.single['parentCommentId'], 7);
+    expect(find.byKey(const ValueKey('community-comment-item-500')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-comment-reply-indent-500')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-comment-reply-500')), findsNothing);
+    expect(tester.widget<Text>(find.byKey(const ValueKey('community-comment-count-21'))).data, '2');
+  });
+
+  testWidgets('moderating a parent hides the branch and restore brings it back', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final api = _FakeCommunityApi()
+      ..publications = [
+        const CommunityPublication(
+          id: 21,
+          communityId: 3,
+          author: CommunityPublicationAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
+          body: 'Texte de publication active assez long.',
+          status: 'active',
+          commentsEnabled: true,
+          commentCount: 2,
+        ),
+      ]
+      ..comments = [
+        const CommunityComment(
+          id: 7,
+          communityId: 3,
+          communityPublicationId: 21,
+          body: 'Racine auteur',
+          status: 'visible',
+          author: CommunityCommentAuthor(userId: 2, login: 'other', isFormerMember: false),
+        ),
+        const CommunityComment(
+          id: 8,
+          communityId: 3,
+          communityPublicationId: 21,
+          parentCommentId: 7,
+          body: 'Reponse visible',
+          status: 'visible',
+          author: CommunityCommentAuthor(userId: 3, login: 'third', isFormerMember: false),
+        ),
+      ];
+    await pumpPublicationDetail(tester, api, publicationId: 21);
+    expect(find.byKey(const ValueKey('community-comment-reply-indent-8')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('community-comment-mod-menu-7')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Modérer'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('community-comment-item-8')), findsNothing);
+    expect(tester.widget<Text>(find.byKey(const ValueKey('community-comment-count-21'))).data, '0');
+  });
+
+  testWidgets('feed and detail share the same comments controller', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final api = _FakeCommunityApi()
+      ..publications = [_activePublication()];
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    await tester.tap(find.byKey(const ValueKey('community-feed-item-21')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('community-comment-input')), 'Partage etat');
+    await tester.tap(find.byKey(const ValueKey('community-comment-submit')));
+    await tester.pumpAndSettle();
+    tester.state<NavigatorState>(find.byType(Navigator).first).pop();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('community-feed-21-comment-item-500')), findsOneWidget);
+    expect(tester.widget<Text>(find.byKey(const ValueKey('community-comment-count-21'))).data, '1');
   });
 
   testWidgets('owner community navigation exposes management', (tester) async {

@@ -443,12 +443,16 @@ class CommunityApiService {
     required int communityId,
     required int publicationId,
     required String body,
+    int? parentCommentId,
   }) async {
     final json = await _send(
       'POST',
       '/communities/$communityId/publications/$publicationId/comments',
       accessToken: accessToken,
-      data: <String, dynamic>{'body': body},
+      data: <String, dynamic>{
+        'body': body,
+        if (parentCommentId != null) 'parent_comment_id': parentCommentId,
+      },
     );
     return CommunityComment.fromJson(_asMap(json['comment'] ?? json));
   }

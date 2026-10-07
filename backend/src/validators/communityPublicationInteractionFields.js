@@ -35,6 +35,13 @@ function parseCommentBody(value) {
   return body;
 }
 
+function parseParentCommentId(value) {
+  if (value == null) {
+    return null;
+  }
+  return parseId(value, 'parent_comment_id is invalid');
+}
+
 function parseCreateCommentInput(body) {
   assertObject(body, 'body is required');
   if (hasOwn(body, 'status') || hasOwn(body, 'author_user_id') || hasOwn(body, 'id')) {
@@ -43,7 +50,10 @@ function parseCreateCommentInput(body) {
   if (!hasOwn(body, 'body')) {
     throw new AppError(400, 'body is required');
   }
-  return { body: parseCommentBody(body.body) };
+  const parentCommentId = hasOwn(body, 'parent_comment_id')
+    ? parseParentCommentId(body.parent_comment_id)
+    : null;
+  return { body: parseCommentBody(body.body), parentCommentId };
 }
 
 function parsePatchCommentInput(body) {
