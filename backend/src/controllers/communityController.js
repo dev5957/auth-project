@@ -8,6 +8,10 @@ const {
   removeMember,
   leaveCommunity,
 } = require('../services/communityService');
+const {
+  createIdentityUpload,
+  completeIdentityUpload,
+} = require('../services/communityIdentityService');
 
 async function create(req, res, next) {
   try {
@@ -93,6 +97,42 @@ async function leave(req, res, next) {
   }
 }
 
+async function createAvatarUpload(req, res, next) {
+  try {
+    const result = await createIdentityUpload(req.user.userId, req.params.id, 'avatar', req.body);
+    res.status(201).json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function completeAvatarUpload(req, res, next) {
+  try {
+    const result = await completeIdentityUpload(req.user.userId, req.params.id, 'avatar', req.body);
+    res.status(200).json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function createBannerUpload(req, res, next) {
+  try {
+    const result = await createIdentityUpload(req.user.userId, req.params.id, 'banner', req.body);
+    res.status(201).json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function completeBannerUpload(req, res, next) {
+  try {
+    const result = await completeIdentityUpload(req.user.userId, req.params.id, 'banner', req.body);
+    res.status(200).json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   create,
   list,
@@ -102,4 +142,8 @@ module.exports = {
   patchMemberRole,
   remove,
   leave,
+  createAvatarUpload,
+  completeAvatarUpload,
+  createBannerUpload,
+  completeBannerUpload,
 };

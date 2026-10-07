@@ -13,6 +13,7 @@ import '../../../../core/widgets/app_text_field.dart';
 import '../../models/community.dart';
 import '../../models/join_request_messages.dart';
 import '../state/community_search_controller.dart';
+import '../widgets/community_avatar.dart';
 
 class CommunitySearchScreen extends ConsumerStatefulWidget {
   const CommunitySearchScreen({super.key});
@@ -147,20 +148,33 @@ class _CommunitySearchScreenState extends ConsumerState<CommunitySearchScreen> {
                               InkWell(
                                 key: ValueKey('community-search-item-${preview.id}'),
                                 onTap: () => _openPreview(preview),
-                                child: Column(
+                                child: Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(preview.name, style: AppTextTheme.titleMedium),
-                                    if (preview.description != null) ...[
-                                      const SizedBox(height: AppSpacing.sm),
-                                      Text(preview.description!),
-                                    ],
-                                    const SizedBox(height: AppSpacing.sm),
-                                    Text(
-                                      '${preview.memberCount} membre${preview.memberCount == 1 ? '' : 's'}',
-                                      key: ValueKey('community-search-count-${preview.id}'),
-                                      style: AppTextTheme.bodyMedium.copyWith(
-                                        color: colors.textSecondary,
+                                    CommunityAvatar(
+                                      readUrl: preview.avatarReadUrl,
+                                      size: 40,
+                                      heroTag: 'community-avatar-${preview.id}',
+                                    ),
+                                    const SizedBox(width: AppSpacing.md),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(preview.name, style: AppTextTheme.titleMedium),
+                                          if (preview.description != null) ...[
+                                            const SizedBox(height: AppSpacing.sm),
+                                            Text(preview.description!),
+                                          ],
+                                          const SizedBox(height: AppSpacing.sm),
+                                          Text(
+                                            '${preview.memberCount} membre${preview.memberCount == 1 ? '' : 's'}',
+                                            key: ValueKey('community-search-count-${preview.id}'),
+                                            style: AppTextTheme.bodyMedium.copyWith(
+                                              color: colors.textSecondary,
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
                                   ],

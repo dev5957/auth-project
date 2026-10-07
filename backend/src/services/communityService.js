@@ -13,6 +13,7 @@ const {
 const {
   abandonDraftsAndPendingUploads,
 } = require('./communityPublicationMediaService');
+const { getStorage } = require('./storageService');
 
 const NOT_FOUND = 'Community not found';
 
@@ -68,6 +69,46 @@ function toSearchPreview(row) {
     description: row.description == null ? null : row.description,
     member_count: Number(row.member_count) || 0,
   };
+}
+
+async function signedIdentityReadUrl(storage, storageKey) {
+  if (typeof storageKey !== 'string' || storageKey.trim() === '') {
+    return null;
+  }
+  try {
+    const signed = await storage.createReadUrl(storageKey.trim());
+    if (signed && typeof signed.url === 'string' && signed.url.trim() !== '') {
+      return signed.url;
+    }
+  } catch (err) {
+    const message = err && typeof err.message === 'string' ? err.message : 'read url failed';
+    console.error('[community-identity] read url failed', message);
+  }
+  return null;
+}
+
+async function toPublicCommunityWithIdentity(row, options = {}) {
+  const storage = getStorage(options.storage);
+  if (options.searchPreview) {
+    const preview = toSearchPreview(row);
+    const avatarUrl = await signedIdentityReadUrl(storage, row.avatar_storage_key);
+    if (avatarUrl) {
+      preview.avatar_read_url = avatarUrl;
+    }
+    return preview;
+  }
+  const community = toPublicCommunity(row);
+  const avatarUrl = await signedIdentityReadUrl(storage, row.avatar_storage_key);
+  if (avatarUrl) {
+    community.avatar_read_url = avatarUrl;
+  }
+  if (options.includeBanner !== false) {
+    const bannerUrl = await signedIdentityReadUrl(storage, row.banner_storage_key);
+    if (bannerUrl) {
+      community.banner_read_url = bannerUrl;
+    }
+  }
+  return community;
 }
 
 function toPublicMember(row) {
@@ -243,11 +284,14 @@ async function createCommunity(userId, body, deps = {}) {
        VALUES ($1, $2, $3)`,
       [community.id, userId, 'owner']
     );
-    return toPublicCommunity({
-      ...community,
-      my_role: 'owner',
-      member_count: 1,
-    });
+    return toPublicCommunityWithIdentity(
+      {
+        ...community,
+        my_role: 'owner',
+        member_count: 1,
+      },
+      { storage: deps.storage, includeBanner: true }
+    );
   });
 }
 
@@ -262,6 +306,8 @@ async function listMyCommunities(userId, query, deps = {}) {
             c.visibility,
             c.created_at,
             c.updated_at,
+            c.avatar_storage_key,
+            c.banner_storage_key,
             m.role AS my_role,
             (
               SELECT COUNT(*)::int
@@ -277,7 +323,11 @@ async function listMyCommunities(userId, query, deps = {}) {
     [userId, limit]
   );
   return {
-    items: result.rows.map(toPublicCommunity),
+    items: await Promise.all(
+      result.rows.map((row) =>
+        toPublicCommunityWithIdentity(row, { storage: deps.storage, includeBanner: false })
+      )
+    ),
   };
 }
 
@@ -292,6 +342,8 @@ async function getCommunityById(userId, rawId, deps = {}) {
             c.visibility,
             c.created_at,
             c.updated_at,
+            c.avatar_storage_key,
+            c.banner_storage_key,
             m.role AS my_role,
             (
               SELECT COUNT(*)::int
@@ -310,7 +362,7 @@ async function getCommunityById(userId, rawId, deps = {}) {
   if (!row) {
     throw new AppError(404, NOT_FOUND);
   }
-  return toPublicCommunity(row);
+  return toPublicCommunityWithIdentity(row, { storage: deps.storage, includeBanner: true });
 }
 
 async function searchCommunities(userId, query, deps = {}) {
@@ -322,6 +374,7 @@ async function searchCommunities(userId, query, deps = {}) {
     `SELECT c.id,
             c.name,
             c.description,
+            c.avatar_storage_key,
             (
               SELECT COUNT(*)::int
               FROM community_members cm
@@ -334,7 +387,11 @@ async function searchCommunities(userId, query, deps = {}) {
     [pattern, limit]
   );
   return {
-    items: result.rows.map(toSearchPreview),
+    items: await Promise.all(
+      result.rows.map((row) =>
+        toPublicCommunityWithIdentity(row, { storage: deps.storage, searchPreview: true })
+      )
+    ),
   };
 }
 
@@ -516,4 +573,5 @@ module.exports = {
   leaveCommunity,
   toPublicCommunity,
   toSearchPreview,
+  toPublicCommunityWithIdentity,
 };

@@ -125,8 +125,8 @@ function createCommunityMemory() {
         description: params[1],
         visibility: params[2],
         created_by: params[3],
-        avatar_storage_key: 'must-never-leak',
-        banner_storage_key: 'must-never-leak',
+        avatar_storage_key: null,
+        banner_storage_key: null,
         created_at: now,
         updated_at: now,
       };

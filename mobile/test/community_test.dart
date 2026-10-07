@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,6 +16,12 @@ import 'package:mobile/features/auth/providers/auth_controller.dart';
 import 'package:mobile/features/auth/providers/auth_providers.dart';
 import 'package:mobile/features/auth/state/auth_state.dart';
 import 'package:mobile/features/community/models/community.dart';
+import 'package:mobile/features/community/models/community_identity_upload.dart';
+import 'package:mobile/features/community/presentation/widgets/community_avatar.dart';
+import 'package:mobile/features/chronique/media/chronique_local_media_picker.dart';
+import 'package:mobile/features/chronique/models/media_draft.dart';
+import 'package:mobile/features/chronique/providers/chronique_providers.dart';
+import 'package:mobile/features/chronique/services/chronique_media_upload_client.dart';
 import 'package:mobile/features/community/models/community_fields.dart';
 import 'package:mobile/features/community/models/community_comment.dart';
 import 'package:mobile/features/community/models/community_publication.dart';
@@ -255,6 +262,57 @@ class _FakeCommunityApi extends CommunityApiService {
       (item) => item.id == id,
       orElse: () => throw const ApiException(message: 'Community not found', statusCode: 404),
     );
+  }
+
+  ApiException? failIdentityUpload;
+  ApiException? failIdentityComplete;
+  String? lastIdentitySlot;
+  String? lastIdentityUploadId;
+
+  @override
+  Future<CommunityIdentityUploadSession> createIdentityUpload({
+    required String accessToken,
+    required int communityId,
+    required String slot,
+    required Map<String, dynamic> data,
+  }) async {
+    networkOps.add('POST /communities/$communityId/$slot/uploads');
+    lastIdentitySlot = slot;
+    if (failIdentityUpload != null) {
+      throw failIdentityUpload!;
+    }
+    return CommunityIdentityUploadSession(
+      slot: slot,
+      uploadId: 'opaque-upload',
+      method: 'PUT',
+      url: 'https://upload.test/identity',
+      headers: const {'Content-Type': 'image/jpeg'},
+    );
+  }
+
+  @override
+  Future<Community> completeIdentityUpload({
+    required String accessToken,
+    required int communityId,
+    required String slot,
+    required String uploadId,
+  }) async {
+    networkOps.add('POST /communities/$communityId/$slot/complete');
+    lastIdentityUploadId = uploadId;
+    if (failIdentityComplete != null) {
+      throw failIdentityComplete!;
+    }
+    final index = items.indexWhere((item) => item.id == communityId);
+    if (index < 0) {
+      throw const ApiException(message: 'Community not found', statusCode: 404);
+    }
+    final current = items[index];
+    final updated = current.copyWith(
+      avatarReadUrl: slot == 'avatar' ? 'https://read.test/avatar.jpg' : current.avatarReadUrl,
+      bannerReadUrl: slot == 'banner' ? 'https://read.test/banner.jpg' : current.bannerReadUrl,
+    );
+    items[index] = updated;
+    return updated;
   }
 
   @override
@@ -985,10 +1043,56 @@ class _FakeCommunityApi extends CommunityApiService {
   }
 }
 
+class _FakeIdentityPicker implements ChroniqueLocalMediaPicker {
+  _FakeIdentityPicker({this.imageResult = const MediaPickCancelled()});
+
+  MediaPickResult imageResult;
+
+  @override
+  Future<MediaPickResult> pickImage({int? limit}) async => imageResult;
+
+  @override
+  Future<MediaPickResult> pickImageFromCamera() async => const MediaPickCancelled();
+
+  @override
+  Future<MediaPickResult> pickVideo({int? limit}) async => const MediaPickCancelled();
+
+  @override
+  Future<MediaPickResult> pickVideoFromCamera() async => const MediaPickCancelled();
+
+  @override
+  Future<MediaPickResult> pickAudio() async => const MediaPickCancelled();
+
+  @override
+  Future<MediaPickResult> pickDocument({int? limit}) async => const MediaPickCancelled();
+}
+
+class _FakeIdentityPutClient extends ChroniqueMediaUploadClient {
+  int puts = 0;
+  Object? putError;
+
+  @override
+  Future<void> putFile({
+    required String url,
+    required String method,
+    required Map<String, String> headers,
+    required String localPath,
+    required int byteSize,
+    onSendProgress,
+  }) async {
+    if (putError != null) {
+      throw putError!;
+    }
+    puts += 1;
+  }
+}
+
 Future<void> _pumpApp(
   WidgetTester tester, {
   required _FakeCommunityApi api,
   AuthTokenStorage? tokens,
+  ChroniqueLocalMediaPicker? picker,
+  ChroniqueMediaUploadClient? uploadClient,
 }) async {
   await tester.pumpWidget(
     ProviderScope(
@@ -1002,6 +1106,9 @@ Future<void> _pumpApp(
         ),
         authControllerProvider.overrideWith(() => _SeededAuthController()),
         communityApiServiceProvider.overrideWithValue(api),
+        if (picker != null) chroniqueLocalMediaPickerProvider.overrideWithValue(picker),
+        if (uploadClient != null)
+          chroniqueMediaUploadClientProvider.overrideWithValue(uploadClient),
       ],
       child: const LuminaApp(),
     ),
@@ -1052,6 +1159,47 @@ void main() {
     });
     expect(preview.name, 'Jardin secret');
     expect(preview.memberCount, 2);
+    expect(
+      () => CommunitySearchPreview.fromJson({
+        'id': 1,
+        'name': 'Jardin secret',
+        'member_count': 2,
+        'avatar_storage_key': 'secret',
+      }),
+      throwsA(isA<FormatException>()),
+    );
+    final withAvatar = CommunitySearchPreview.fromJson({
+      'id': 1,
+      'name': 'Jardin secret',
+      'member_count': 2,
+      'avatar_read_url': 'https://read.test/avatar.jpg',
+    });
+    expect(withAvatar.avatarReadUrl, 'https://read.test/avatar.jpg');
+  });
+
+  test('community json rejects identity storage keys', () {
+    expect(
+      () => Community.fromJson({
+        'id': 1,
+        'name': 'Jardin secret',
+        'visibility': 'private',
+        'my_role': 'owner',
+        'member_count': 1,
+        'avatar_storage_key': 'secret',
+      }),
+      throwsA(isA<FormatException>()),
+    );
+    final parsed = Community.fromJson({
+      'id': 1,
+      'name': 'Jardin secret',
+      'visibility': 'private',
+      'my_role': 'owner',
+      'member_count': 1,
+      'avatar_read_url': 'https://read.test/avatar.jpg',
+      'banner_read_url': 'https://read.test/banner.jpg',
+    });
+    expect(parsed.avatarReadUrl, 'https://read.test/avatar.jpg');
+    expect(parsed.bannerReadUrl, 'https://read.test/banner.jpg');
   });
 
   testWidgets('COMMUNITIES opens the membership list', (tester) async {
@@ -1101,6 +1249,100 @@ void main() {
     expect(find.byKey(const ValueKey('community-placeholder-Avatar')), findsOneWidget);
     expect(find.text('Un cercle privé'), findsNothing);
     expect(find.text('vérification de la création et du rôle propriétaire'), findsNothing);
+  });
+
+  testWidgets('community list and search show compact avatars', (tester) async {
+    final api = _FakeCommunityApi();
+    api.items[0] = api.items[0].copyWith(avatarReadUrl: 'https://read.test/avatar.jpg');
+    api.searchResults = [
+        CommunitySearchPreview(
+          id: 99,
+          name: 'Cercle fermé',
+          memberCount: 4,
+          avatarReadUrl: 'https://read.test/search-avatar.jpg',
+        ),
+      ];
+    await _pumpApp(tester, api: api);
+    await tester.tap(find.text('COMMUNITIES'));
+    await tester.pumpAndSettle();
+    expect(find.byType(CommunityAvatar), findsWidgets);
+    expect(find.byKey(const ValueKey('community-identity-avatar-image')), findsWidgets);
+    await tester.tap(find.byKey(const ValueKey('community-search-open')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('community-search-field')), 'Cercle');
+    await tester.tap(find.byKey(const ValueKey('community-search-submit')));
+    await tester.pumpAndSettle();
+    expect(find.byType(CommunityAvatar), findsWidgets);
+    expect(find.byKey(const ValueKey('community-identity-avatar-image')), findsWidgets);
+  });
+
+  testWidgets('owner identity upload replaces avatar after complete', (tester) async {
+    final file = File('${Directory.systemTemp.path}/lumina-identity-avatar.jpg')
+      ..writeAsBytesSync(List<int>.filled(32, 1));
+    addTearDown(() {
+      if (file.existsSync()) {
+        file.deleteSync();
+      }
+    });
+    final picker = _FakeIdentityPicker(
+      imageResult: MediaPickSelected(
+        kind: MediaDraftKind.image,
+        sourceType: MediaDraftSourceType.gallery,
+        fileName: 'avatar.jpg',
+        byteSize: 32,
+        localPath: file.path,
+        contentType: 'image/jpeg',
+      ),
+    );
+    final putClient = _FakeIdentityPutClient();
+    final api = _FakeCommunityApi();
+    await _pumpApp(tester, api: api, picker: picker, uploadClient: putClient);
+    await tester.tap(find.text('COMMUNITIES'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('community-list-item-3')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('community-identity-avatar-edit')));
+    await tester.pumpAndSettle();
+    expect(api.lastIdentitySlot, 'avatar');
+    expect(api.lastIdentityUploadId, 'opaque-upload');
+    expect(putClient.puts, 1);
+    expect(find.byKey(const ValueKey('community-identity-avatar-image')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-placeholder-Avatar')), findsNothing);
+  });
+
+  testWidgets('failed identity put keeps previous avatar', (tester) async {
+    final file = File('${Directory.systemTemp.path}/lumina-identity-keep.jpg')
+      ..writeAsBytesSync(List<int>.filled(32, 1));
+    addTearDown(() {
+      if (file.existsSync()) {
+        file.deleteSync();
+      }
+    });
+    final picker = _FakeIdentityPicker(
+      imageResult: MediaPickSelected(
+        kind: MediaDraftKind.image,
+        sourceType: MediaDraftSourceType.gallery,
+        fileName: 'avatar.jpg',
+        byteSize: 32,
+        localPath: file.path,
+        contentType: 'image/jpeg',
+      ),
+    );
+    final putClient = _FakeIdentityPutClient()
+      ..putError = const ApiException(message: 'put failed');
+    final api = _FakeCommunityApi();
+    api.items[0] = api.items[0].copyWith(avatarReadUrl: 'https://read.test/old-avatar.jpg');
+    await _pumpApp(tester, api: api, picker: picker, uploadClient: putClient);
+    await tester.tap(find.text('COMMUNITIES'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('community-list-item-3')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('community-identity-avatar-image')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('community-identity-avatar-edit')));
+    await tester.pumpAndSettle();
+    expect(api.lastIdentityUploadId, isNull);
+    expect(api.items[0].avatarReadUrl, 'https://read.test/old-avatar.jpg');
+    expect(find.byKey(const ValueKey('community-identity-avatar-image')), findsOneWidget);
   });
 
   testWidgets('detail 404 shows introuvable', (tester) async {
@@ -1583,6 +1825,54 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('community-detail-invite')));
     await tester.pumpAndSettle();
   }
+
+  testWidgets('detail shows identity images when read urls exist', (tester) async {
+    final api = _FakeCommunityApi();
+    api.items[0] = api.items[0].copyWith(
+      avatarReadUrl: 'https://read.test/avatar.jpg',
+      bannerReadUrl: 'https://read.test/banner.jpg',
+    );
+    await openCommunityDetail(tester, api);
+    expect(find.byKey(const ValueKey('community-identity-avatar-image')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-identity-banner-image')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-placeholder-Avatar')), findsNothing);
+    expect(find.byKey(const ValueKey('community-placeholder-Bannière')), findsNothing);
+  });
+
+  testWidgets('community header avatar overlaps a centered circular banner', (tester) async {
+    final api = _FakeCommunityApi();
+    await openCommunityDetail(tester, api);
+    final banner = tester.getRect(find.byKey(const ValueKey('community-identity-banner')));
+    final avatar = tester.getRect(find.byKey(const ValueKey('community-identity-avatar')));
+    expect(avatar.width, closeTo(avatar.height, 0.5));
+    expect(avatar.center.dx, closeTo(banner.center.dx, 1));
+    expect(avatar.top, lessThan(banner.bottom));
+    expect(avatar.bottom, greaterThan(banner.bottom));
+    expect(find.byType(CommunityAvatar), findsWidgets);
+  });
+
+  testWidgets('owner can edit community identity', (tester) async {
+    final ownerApi = _FakeCommunityApi();
+    await openCommunityDetail(tester, ownerApi);
+    expect(find.byKey(const ValueKey('community-identity-avatar-edit')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-identity-banner-edit')), findsOneWidget);
+  });
+
+  testWidgets('admin cannot edit community identity', (tester) async {
+    final adminApi = _FakeCommunityApi();
+    setListedRole(adminApi, CommunityRole.admin);
+    await openCommunityDetail(tester, adminApi);
+    expect(find.byKey(const ValueKey('community-identity-avatar-edit')), findsNothing);
+    expect(find.byKey(const ValueKey('community-identity-banner-edit')), findsNothing);
+  });
+
+  testWidgets('member cannot edit community identity', (tester) async {
+    final memberApi = _FakeCommunityApi();
+    setListedRole(memberApi, CommunityRole.member);
+    await openCommunityDetail(tester, memberApi);
+    expect(find.byKey(const ValueKey('community-identity-avatar-edit')), findsNothing);
+    expect(find.byKey(const ValueKey('community-identity-banner-edit')), findsNothing);
+  });
 
   testWidgets('owner sees invite member button', (tester) async {
     final api = _FakeCommunityApi();

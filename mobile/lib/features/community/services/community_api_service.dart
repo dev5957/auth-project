@@ -7,6 +7,7 @@ import '../models/community.dart';
 import '../models/community_comment.dart';
 import '../models/community_publication.dart';
 import '../models/join_request.dart';
+import '../models/community_identity_upload.dart';
 import '../../chronique/models/chronique_media_upload.dart';
 
 class CommunityApiService {
@@ -93,6 +94,36 @@ class CommunityApiService {
     required int id,
   }) async {
     final json = await _send('GET', '/communities/$id', accessToken: accessToken);
+    return _communityFrom(json);
+  }
+
+  Future<CommunityIdentityUploadSession> createIdentityUpload({
+    required String accessToken,
+    required int communityId,
+    required String slot,
+    required Map<String, dynamic> data,
+  }) async {
+    final json = await _send(
+      'POST',
+      '/communities/$communityId/$slot/uploads',
+      accessToken: accessToken,
+      data: data,
+    );
+    return CommunityIdentityUploadSession.fromJson(json);
+  }
+
+  Future<Community> completeIdentityUpload({
+    required String accessToken,
+    required int communityId,
+    required String slot,
+    required String uploadId,
+  }) async {
+    final json = await _send(
+      'POST',
+      '/communities/$communityId/$slot/complete',
+      accessToken: accessToken,
+      data: <String, dynamic>{'upload_id': uploadId},
+    );
     return _communityFrom(json);
   }
 

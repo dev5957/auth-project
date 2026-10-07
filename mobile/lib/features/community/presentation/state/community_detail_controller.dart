@@ -1,9 +1,18 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/network/api_exception.dart';
+import '../../../chronique/media/chronique_local_media_picker.dart';
+import '../../../chronique/media/chronique_media_limits.dart';
+import '../../../chronique/media/chronique_media_mime.dart';
+import '../../../chronique/models/media_draft.dart';
+import '../../../chronique/providers/chronique_providers.dart';
 import '../../models/community.dart';
+import '../../models/community_identity_upload.dart';
 import '../../providers/community_providers.dart';
+import 'community_list_controller.dart';
 
 class CommunityDetailData {
   const CommunityDetailData({
@@ -94,6 +103,88 @@ class CommunityDetailController extends AutoDisposeFamilyNotifier<CommunityDetai
         '[community] DELETE members failed status=${error.statusCode} message=${error.message}',
       );
       return false;
+    }
+  }
+
+  static const _identityTypes = {'image/jpeg', 'image/png', 'image/webp'};
+
+  Future<String?> editIdentity(CommunityIdentitySlot slot) async {
+    final picker = ref.read(chroniqueLocalMediaPickerProvider);
+    final picked = await picker.pickImage(limit: 1);
+    switch (picked) {
+      case MediaPickCancelled():
+        return null;
+      case MediaPickFailed(:final message):
+        return message;
+      case MediaPickMany(:final items):
+        if (items.isEmpty) {
+          return null;
+        }
+        return _uploadIdentity(slot, items.first);
+      case MediaPickSelected():
+        return _uploadIdentity(slot, picked);
+    }
+  }
+
+  Future<String?> _uploadIdentity(
+    CommunityIdentitySlot slot,
+    MediaPickSelected item,
+  ) async {
+    final mime = resolveChroniqueMediaContentType(
+          kind: MediaDraftKind.image,
+          fileName: item.fileName,
+          localPath: item.localPath,
+          platformMime: item.contentType ?? item.platformMime,
+        ) ??
+        item.contentType;
+    if (mime == null || !_identityTypes.contains(mime)) {
+      return 'Format d’image non pris en charge';
+    }
+    final file = File(item.localPath);
+    if (!file.existsSync()) {
+      return kMediaUploadFailedMessage;
+    }
+    final byteSize = item.byteSize > 0 ? item.byteSize : file.lengthSync();
+    final slotName = slot == CommunityIdentitySlot.banner ? 'banner' : 'avatar';
+    try {
+      final repo = ref.read(communityRepositoryProvider);
+      final session = await repo.createIdentityUpload(
+        communityId: _communityId,
+        slot: slotName,
+        data: <String, dynamic>{
+          'content_type': mime,
+          'byte_size': byteSize,
+        },
+      );
+      await ref.read(chroniqueMediaUploadClientProvider).putFile(
+            url: session.url,
+            method: session.method,
+            headers: session.headers,
+            localPath: item.localPath,
+            byteSize: byteSize,
+          );
+      final community = await repo.completeIdentityUpload(
+        communityId: _communityId,
+        slot: slotName,
+        uploadId: session.uploadId,
+      );
+      final current = state;
+      if (current is CommunityDetailReady) {
+        state = CommunityDetailReady(
+          CommunityDetailData(community: community, members: current.data.members),
+        );
+      } else {
+        await load();
+      }
+      ref.read(communityListControllerProvider.notifier).replaceCommunity(community);
+      return null;
+    } on ApiException catch (error) {
+      debugPrint(
+        '[community] identity upload failed status=${error.statusCode} message=${error.message}',
+      );
+      return error.message.trim().isEmpty ? kMediaUploadFailedMessage : error.message;
+    } on FormatException {
+      return kMediaUploadFailedMessage;
     }
   }
 

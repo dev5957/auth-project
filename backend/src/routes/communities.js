@@ -8,6 +8,10 @@ const {
   patchMemberRole,
   remove,
   leave,
+  createAvatarUpload,
+  completeAvatarUpload,
+  createBannerUpload,
+  completeBannerUpload,
 } = require('../controllers/communityController');
 const {
   create: createInvitation,
@@ -58,6 +62,10 @@ router.get('/:id/members', communityRateLimit.read, listMembers);
 router.patch('/:id/members/:userId', communityRateLimit.write, patchMemberRole);
 router.delete('/:id/members/:userId', communityRateLimit.write, remove);
 router.post('/:id/leave', communityRateLimit.write, leave);
+router.post('/:id/avatar/uploads', communityRateLimit.write, createAvatarUpload);
+router.post('/:id/avatar/complete', communityRateLimit.write, completeAvatarUpload);
+router.post('/:id/banner/uploads', communityRateLimit.write, createBannerUpload);
+router.post('/:id/banner/complete', communityRateLimit.write, completeBannerUpload);
 router.get('/:id/invitations', communityRateLimit.read, listSentInvitations);
 router.post('/:id/invitations', communityRateLimit.write, createInvitation);
 router.get('/:id/join-requests', communityRateLimit.read, listCommunityJoinRequests);

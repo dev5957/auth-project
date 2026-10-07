@@ -51,6 +51,8 @@ class Community {
     this.description,
     this.createdAt,
     this.updatedAt,
+    this.avatarReadUrl,
+    this.bannerReadUrl,
   });
 
   final int id;
@@ -61,6 +63,28 @@ class Community {
   final int memberCount;
   final String? createdAt;
   final String? updatedAt;
+  final String? avatarReadUrl;
+  final String? bannerReadUrl;
+
+  Community copyWith({
+    String? avatarReadUrl,
+    String? bannerReadUrl,
+    bool clearAvatar = false,
+    bool clearBanner = false,
+  }) {
+    return Community(
+      id: id,
+      name: name,
+      description: description,
+      visibility: visibility,
+      myRole: myRole,
+      memberCount: memberCount,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+      avatarReadUrl: clearAvatar ? null : (avatarReadUrl ?? this.avatarReadUrl),
+      bannerReadUrl: clearBanner ? null : (bannerReadUrl ?? this.bannerReadUrl),
+    );
+  }
 
   factory Community.fromJson(Map<String, dynamic> json) {
     final name = json['name'];
@@ -72,6 +96,7 @@ class Community {
     if (visibility is! String || myRole is! String) {
       throw const FormatException('Invalid community payload');
     }
+    _rejectIdentityStorageLeaks(json);
     final description = json['description'];
     return Community(
       id: parseChroniqueId(json['id']),
@@ -84,6 +109,8 @@ class Community {
           : parseChroniqueId(json['member_count']),
       createdAt: json['created_at'] is String ? json['created_at'] as String : null,
       updatedAt: json['updated_at'] is String ? json['updated_at'] as String : null,
+      avatarReadUrl: _optionalReadUrl(json['avatar_read_url']),
+      bannerReadUrl: _optionalReadUrl(json['banner_read_url']),
     );
   }
 }
@@ -94,12 +121,14 @@ class CommunitySearchPreview {
     required this.name,
     required this.memberCount,
     this.description,
+    this.avatarReadUrl,
   });
 
   final int id;
   final String name;
   final String? description;
   final int memberCount;
+  final String? avatarReadUrl;
 
   factory CommunitySearchPreview.fromJson(Map<String, dynamic> json) {
     final name = json['name'];
@@ -109,6 +138,7 @@ class CommunitySearchPreview {
     if (json.containsKey('my_role') ||
         json.containsKey('members') ||
         json.containsKey('avatar_storage_key') ||
+        json.containsKey('banner_storage_key') ||
         json.containsKey('email')) {
       throw const FormatException('Community search payload leaked private fields');
     }
@@ -120,7 +150,23 @@ class CommunitySearchPreview {
       memberCount: json['member_count'] is int
           ? json['member_count'] as int
           : parseChroniqueId(json['member_count']),
+      avatarReadUrl: _optionalReadUrl(json['avatar_read_url']),
     );
+  }
+}
+
+String? _optionalReadUrl(Object? value) {
+  if (value is String && value.trim().isNotEmpty) {
+    return value.trim();
+  }
+  return null;
+}
+
+void _rejectIdentityStorageLeaks(Map<String, dynamic> json) {
+  if (json.containsKey('avatar_storage_key') ||
+      json.containsKey('banner_storage_key') ||
+      json.containsKey('storage_key')) {
+    throw const FormatException('Community payload leaked private fields');
   }
 }
 

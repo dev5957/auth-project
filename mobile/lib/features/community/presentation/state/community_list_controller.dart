@@ -49,6 +49,17 @@ class CommunityListController extends AutoDisposeNotifier<CommunityListState> {
       state = const CommunityListError('Unexpected error');
     }
   }
+
+  void replaceCommunity(Community community) {
+    final current = state;
+    if (current is! CommunityListReady) {
+      return;
+    }
+    state = CommunityListReady([
+      for (final item in current.items)
+        if (item.id == community.id) community else item,
+    ]);
+  }
 }
 
 final communityListControllerProvider =

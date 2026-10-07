@@ -10,7 +10,7 @@ import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/app_loading.dart';
 import '../state/community_list_controller.dart';
-import '../widgets/community_media_placeholder.dart';
+import '../widgets/community_avatar.dart';
 
 class CommunityListScreen extends ConsumerWidget {
   const CommunityListScreen({super.key});
@@ -80,16 +80,27 @@ class CommunityListScreen extends ConsumerWidget {
                       child: InkWell(
                         key: ValueKey('community-list-item-${community.id}'),
                         onTap: () => context.push(AppRoutes.communityDetail(community.id)),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
-                            const CommunityMediaPlaceholder(label: 'Avatar', height: 56),
-                            const SizedBox(height: AppSpacing.md),
-                            Text(community.name, style: AppTextTheme.titleMedium),
-                            const SizedBox(height: AppSpacing.sm),
-                            Text(
-                              community.myRole.label,
-                              style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
+                            CommunityAvatar(
+                              readUrl: community.avatarReadUrl,
+                              size: 40,
+                              heroTag: 'community-avatar-${community.id}',
+                            ),
+                            const SizedBox(width: AppSpacing.md),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(community.name, style: AppTextTheme.titleMedium),
+                                  const SizedBox(height: AppSpacing.xs),
+                                  Text(
+                                    community.myRole.label,
+                                    style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
                         ),

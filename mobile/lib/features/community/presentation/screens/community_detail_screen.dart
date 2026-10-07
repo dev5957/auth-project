@@ -10,6 +10,7 @@ import '../../../../core/widgets/app_loading.dart';
 import '../../models/community.dart';
 import '../state/community_detail_controller.dart';
 import '../state/community_list_controller.dart';
+import '../../models/community_identity_upload.dart';
 import '../widgets/community_feed_section.dart';
 import '../widgets/community_header.dart';
 import '../widgets/community_management_section.dart';
@@ -117,6 +118,20 @@ class CommunityDetailScreen extends ConsumerWidget {
     context.pop();
   }
 
+  Future<void> _editIdentity(
+    BuildContext context,
+    WidgetRef ref,
+    CommunityIdentitySlot slot,
+  ) async {
+    final message = await ref
+        .read(communityDetailControllerProvider(communityId).notifier)
+        .editIdentity(slot);
+    if (!context.mounted || message == null || message.isEmpty) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
   Future<void> _returnToCommunityList(BuildContext context, WidgetRef ref) async {
     await ref.read(communityListControllerProvider.notifier).load();
     if (!context.mounted) {
@@ -176,6 +191,12 @@ class CommunityDetailScreen extends ConsumerWidget {
               onDemote: (member) => _onDemote(context, ref, member),
               onRemove: (member) => _onRemove(context, ref, member),
               onLeave: () => _onLeave(context, ref, data.community, data.members),
+              onEditAvatar: data.community.myRole == CommunityRole.owner
+                  ? () => _editIdentity(context, ref, CommunityIdentitySlot.avatar)
+                  : null,
+              onEditBanner: data.community.myRole == CommunityRole.owner
+                  ? () => _editIdentity(context, ref, CommunityIdentitySlot.banner)
+                  : null,
             ),
         },
       ),
@@ -190,6 +211,8 @@ class _CommunityReadyShell extends StatefulWidget {
     required this.onDemote,
     required this.onRemove,
     required this.onLeave,
+    this.onEditAvatar,
+    this.onEditBanner,
   });
 
   final CommunityDetailData data;
@@ -197,6 +220,8 @@ class _CommunityReadyShell extends StatefulWidget {
   final ValueChanged<CommunityMember> onDemote;
   final ValueChanged<CommunityMember> onRemove;
   final VoidCallback onLeave;
+  final VoidCallback? onEditAvatar;
+  final VoidCallback? onEditBanner;
 
   @override
   State<_CommunityReadyShell> createState() => _CommunityReadyShellState();
@@ -242,7 +267,11 @@ class _CommunityReadyShellState extends State<_CommunityReadyShell>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        CommunityHeader(community: community),
+        CommunityHeader(
+          community: community,
+          onEditAvatar: widget.onEditAvatar,
+          onEditBanner: widget.onEditBanner,
+        ),
         TabBar(
           controller: _tabs,
           isScrollable: true,

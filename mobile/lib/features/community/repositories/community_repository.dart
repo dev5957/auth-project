@@ -4,6 +4,7 @@ import '../models/community.dart';
 import '../models/community_comment.dart';
 import '../models/community_publication.dart';
 import '../models/join_request.dart';
+import '../models/community_identity_upload.dart';
 import '../../chronique/models/chronique_media_upload.dart';
 import '../../chronique/models/media_draft.dart';
 import '../services/community_api_service.dart';
@@ -44,6 +45,32 @@ class CommunityRepository {
 
   Future<Community> get(int id) async {
     return _api.get(accessToken: await _requireAccessToken(), id: id);
+  }
+
+  Future<CommunityIdentityUploadSession> createIdentityUpload({
+    required int communityId,
+    required String slot,
+    required Map<String, dynamic> data,
+  }) async {
+    return _api.createIdentityUpload(
+      accessToken: await _requireAccessToken(),
+      communityId: communityId,
+      slot: slot,
+      data: data,
+    );
+  }
+
+  Future<Community> completeIdentityUpload({
+    required int communityId,
+    required String slot,
+    required String uploadId,
+  }) async {
+    return _api.completeIdentityUpload(
+      accessToken: await _requireAccessToken(),
+      communityId: communityId,
+      slot: slot,
+      uploadId: uploadId,
+    );
   }
 
   Future<List<CommunityMember>> listMembers(int id) async {
