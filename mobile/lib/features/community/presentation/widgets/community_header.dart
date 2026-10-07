@@ -49,13 +49,6 @@ class CommunityHeader extends StatelessWidget {
               ),
             ],
           ),
-          if (community.description != null) ...[
-            const SizedBox(height: AppSpacing.md),
-            Text(
-              community.description!,
-              style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
-            ),
-          ],
         ],
       ),
     );

@@ -10,6 +10,7 @@ import '../../../../core/widgets/app_loading.dart';
 import '../../models/join_request.dart';
 import '../../models/join_request_messages.dart';
 import '../state/community_join_requests_controller.dart';
+import 'community_management_section_card.dart';
 
 class CommunityJoinRequestsSection extends ConsumerWidget {
   const CommunityJoinRequestsSection({super.key, required this.communityId});
@@ -21,104 +22,108 @@ class CommunityJoinRequestsSection extends ConsumerWidget {
     final colors = context.luminaColors;
     final state = ref.watch(communityJoinRequestsControllerProvider(communityId));
 
+    final pendingBody = switch (state) {
+      CommunityJoinRequestsLoading() => const Padding(
+          padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
+          child: AppLoading(),
+        ),
+      CommunityJoinRequestsError(:final message, :final statusCode) => Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              statusCode == 401 ? 'Session expirée' : message,
+              key: const ValueKey('community-join-requests-error'),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            AppButton(
+              key: const ValueKey('community-join-requests-retry'),
+              label: 'Réessayer',
+              onPressed: () => ref
+                  .read(communityJoinRequestsControllerProvider(communityId).notifier)
+                  .load(),
+            ),
+          ],
+        ),
+      CommunityJoinRequestsReady(
+        :final pending,
+        :final mutatingId,
+        :final notice,
+        :final actionError,
+      ) =>
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (notice != null) ...[
+              Text(
+                notice,
+                key: const ValueKey('community-join-requests-notice'),
+                style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
+              ),
+              const SizedBox(height: AppSpacing.md),
+            ],
+            if (actionError != null) ...[
+              Text(
+                actionError,
+                key: const ValueKey('community-join-requests-action-error'),
+              ),
+              const SizedBox(height: AppSpacing.md),
+            ],
+            if (pending.isEmpty)
+              const Text(
+                JoinRequestMessages.ownerPendingEmpty,
+                key: ValueKey('community-join-requests-pending-empty'),
+              )
+            else
+              for (final item in pending) ...[
+                _OwnerPendingCard(
+                  request: item,
+                  mutating: mutatingId == item.id,
+                  actionsEnabled: mutatingId == null,
+                  communityId: communityId,
+                ),
+                const SizedBox(height: AppSpacing.md),
+              ],
+          ],
+        ),
+    };
+
+    final historyBody = switch (state) {
+      CommunityJoinRequestsLoading() => const Padding(
+          padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
+          child: AppLoading(),
+        ),
+      CommunityJoinRequestsError() => const SizedBox.shrink(),
+      CommunityJoinRequestsReady(:final history) => history.isEmpty
+          ? const Text(
+              JoinRequestMessages.ownerHistoryEmpty,
+              key: ValueKey('community-join-requests-history-empty'),
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (final item in history) ...[
+                  _OwnerHistoryCard(request: item),
+                  const SizedBox(height: AppSpacing.md),
+                ],
+              ],
+            ),
+    };
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const SizedBox(height: AppSpacing.xl),
-        const Text(
-          JoinRequestMessages.ownerTitle,
-          key: ValueKey('community-join-requests-title'),
-          style: AppTextTheme.titleMedium,
+        CommunityManagementSectionCard(
+          key: const ValueKey('community-manage-join-requests'),
+          title: JoinRequestMessages.ownerTitle,
+          titleKey: const ValueKey('community-join-requests-title'),
+          child: pendingBody,
         ),
-        const SizedBox(height: AppSpacing.md),
-        switch (state) {
-          CommunityJoinRequestsLoading() => const Padding(
-              padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
-              child: AppLoading(),
-            ),
-          CommunityJoinRequestsError(:final message, :final statusCode) => Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  statusCode == 401 ? 'Session expirée' : message,
-                  key: const ValueKey('community-join-requests-error'),
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                AppButton(
-                  key: const ValueKey('community-join-requests-retry'),
-                  label: 'Réessayer',
-                  onPressed: () => ref
-                      .read(communityJoinRequestsControllerProvider(communityId).notifier)
-                      .load(),
-                ),
-              ],
-            ),
-          CommunityJoinRequestsReady(
-            :final pending,
-            :final history,
-            :final mutatingId,
-            :final notice,
-            :final actionError,
-          ) =>
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (notice != null) ...[
-                  Text(
-                    notice,
-                    key: const ValueKey('community-join-requests-notice'),
-                    style: AppTextTheme.bodyMedium.copyWith(color: colors.textSecondary),
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                ],
-                if (actionError != null) ...[
-                  Text(
-                    actionError,
-                    key: const ValueKey('community-join-requests-action-error'),
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                ],
-                const Text(
-                  JoinRequestMessages.ownerPendingTitle,
-                  key: ValueKey('community-join-requests-pending-title'),
-                  style: AppTextTheme.titleMedium,
-                ),
-                const SizedBox(height: AppSpacing.md),
-                if (pending.isEmpty)
-                  const Text(
-                    JoinRequestMessages.ownerPendingEmpty,
-                    key: ValueKey('community-join-requests-pending-empty'),
-                  )
-                else
-                  for (final item in pending) ...[
-                    _OwnerPendingCard(
-                      request: item,
-                      mutating: mutatingId == item.id,
-                      actionsEnabled: mutatingId == null,
-                      communityId: communityId,
-                    ),
-                    const SizedBox(height: AppSpacing.md),
-                  ],
-                const SizedBox(height: AppSpacing.lg),
-                const Text(
-                  JoinRequestMessages.ownerHistoryTitle,
-                  key: ValueKey('community-join-requests-history-title'),
-                  style: AppTextTheme.titleMedium,
-                ),
-                const SizedBox(height: AppSpacing.md),
-                if (history.isEmpty)
-                  const Text(
-                    JoinRequestMessages.ownerHistoryEmpty,
-                    key: ValueKey('community-join-requests-history-empty'),
-                  )
-                else
-                  for (final item in history) ...[
-                    _OwnerHistoryCard(request: item),
-                    const SizedBox(height: AppSpacing.md),
-                  ],
-              ],
-            ),
-        },
+        CommunityManagementSectionCard(
+          key: const ValueKey('community-manage-history'),
+          title: JoinRequestMessages.ownerHistoryTitle,
+          titleKey: const ValueKey('community-join-requests-history-title'),
+          child: historyBody,
+        ),
       ],
     );
   }

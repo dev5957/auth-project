@@ -23,6 +23,7 @@ import '../state/community_feed_controller.dart';
 import '../state/community_publication_sync.dart';
 import '../state/my_community_publications_controller.dart';
 import '../widgets/community_comments_section.dart';
+import '../widgets/community_publication_deleted_snackbar.dart';
 import '../widgets/community_publication_social_bar.dart';
 
 class CommunityPublicationDetailScreen extends ConsumerStatefulWidget {
@@ -249,26 +250,19 @@ class _CommunityPublicationDetailScreenState
       final messenger = ScaffoldMessenger.of(context);
       context.pop();
       if (wasAuthor) {
+        showCommunityPublicationDeletedSnackBar(
+          messenger: messenger,
+          onRestore: () async {
+            await repository.restorePublication(
+              communityId: communityId,
+              publicationId: publicationId,
+            );
+            await reloadLists();
+          },
+        );
+      } else {
         messenger.showSnackBar(
-          SnackBar(
-            content: const Text('Publication supprimée'),
-            duration: const Duration(seconds: 10),
-            action: SnackBarAction(
-              key: const ValueKey('community-publication-restore-action'),
-              label: 'Restaurer',
-              onPressed: () {
-                unawaited(() async {
-                  try {
-                    await repository.restorePublication(
-                      communityId: communityId,
-                      publicationId: publicationId,
-                    );
-                    await reloadLists();
-                  } catch (_) {}
-                }());
-              },
-            ),
-          ),
+          const SnackBar(content: Text('Publication supprimée')),
         );
       }
       unawaited(reloadLists());

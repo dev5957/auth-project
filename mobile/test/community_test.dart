@@ -1086,6 +1086,8 @@ void main() {
     expect(find.byKey(const ValueKey('community-detail-role')), findsOneWidget);
     expect(find.byKey(const ValueKey('community-placeholder-Bannière')), findsOneWidget);
     expect(find.byKey(const ValueKey('community-placeholder-Avatar')), findsOneWidget);
+    expect(find.text('Un cercle privé'), findsNothing);
+    expect(find.text('vérification de la création et du rôle propriétaire'), findsNothing);
   });
 
   testWidgets('detail 404 shows introuvable', (tester) async {
@@ -2382,7 +2384,22 @@ void main() {
     await openCommunityDetail(tester, api);
     await openCommunityManagementTab(tester);
     expect(find.byKey(const ValueKey('community-sent-invitations-title')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-manage-invitations')), findsOneWidget);
     expect(find.text('Invitations envoyées'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('community-manage-invitations')),
+        matching: find.text('moh5'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('community-manage-invitations')),
+        matching: find.text('Acceptée'),
+      ),
+      findsOneWidget,
+    );
     expect(find.text('En attente'), findsOneWidget);
     expect(find.text('Acceptée'), findsOneWidget);
     expect(find.text('Refusée'), findsOneWidget);
@@ -2667,7 +2684,23 @@ void main() {
     await openCommunityDetail(tester, api);
     await openCommunityManagementTab(tester);
     expect(find.byKey(const ValueKey('community-join-requests-title')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-manage-join-requests')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-manage-history')), findsOneWidget);
     expect(find.text('Demandes d’adhésion'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('community-manage-join-requests')),
+        matching: find.byKey(const ValueKey('community-join-request-pending-31')),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('community-manage-history')),
+        matching: find.byKey(const ValueKey('community-join-history-32')),
+      ),
+      findsOneWidget,
+    );
     expect(find.byKey(const ValueKey('community-join-request-pending-31')), findsOneWidget);
     expect(find.byKey(const ValueKey('community-join-accept-31')), findsOneWidget);
     expect(find.byKey(const ValueKey('community-join-decline-31')), findsOneWidget);
@@ -2686,6 +2719,9 @@ void main() {
     await openCommunityDetail(tester, api);
     await openCommunityManagementTab(tester);
     expect(find.byKey(const ValueKey('community-join-requests-title')), findsNothing);
+    expect(find.byKey(const ValueKey('community-manage-join-requests')), findsNothing);
+    expect(find.byKey(const ValueKey('community-manage-history')), findsNothing);
+    expect(find.byKey(const ValueKey('community-manage-invitations')), findsOneWidget);
     expect(find.byKey(const ValueKey('community-join-accept-31')), findsNothing);
     expect(api.listCommunityJoinRequestsCalls, 0);
   });
@@ -3648,13 +3684,14 @@ void main() {
     await tester.tap(find.widgetWithText(TextButton, 'Supprimer'));
     await tester.pump();
     for (var i = 0; i < 80; i++) {
-      if (find.byKey(const ValueKey('community-publication-restore-action')).evaluate().isNotEmpty) {
+      if (find.text('Publication supprimée').evaluate().isNotEmpty) {
         break;
       }
       await tester.pump(const Duration(milliseconds: 50));
     }
     expect(api.deletedPublicationIds, [70]);
     expect(find.byKey(const ValueKey('community-publication-restore-action')), findsWidgets);
+    expect(find.text('Restaurer'), findsWidgets);
     expect(find.text('Publication supprimée'), findsWidgets);
     ScaffoldMessenger.of(tester.element(find.byType(MyCommunityPublicationsScreen))).hideCurrentSnackBar();
     await tester.pumpAndSettle();
@@ -4207,7 +4244,16 @@ void main() {
     expect(readyFeedPublication(container).commentCount, 0);
   });
 
-  testWidgets('author delete shows a 10 second restore snackbar after leaving detail', (tester) async {
+  Future<void> waitForDeletedSnackBar(WidgetTester tester) async {
+    for (var i = 0; i < 80; i++) {
+      if (find.text('Publication supprimée').evaluate().isNotEmpty) {
+        break;
+      }
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+  }
+
+  testWidgets('author delete shows a 20 second restore snackbar with countdown', (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 1200));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final api = _FakeCommunityApi()
@@ -4231,16 +4277,55 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(TextButton, 'Supprimer'));
     await tester.pump();
-    for (var i = 0; i < 80; i++) {
-      if (find.text('Publication supprimée').evaluate().isNotEmpty) {
-        break;
-      }
-      await tester.pump(const Duration(milliseconds: 50));
-    }
+    await waitForDeletedSnackBar(tester);
     expect(api.deletedPublicationIds, [21]);
-    expect(find.byKey(const ValueKey('community-publication-restore-action')), findsWidgets);
     expect(find.text('Publication supprimée'), findsWidgets);
+    expect(find.text('Restaurer'), findsWidgets);
+    expect(find.byKey(const ValueKey('community-publication-restore-action')), findsWidgets);
+    final countdown = find.byKey(const ValueKey('community-publication-restore-countdown'));
+    expect(countdown, findsWidgets);
+    expect(tester.widget<Text>(countdown.first).data, '20s');
+    expect(
+      tester.widgetList<SnackBar>(find.byType(SnackBar)).any(
+            (bar) => bar.duration == const Duration(seconds: 20) && !bar.persist,
+          ),
+      isTrue,
+    );
     expect(find.byType(CommunityDetailScreen), findsOneWidget);
+    await tester.pump(const Duration(seconds: 1));
+    expect(tester.widget<Text>(countdown.first).data, '19s');
+    ScaffoldMessenger.of(tester.element(find.byType(CommunityDetailScreen))).hideCurrentSnackBar();
+    await tester.pump();
+  });
+
+  testWidgets('author restore from snackbar calls existing restore and resyncs the feed', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final api = _FakeCommunityApi()
+      ..publications = [
+        const CommunityPublication(
+          id: 21,
+          communityId: 3,
+          author: CommunityPublicationAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
+          body: 'Texte de publication active assez long.',
+          status: 'active',
+          commentsEnabled: true,
+        ),
+      ];
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    await tester.tap(find.byKey(const ValueKey('community-feed-item-21')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('community-publication-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Supprimer'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Supprimer'));
+    await tester.pump();
+    await waitForDeletedSnackBar(tester);
+    expect(find.byKey(const ValueKey('community-feed-item-21')), findsNothing);
     tester.widget<SnackBarAction>(find.byType(SnackBarAction).last).onPressed!();
     await tester.pump();
     for (var i = 0; i < 40; i++) {
@@ -4251,6 +4336,91 @@ void main() {
     }
     expect(api.restoredPublicationIds, [21]);
     expect(api.networkOps, contains('POST /communities/3/publications/21/restore'));
+    await tester.pump();
+    for (var i = 0; i < 40; i++) {
+      if (find.byKey(const ValueKey('community-feed-item-21')).evaluate().isNotEmpty) {
+        break;
+      }
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(find.byKey(const ValueKey('community-feed-item-21')), findsOneWidget);
+    expect(find.text('Publication restaurée'), findsWidgets);
+  });
+
+  testWidgets('author restore snackbar cannot start two restores', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final api = _FakeCommunityApi()
+      ..publications = [
+        const CommunityPublication(
+          id: 21,
+          communityId: 3,
+          author: CommunityPublicationAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
+          body: 'Texte de publication active assez long.',
+          status: 'active',
+          commentsEnabled: true,
+        ),
+      ];
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    await tester.tap(find.byKey(const ValueKey('community-feed-item-21')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('community-publication-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Supprimer'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Supprimer'));
+    await tester.pump();
+    await waitForDeletedSnackBar(tester);
+    final restore = tester.widget<SnackBarAction>(find.byType(SnackBarAction).last).onPressed!;
+    restore();
+    restore();
+    await tester.pump();
+    for (var i = 0; i < 40; i++) {
+      if (api.restoredPublicationIds.isNotEmpty) {
+        break;
+      }
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(api.restoredPublicationIds, [21]);
+    expect(
+      api.networkOps.where((op) => op == 'POST /communities/3/publications/21/restore'),
+      hasLength(1),
+    );
+  });
+
+  testWidgets('author restore snackbar expires after 20 seconds without restoring', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final api = _FakeCommunityApi()
+      ..publications = [
+        const CommunityPublication(
+          id: 21,
+          communityId: 3,
+          author: CommunityPublicationAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
+          body: 'Texte de publication active assez long.',
+          status: 'active',
+          commentsEnabled: true,
+        ),
+      ];
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    await tester.tap(find.byKey(const ValueKey('community-feed-item-21')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('community-publication-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Supprimer'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Supprimer'));
+    await tester.pump();
+    await waitForDeletedSnackBar(tester);
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(seconds: 20));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byKey(const ValueKey('community-publication-restore-action')), findsNothing);
+    expect(find.text('Restaurer'), findsNothing);
+    expect(api.restoredPublicationIds, isEmpty);
+    expect(find.byKey(const ValueKey('community-feed-item-21')), findsNothing);
   });
 
   testWidgets('moderator delete of another author does not show restore snackbar', (tester) async {
@@ -4276,8 +4446,9 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     expect(api.deletedPublicationIds, [21]);
-    expect(find.text('Publication supprimée'), findsNothing);
-    expect(find.byKey(const ValueKey('community-publication-restore-action')), findsNothing);
+    expect(find.text('Publication supprimée'), findsWidgets);
+    expect(find.byType(SnackBarAction), findsNothing);
+    expect(find.text('Restaurer'), findsNothing);
   });
 
   testWidgets('member community navigation has feed and members but not management', (tester) async {
@@ -4304,5 +4475,9 @@ void main() {
     await openCommunityManagementTab(tester);
     expect(find.byKey(const ValueKey('community-sent-invitations-title')), findsOneWidget);
     expect(find.byKey(const ValueKey('community-join-requests-title')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-manage-invitations')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-manage-join-requests')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-manage-history')), findsOneWidget);
+    expect(find.text('Publications supprimées'), findsNothing);
   });
 }
