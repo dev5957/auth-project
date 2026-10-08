@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/network/api_exception.dart';
+import '../../models/chronique_correction_window.dart';
 
 Future<bool> confirmArchiveChronique(BuildContext context) async {
   final confirmed = await showDialog<bool>(
@@ -68,6 +69,9 @@ Future<bool> confirmDeleteChronique(
 
 String messageForChroniqueApiError(ApiException error) {
   final message = error.message.trim();
+  if (message == kCorrectionWindowExpiredCode) {
+    return kCorrectionWindowExpiredUserMessage;
+  }
   if (message.isNotEmpty) {
     return message;
   }

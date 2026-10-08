@@ -526,13 +526,13 @@ void main() {
 
   testWidgets('active card overflow menu offers Modifier and Archiver', (tester) async {
     final api = _ChroniqueApiProbe()
-      ..items = const [
+      ..items = [
         Chronique(
           id: 42,
           title: 'Premier soir',
           body: 'Le texte de la chronique, d au moins vingt caracteres.',
           status: 'active',
-          publishedAt: '2026-09-22T10:00:00.000Z',
+          publishedAt: DateTime.now().toUtc().toIso8601String(),
         ),
       ];
     await _pumpHome(tester, api: api);
@@ -541,6 +541,30 @@ void main() {
     await tester.tap(find.byTooltip('Actions'));
     await tester.pumpAndSettle();
     expect(find.text('Modifier'), findsOneWidget);
+    expect(find.text('Archiver'), findsOneWidget);
+    expect(find.text('Supprimer'), findsOneWidget);
+  });
+
+  testWidgets('active card hides Modifier after 30 minutes but keeps archive and delete', (
+    tester,
+  ) async {
+    final api = _ChroniqueApiProbe()
+      ..items = [
+        Chronique(
+          id: 42,
+          title: 'Premier soir',
+          body: 'Le texte de la chronique, d au moins vingt caracteres.',
+          status: 'active',
+          publishedAt:
+              DateTime.now().toUtc().subtract(const Duration(minutes: 31)).toIso8601String(),
+        ),
+      ];
+    await _pumpHome(tester, api: api);
+    await _openMonFil(tester);
+
+    await tester.tap(find.byTooltip('Actions'));
+    await tester.pumpAndSettle();
+    expect(find.text('Modifier'), findsNothing);
     expect(find.text('Archiver'), findsOneWidget);
     expect(find.text('Supprimer'), findsOneWidget);
   });

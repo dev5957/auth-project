@@ -95,13 +95,15 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
   ApiException? failUpdateWith;
   ApiException? failDeleteWith;
 
-  static final sample = Chronique(
-    id: 11,
-    title: 'Plus tard',
-    body: 'Texte programme d au moins vingt caracteres pour la carte.',
-    status: 'scheduled',
-    scheduledAt: DateTime.parse('2026-09-25T13:00:00.000Z'),
-  );
+  static final DateTime _scheduledAt = DateTime.now().add(const Duration(hours: 2));
+
+  static Chronique get sample => Chronique(
+        id: 11,
+        title: 'Plus tard',
+        body: 'Texte programme d au moins vingt caracteres pour la carte.',
+        status: 'scheduled',
+        scheduledAt: _scheduledAt,
+      );
 
   @override
   Future<ChroniquePage> list({
@@ -278,7 +280,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(EditChroniqueScreen), findsOneWidget);
     expect(find.text('Date de publication'), findsOneWidget);
-    expect(find.text('Expiration'), findsOneWidget);
+    expect(find.text('Éphémère'), findsOneWidget);
 
     const nextBody = 'Texte modifié d au moins vingt caracteres.';
     await tester.enterText(find.byType(TextField).at(0), 'Soir prévu');

@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../../core/network/api_exception.dart';
-import '../../../../core/router/app_routes.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_text_theme.dart';
 import '../../../../core/widgets/app_loading.dart';
 import '../../models/chronique.dart';
+import '../../models/chronique_correction_window.dart';
 import '../../providers/chronique_providers.dart';
 import '../state/mon_fil_controller.dart';
 import '../widgets/chronique_card.dart';
@@ -52,13 +51,15 @@ class _MonFilScreenState extends ConsumerState<MonFilScreen> {
   Future<void> _onMenu(Chronique chronique, ChroniqueCardMenuAction action) async {
     switch (action) {
       case ChroniqueCardMenuAction.edit:
-        final updated = await context.push<Chronique>(
-          AppRoutes.chroniqueEdit(chronique.id),
-          extra: chronique,
+        await Navigator.of(context).push<void>(
+          MaterialPageRoute<void>(
+            builder: (context) => ChroniqueDetailScreen(
+              chroniqueId: chronique.id,
+              chronique: chronique,
+              startEditing: isChroniqueTextCorrectionOpen(chronique),
+            ),
+          ),
         );
-        if (updated != null) {
-          ref.read(monFilControllerProvider.notifier).upsert(updated);
-        }
       case ChroniqueCardMenuAction.archive:
         final confirmed = await confirmArchiveChronique(context);
         if (!confirmed) {

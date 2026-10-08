@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../models/chronique.dart';
+import '../../models/chronique_correction_window.dart';
 
 enum ChroniqueCardMenuAction { edit, archive, delete }
 
@@ -55,16 +56,17 @@ class ChroniqueCardMenu extends StatelessWidget {
             ),
           ];
         }
-        return const [
-          PopupMenuItem(
-            value: ChroniqueCardMenuAction.edit,
-            child: Text('Modifier'),
-          ),
-          PopupMenuItem(
+        return [
+          if (isChroniqueTextCorrectionOpen(chronique))
+            const PopupMenuItem(
+              value: ChroniqueCardMenuAction.edit,
+              child: Text('Modifier'),
+            ),
+          const PopupMenuItem(
             value: ChroniqueCardMenuAction.archive,
             child: Text('Archiver'),
           ),
-          PopupMenuItem(
+          const PopupMenuItem(
             value: ChroniqueCardMenuAction.delete,
             child: Text('Supprimer'),
           ),
