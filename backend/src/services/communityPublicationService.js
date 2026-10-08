@@ -406,6 +406,34 @@ async function getPublication(userId, rawCommunityId, rawId, deps = {}) {
   });
 }
 
+const CORRECTION_WINDOW_MS = 30 * 60 * 1000;
+
+function asDate(value) {
+  if (value == null) {
+    return null;
+  }
+  if (value instanceof Date) {
+    return value;
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/** Fenêtre de correction textuelle : active + published_at, fermée à published_at + 30:00.000. */
+function assertWithinCorrectionWindow(row, now) {
+  if (row.status !== STATUS.ACTIVE) {
+    return;
+  }
+  const publishedAt = asDate(row.published_at);
+  if (publishedAt == null) {
+    return;
+  }
+  const clock = asDate(now) || new Date();
+  if (clock.getTime() >= publishedAt.getTime() + CORRECTION_WINDOW_MS) {
+    throw new AppError(409, 'correction_window_expired');
+  }
+}
+
 async function patchPublication(userId, rawCommunityId, rawId, body, deps = {}) {
   const communityId = parseCommunityId(rawCommunityId);
   const id = parseId(rawId, 'id is invalid');
@@ -428,6 +456,8 @@ async function patchPublication(userId, rawCommunityId, rawId, body, deps = {}) 
     if (Number(row.author_user_id) !== Number(userId)) {
       throw new AppError(403, 'Forbidden');
     }
+    const now = deps.now || new Date();
+    assertWithinCorrectionWindow(row, now);
     const nextTitle = Object.prototype.hasOwnProperty.call(input, 'title') ? input.title : row.title;
     const nextBody = Object.prototype.hasOwnProperty.call(input, 'body') ? input.body : row.body;
     const saved = await client.query(
@@ -682,6 +712,8 @@ module.exports = {
   restorePublication,
   listMine,
   getMine,
+  assertWithinCorrectionWindow,
+  CORRECTION_WINDOW_MS,
   toPublicPublication,
   toPublicMedia,
   loadMembership,

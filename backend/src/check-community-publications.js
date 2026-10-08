@@ -1,4 +1,5 @@
 const AppError = require('./errors/AppError');
+const errorHandler = require('./middleware/errorHandler');
 const {
   parseCreateInput,
   parsePatchInput,
@@ -14,6 +15,8 @@ const {
   restorePublication,
   listMine,
   getMine,
+  assertWithinCorrectionWindow,
+  CORRECTION_WINDOW_MS,
 } = require('./services/communityPublicationService');
 const {
   createMediaUpload,
@@ -61,6 +64,17 @@ async function expectReject(promise, statusCode) {
   } catch (err) {
     assert(err instanceof AppError, `expected AppError: ${err && err.message}`);
     assert(err.statusCode === statusCode, `expected ${statusCode} got ${err.statusCode}: ${err.message}`);
+  }
+}
+
+async function expectRejectMessage(promise, statusCode, message) {
+  try {
+    await promise;
+    throw new Error(`expected ${statusCode} ${message}`);
+  } catch (err) {
+    assert(err instanceof AppError, `expected AppError: ${err && err.message}`);
+    assert(err.statusCode === statusCode, `expected ${statusCode} got ${err.statusCode}: ${err.message}`);
+    assert(err.message === message, `unexpected message: ${err.message}`);
   }
 }
 
@@ -1383,6 +1397,7 @@ async function main() {
   await deleteMedia(ADMIN_ID, COMMUNITY_ID, tooMany.id, db.state.media.filter((m) => Number(m.community_publication_id) === Number(tooMany.id))[0].id, deps);
 
   await runDeleteMediaContractChecks();
+  await runCorrectionWindowChecks();
 
   console.log('Community publications checks succeeded.');
 }
@@ -1585,6 +1600,243 @@ async function runDeleteMediaContractChecks() {
   const hR2 = db.state.ops.indexOf('storage-delete');
   assert(hSql !== -1 && hCommit !== -1 && hR2 !== -1, 'H ops present');
   assert(hSql < hCommit && hCommit < hR2, 'H r2 only after commit');
+}
+
+async function runCorrectionWindowChecks() {
+  const windowDb = createMemory();
+  const windowDeps = { db: windowDb, storage: windowDb.storage };
+  const publishedAt = new Date('2026-10-08T14:00:00.000Z');
+  const tPlus20 = new Date(publishedAt.getTime() + 20 * 60 * 1000);
+  const tPlus29999 = new Date(publishedAt.getTime() + CORRECTION_WINDOW_MS - 1);
+  const tPlus30 = new Date(publishedAt.getTime() + CORRECTION_WINDOW_MS);
+  const tPlus31 = new Date(publishedAt.getTime() + 31 * 60 * 1000);
+  const tPlus40 = new Date(publishedAt.getTime() + 40 * 60 * 1000);
+
+  expectAppError(
+    () =>
+      assertWithinCorrectionWindow(
+        { status: 'active', published_at: publishedAt },
+        tPlus30
+      ),
+    409,
+    'correction_window_expired'
+  );
+  assertWithinCorrectionWindow({ status: 'active', published_at: publishedAt }, tPlus29999);
+  assertWithinCorrectionWindow({ status: 'scheduled', published_at: null }, tPlus40);
+
+  const withinPub = await createPublication(
+    MEMBER_ID,
+    COMMUNITY_ID,
+    validBody({ title: 'Fenêtre ouverte' }),
+    { ...windowDeps, now: publishedAt }
+  );
+  const withinPatch = await patchPublication(
+    MEMBER_ID,
+    COMMUNITY_ID,
+    withinPub.id,
+    { title: 'Titre 20 min' },
+    { ...windowDeps, now: tPlus20 }
+  );
+  assert(withinPatch.title === 'Titre 20 min', 'A: auteur PATCH < 30 min');
+  assert(withinPatch.published_at === publishedAt.toISOString(), 'A: published_at inchange');
+  console.log('W OK auteur PATCH active < 30 min');
+
+  const exactPub = await createPublication(
+    MEMBER_ID,
+    COMMUNITY_ID,
+    validBody({ title: 'Exact 30' }),
+    { ...windowDeps, now: publishedAt }
+  );
+  await expectRejectMessage(
+    patchPublication(
+      MEMBER_ID,
+      COMMUNITY_ID,
+      exactPub.id,
+      { title: 'Trop tard exact' },
+      { ...windowDeps, now: tPlus30 }
+    ),
+    409,
+    'correction_window_expired'
+  );
+  assert(
+    windowDb.state.publications.find((item) => Number(item.id) === Number(exactPub.id)).title === 'Exact 30',
+    'B: titre inchange a 30:00.000'
+  );
+  console.log('W2 OK auteur PATCH a 30:00.000 refuse');
+
+  const latePub = await createPublication(
+    MEMBER_ID,
+    COMMUNITY_ID,
+    validBody({ title: 'Apres 30', body: 'Un texte communautaire assez long.' }),
+    { ...windowDeps, now: publishedAt }
+  );
+  await expectRejectMessage(
+    patchPublication(
+      MEMBER_ID,
+      COMMUNITY_ID,
+      latePub.id,
+      { body: 'Un autre texte communautaire assez long.' },
+      { ...windowDeps, now: tPlus31 }
+    ),
+    409,
+    'correction_window_expired'
+  );
+  console.log('W3 OK auteur PATCH > 30 min refuse');
+
+  const twoPub = await createPublication(
+    MEMBER_ID,
+    COMMUNITY_ID,
+    validBody({ title: 'T0' }),
+    { ...windowDeps, now: publishedAt }
+  );
+  const first = await patchPublication(
+    MEMBER_ID,
+    COMMUNITY_ID,
+    twoPub.id,
+    { title: 'T+20' },
+    { ...windowDeps, now: tPlus20 }
+  );
+  assert(first.title === 'T+20', 'D: premier PATCH dans la fenetre');
+  assert(first.published_at === publishedAt.toISOString(), 'E: published_at non repousse');
+  const second = await patchPublication(
+    MEMBER_ID,
+    COMMUNITY_ID,
+    twoPub.id,
+    { title: 'T+29.999' },
+    { ...windowDeps, now: tPlus29999 }
+  );
+  assert(second.title === 'T+29.999', 'D: second PATCH dans la fenetre');
+  assert(second.published_at === publishedAt.toISOString(), 'E: limite non glissante');
+  await expectRejectMessage(
+    patchPublication(
+      MEMBER_ID,
+      COMMUNITY_ID,
+      twoPub.id,
+      { title: 'T+31' },
+      { ...windowDeps, now: tPlus31 }
+    ),
+    409,
+    'correction_window_expired'
+  );
+  assert(
+    windowDb.state.publications.find((item) => Number(item.id) === Number(twoPub.id)).title === 'T+29.999',
+    'E: second refuse ne mute pas'
+  );
+  console.log('W4 OK deux PATCH avant expiration, limite non glissante');
+
+  const scheduledAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
+  const scheduledPub = await createPublication(
+    MEMBER_ID,
+    COMMUNITY_ID,
+    validBody({
+      title: 'Programmee',
+      publish: 'schedule',
+      scheduled_at: scheduledAt.toISOString(),
+    }),
+    windowDeps
+  );
+  assert(scheduledPub.published_at == null, 'F: scheduled published_at null');
+  const scheduledPatched = await patchPublication(
+    MEMBER_ID,
+    COMMUNITY_ID,
+    scheduledPub.id,
+    { title: 'Programmee corrigee' },
+    { ...windowDeps, now: tPlus40 }
+  );
+  assert(scheduledPatched.status === 'scheduled', 'F: scheduled reste scheduled');
+  assert(scheduledPatched.title === 'Programmee corrigee', 'F: PATCH scheduled sans fenetre');
+  assert(scheduledPatched.published_at == null, 'F: published_at reste null');
+  console.log('W5 OK scheduled published_at=null reste patchable');
+
+  await expectReject(
+    patchPublication(OWNER_ID, COMMUNITY_ID, withinPub.id, { title: 'Owner hack' }, { ...windowDeps, now: tPlus20 }),
+    403
+  );
+  await expectReject(
+    patchPublication(ADMIN_ID, COMMUNITY_ID, withinPub.id, { title: 'Admin hack' }, { ...windowDeps, now: tPlus20 }),
+    403
+  );
+  const otherAuthor = await createPublication(
+    ADMIN_ID,
+    COMMUNITY_ID,
+    validBody({ title: 'Pub admin' }),
+    { ...windowDeps, now: publishedAt }
+  );
+  await expectReject(
+    patchPublication(MEMBER_ID, COMMUNITY_ID, otherAuthor.id, { title: 'Membre hack' }, { ...windowDeps, now: tPlus20 }),
+    403
+  );
+  console.log('W6 OK Owner/Admin/membre non auteur PATCH 403');
+
+  const conflictRes = {
+    headersSent: false,
+    statusCode: null,
+    body: null,
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(payload) {
+      this.body = payload;
+      return this;
+    },
+  };
+  errorHandler(new AppError(409, 'correction_window_expired'), {}, conflictRes, () => {});
+  assert(conflictRes.statusCode === 409, 'K: HTTP 409');
+  assert(conflictRes.body.error === 'correction_window_expired', 'K: code stable');
+  console.log('W8 OK HTTP 409 correction_window_expired');
+
+  const lateDelete = await createPublication(
+    MEMBER_ID,
+    COMMUNITY_ID,
+    validBody({ title: 'Delete tardif' }),
+    { ...windowDeps, now: publishedAt }
+  );
+  const deletedLate = await deletePublication(OWNER_ID, COMMUNITY_ID, lateDelete.id, {
+    ...windowDeps,
+    now: tPlus40,
+  });
+  assert(deletedLate.deleted === true, 'L: owner delete apres expiration fenetre');
+
+  const authorDeletePub = await createPublication(
+    ADMIN_ID,
+    COMMUNITY_ID,
+    validBody({ title: 'Delete auteur tardif' }),
+    { ...windowDeps, now: publishedAt }
+  );
+  const authorDeleted = await deletePublication(ADMIN_ID, COMMUNITY_ID, authorDeletePub.id, {
+    ...windowDeps,
+    now: tPlus40,
+  });
+  assert(authorDeleted.deleted === true, 'L: auteur delete apres expiration fenetre');
+
+  const restorePub = await createPublication(
+    ADMIN_ID,
+    COMMUNITY_ID,
+    validBody({ title: 'Restore tardif' }),
+    { ...windowDeps, now: publishedAt }
+  );
+  await deletePublication(ADMIN_ID, COMMUNITY_ID, restorePub.id, { ...windowDeps, now: tPlus20 });
+  const restoredLate = await restorePublication(ADMIN_ID, COMMUNITY_ID, restorePub.id, {
+    ...windowDeps,
+    now: tPlus40,
+  });
+  assert(restoredLate.status === 'active', 'L: restore independant de la fenetre');
+  assert(restoredLate.published_at === publishedAt.toISOString(), 'L: restore garde published_at');
+  console.log('W9 OK delete/restore independants de la fenetre');
+
+  const formerPub = await createPublication(
+    MEMBER_ID,
+    COMMUNITY_ID,
+    validBody({ title: 'Avant depart' }),
+    { ...windowDeps, now: publishedAt }
+  );
+  await leaveCommunity(MEMBER_ID, COMMUNITY_ID, windowDeps);
+  await expectReject(
+    patchPublication(MEMBER_ID, COMMUNITY_ID, formerPub.id, { title: 'Ex membre' }, { ...windowDeps, now: tPlus20 }),
+    404
+  );
+  console.log('W7 OK ancien membre PATCH refuse');
 }
 
 main().catch((err) => {
