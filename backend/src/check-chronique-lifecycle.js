@@ -4,11 +4,14 @@ const { spawn } = require('child_process');
 const { generateAccessToken } = require('./services/tokenService');
 const { parsePatchInput, parseRestoreInput } = require('./validators/chroniqueFields');
 const AppError = require('./errors/AppError');
+const errorHandler = require('./middleware/errorHandler');
 const {
   updateChronique,
   archiveChronique,
   restoreChronique,
   deleteChronique,
+  assertWithinCorrectionWindow,
+  CORRECTION_WINDOW_MS,
 } = require('./services/chroniqueService');
 
 const TEST_SECRET = 'chronique-lifecycle-test-secret-not-for-production';
@@ -383,6 +386,165 @@ async function main() {
   await deleteChronique(OWNER_ID, 11, { db: expiredDeleted });
   assert(expiredDeleted.state.rows[0].status === 'deleted', 'expired -> deleted');
   console.log('I3 OK expired archive refusee, delete logique');
+
+  const publishedAt = new Date('2026-10-08T14:00:00.000Z');
+  const tPlus20 = new Date(publishedAt.getTime() + 20 * 60 * 1000);
+  const tPlus29999 = new Date(publishedAt.getTime() + CORRECTION_WINDOW_MS - 1);
+  const tPlus30 = new Date(publishedAt.getTime() + CORRECTION_WINDOW_MS);
+  const tPlus31 = new Date(publishedAt.getTime() + 31 * 60 * 1000);
+  const tPlus40 = new Date(publishedAt.getTime() + 40 * 60 * 1000);
+  const bodyText = 'Le texte de la chronique, d au moins vingt caracteres.';
+
+  expectAppError(
+    () =>
+      assertWithinCorrectionWindow(
+        sampleRow({ status: 'active', published_at: publishedAt }),
+        tPlus30
+      ),
+    409,
+    'correction_window_expired'
+  );
+  assertWithinCorrectionWindow(
+    sampleRow({ status: 'active', published_at: publishedAt }),
+    tPlus29999
+  );
+  assertWithinCorrectionWindow(
+    sampleRow({ status: 'scheduled', published_at: null }),
+    tPlus40
+  );
+
+  const withinDb = createMemoryDb([
+    sampleRow({ id: 20, status: 'active', published_at: publishedAt, title: 'Titre 0' }),
+  ]);
+  const withinPatch = await updateChronique(
+    OWNER_ID,
+    20,
+    { title: 'Titre 20 min' },
+    { db: withinDb, now: tPlus20 }
+  );
+  assert(withinPatch.title === 'Titre 20 min', 'A: patch < 30 min title');
+  assert(withinPatch.published_at === publishedAt.toISOString(), 'A: published_at inchange');
+  console.log('L OK PATCH active < 30 min accepte');
+
+  const exactDb = createMemoryDb([
+    sampleRow({ id: 21, status: 'active', published_at: publishedAt }),
+  ]);
+  await expectStatus(
+    () =>
+      updateChronique(OWNER_ID, 21, { title: 'Trop tard exact' }, { db: exactDb, now: tPlus30 }),
+    409,
+    'correction_window_expired'
+  );
+  assert(exactDb.state.rows[0].title === 'Premier soir', 'B: titre inchange a 30:00.000');
+  console.log('L2 OK PATCH active a 30:00.000 refuse');
+
+  const afterDb = createMemoryDb([
+    sampleRow({ id: 22, status: 'active', published_at: publishedAt }),
+  ]);
+  await expectStatus(
+    () => updateChronique(OWNER_ID, 22, { body: bodyText }, { db: afterDb, now: tPlus31 }),
+    409,
+    'correction_window_expired'
+  );
+  console.log('L3 OK PATCH active > 30 min refuse');
+
+  const twoPatchDb = createMemoryDb([
+    sampleRow({
+      id: 23,
+      status: 'active',
+      published_at: publishedAt,
+      title: 'T0',
+      updated_at: publishedAt,
+    }),
+  ]);
+  const firstPatch = await updateChronique(
+    OWNER_ID,
+    23,
+    { title: 'T+20' },
+    { db: twoPatchDb, now: tPlus20 }
+  );
+  assert(firstPatch.title === 'T+20', 'D: premier PATCH dans la fenetre');
+  assert(firstPatch.published_at === publishedAt.toISOString(), 'E: published_at non repousse');
+  const secondOk = await updateChronique(
+    OWNER_ID,
+    23,
+    { title: 'T+29.999' },
+    { db: twoPatchDb, now: tPlus29999 }
+  );
+  assert(secondOk.title === 'T+29.999', 'D: second PATCH encore dans la fenetre');
+  assert(secondOk.published_at === publishedAt.toISOString(), 'E: limite toujours published_at+30');
+  await expectStatus(
+    () =>
+      updateChronique(OWNER_ID, 23, { title: 'T+31' }, { db: twoPatchDb, now: tPlus31 }),
+    409,
+    'correction_window_expired'
+  );
+  assert(twoPatchDb.state.rows[0].title === 'T+29.999', 'E: second refuse ne mute pas');
+  console.log('L4 OK deux PATCH avant expiration, limite non glissante');
+
+  const scheduledPatchDb = createMemoryDb([
+    sampleRow({
+      id: 24,
+      status: 'scheduled',
+      published_at: null,
+      scheduled_at: new Date(publishedAt.getTime() + 2 * 60 * 60 * 1000),
+      title: 'Programmee',
+    }),
+  ]);
+  const scheduledPatched = await updateChronique(
+    OWNER_ID,
+    24,
+    { title: 'Programmee corrigee' },
+    { db: scheduledPatchDb, now: tPlus40 }
+  );
+  assert(scheduledPatched.status === 'scheduled', 'F: scheduled reste scheduled');
+  assert(scheduledPatched.title === 'Programmee corrigee', 'F: PATCH scheduled sans fenetre');
+  assert(scheduledPatched.published_at == null, 'F: published_at reste null');
+  console.log('L5 OK scheduled published_at=null reste patchable');
+
+  const archiveAfterDb = createMemoryDb([
+    sampleRow({ id: 25, status: 'active', published_at: publishedAt }),
+  ]);
+  const archivedLate = await archiveChronique(OWNER_ID, 25, { db: archiveAfterDb });
+  assert(archivedLate.status === 'archived', 'G: archive apres expiration');
+  console.log('L6 OK archive apres expiration fenetre');
+
+  const deleteAfterDb = createMemoryDb([
+    sampleRow({ id: 26, status: 'active', published_at: publishedAt }),
+  ]);
+  await deleteChronique(OWNER_ID, 26, { db: deleteAfterDb });
+  assert(deleteAfterDb.state.rows[0].status === 'deleted', 'H: delete apres expiration');
+  console.log('L7 OK delete apres expiration fenetre');
+
+  const ownerWindowDb = createMemoryDb([
+    sampleRow({ id: 27, user_id: 99, status: 'active', published_at: publishedAt }),
+  ]);
+  await expectStatus(
+    () =>
+      updateChronique(OWNER_ID, 27, { title: 'Hack' }, { db: ownerWindowDb, now: tPlus20 }),
+    404,
+    'Chronique not found'
+  );
+  assert(ownerWindowDb.state.rows[0].title === 'Premier soir', 'I: ownership inchange');
+  console.log('L8 OK ownership PATCH inchange');
+
+  const conflictRes = {
+    headersSent: false,
+    statusCode: null,
+    body: null,
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(payload) {
+      this.body = payload;
+      return this;
+    },
+  };
+  errorHandler(new AppError(409, 'correction_window_expired'), {}, conflictRes, () => {});
+  assert(conflictRes.statusCode === 409, 'J: HTTP 409');
+  assert(conflictRes.body.error === 'correction_window_expired', 'J: code stable');
+  console.log('L9 OK HTTP 409 correction_window_expired');
 
   const { child, logs } = startTestServer(TEST_PORT);
   try {

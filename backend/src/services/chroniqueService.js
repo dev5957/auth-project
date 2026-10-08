@@ -450,6 +450,23 @@ function applyEphemeral(next, input, now) {
   next.expires_at = expiresAt;
 }
 
+const CORRECTION_WINDOW_MS = 30 * 60 * 1000;
+
+/** Fenêtre de correction textuelle : active + published_at, fermée à published_at + 30:00.000. */
+function assertWithinCorrectionWindow(row, now) {
+  if (row.status !== CHRONIQUE_STATUS.ACTIVE) {
+    return;
+  }
+  const publishedAt = asDate(row.published_at);
+  if (publishedAt == null) {
+    return;
+  }
+  const clock = asDate(now) || new Date();
+  if (clock.getTime() >= publishedAt.getTime() + CORRECTION_WINDOW_MS) {
+    throw new AppError(409, 'correction_window_expired');
+  }
+}
+
 function applyPatchToRow(row, input, now) {
   if (row.status === CHRONIQUE_STATUS.ARCHIVED || row.status === CHRONIQUE_STATUS.EXPIRED) {
     throw new AppError(400, 'Chronique cannot be edited in this status');
@@ -461,6 +478,7 @@ function applyPatchToRow(row, input, now) {
   ) {
     throw new AppError(400, 'Chronique cannot be edited in this status');
   }
+  assertWithinCorrectionWindow(row, now);
 
   const next = { ...row };
   if (input.hasTitle) {
@@ -613,7 +631,8 @@ async function savePublication(client, userId, next) {
 async function updateChronique(userId, rawId, body, deps = {}) {
   const input = parsePatchInput(body);
   return withOwnedPublication(userId, rawId, deps, async (client, row) => {
-    const next = applyPatchToRow(row, input, new Date());
+    const now = deps.now || new Date();
+    const next = applyPatchToRow(row, input, now);
     const saved = await savePublication(client, userId, next);
     return toPublicChronique(saved);
   });
@@ -689,6 +708,8 @@ module.exports = {
   archiveChronique,
   restoreChronique,
   deleteChronique,
+  assertWithinCorrectionWindow,
+  CORRECTION_WINDOW_MS,
   toPublicChronique,
   toPublicMedia,
   withOwnedPublication,
