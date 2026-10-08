@@ -3894,6 +3894,20 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(CreateCommunityPublicationScreen), findsOneWidget);
     expect(find.text('Contenu'), findsWidgets);
+    expect(find.text('Titre (optionnel)'), findsOneWidget);
+    expect(find.text('Texte *'), findsOneWidget);
+    expect(find.text('+ Ajouter un média'), findsOneWidget);
+    expect(find.text('+ Média'), findsOneWidget);
+    expect(find.byKey(const ValueKey('wizard-add-media')), findsOneWidget);
+    expect(find.byKey(const ValueKey('wizard-next')), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text('Titre (optionnel)')).dy,
+      lessThan(tester.getTopLeft(find.text('Texte *')).dy),
+    );
+    expect(
+      tester.getTopLeft(find.text('Texte *')).dy,
+      lessThan(tester.getTopLeft(find.text('+ Ajouter un média')).dy),
+    );
     expect(find.byKey(const ValueKey('community-assistant-comments')), findsOneWidget);
     expect(find.byKey(const ValueKey('community-comments-yes')), findsOneWidget);
     expect(find.byKey(const ValueKey('community-comments-no')), findsOneWidget);
@@ -3909,6 +3923,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Paramètres'), findsWidgets);
+    expect(find.text('+ Média'), findsNothing);
     expect(find.byKey(const ValueKey('community-assistant-context-name')), findsOneWidget);
     expect(find.text('Jardin secret'), findsWidgets);
     expect(find.byKey(const ValueKey('publish-now')), findsOneWidget);
@@ -3953,6 +3968,39 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.createPublicationCalls.single['publish'], 'schedule');
     expect(api.createPublicationCalls.single['scheduledAt'], isNotNull);
+  });
+
+  testWidgets('community assistant content bar keeps + Média and Suivant with keyboard inset', (
+    tester,
+  ) async {
+    final api = _FakeCommunityApi();
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    await tester.tap(find.byKey(const ValueKey('community-publish-open')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).at(1), 'Le texte communautaire de plus de dix car.');
+    await tester.pump();
+    await tester.showKeyboard(find.byType(TextField).at(1));
+    tester.view.viewInsets = const FakeViewPadding(bottom: 320);
+    addTearDown(tester.view.resetViewInsets);
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('wizard-add-media')).hitTestable(), findsOneWidget);
+    expect(find.byKey(const ValueKey('wizard-next')).hitTestable(), findsOneWidget);
+    expect(
+      tester.getRect(find.byKey(const ValueKey('wizard-add-media'))).bottom,
+      lessThanOrEqualTo(tester.view.physicalSize.height / tester.view.devicePixelRatio),
+    );
+    expect(
+      tester.getRect(find.byKey(const ValueKey('wizard-next'))).bottom,
+      lessThanOrEqualTo(tester.view.physicalSize.height / tester.view.devicePixelRatio),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('wizard-add-media')));
+    await tester.pumpAndSettle();
+    expect(find.text('Image'), findsOneWidget);
+    expect(find.text('Vidéo'), findsOneWidget);
+    expect(api.createPublicationCalls, isEmpty);
   });
 
   testWidgets('home menu opens mes publications communautaires', (tester) async {
