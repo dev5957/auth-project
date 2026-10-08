@@ -50,7 +50,7 @@ void main() {
     expect(find.byType(ChroniqueCard), findsOneWidget);
     expect(find.byKey(const ValueKey('chronique-card-title')), findsOneWidget);
     expect(find.byKey(const ValueKey('chronique-feed-media-band')), findsNothing);
-    expect(find.byKey(const ValueKey('chronique-share')), findsOneWidget);
+    expect(find.byKey(const ValueKey('chronique-share')), findsNothing);
     expect(find.byKey(const ValueKey('chronique-like')), findsNothing);
   });
 

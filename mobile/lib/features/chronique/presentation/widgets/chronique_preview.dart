@@ -76,7 +76,7 @@ class ChroniquePreview extends StatelessWidget {
         media: previewMedias,
       ),
       showFeedMedia: true,
-      showInactiveSocialActions: true,
+      showInactiveSocialActions: false,
       localMediaPaths: localPaths,
       localThumbnailPaths: localThumbnails,
       onMediaSelected: (media) => openChroniqueFeedMedia(

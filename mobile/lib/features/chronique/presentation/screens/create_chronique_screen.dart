@@ -60,6 +60,9 @@ class CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
       ChroniqueFields.canPublishBody(_bodyController.text) &&
       _liveMediaError == null;
 
+  bool get _canAddMedia =>
+      !_submitting && _currentMedias.length < kChroniqueMaxMediaCount;
+
   @visibleForTesting
   ChroniqueScheduleDraft get scheduleDraft => _schedule;
 
@@ -530,10 +533,25 @@ class CreateChroniqueScreenState extends ConsumerState<CreateChroniqueScreen> {
           const SizedBox(height: AppSpacing.md),
         ],
         if (_step == CreateChroniqueStep.content)
-          AppButton(
-            key: const ValueKey('wizard-next'),
-            label: 'Suivant',
-            onPressed: _canGoNext ? _goNext : null,
+          Row(
+            children: [
+              Expanded(
+                child: AppButton(
+                  key: const ValueKey('wizard-add-media'),
+                  label: '+ Média',
+                  variant: AppButtonVariant.secondary,
+                  onPressed: _canAddMedia ? _addMedia : null,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: AppButton(
+                  key: const ValueKey('wizard-next'),
+                  label: 'Suivant',
+                  onPressed: _canGoNext ? _goNext : null,
+                ),
+              ),
+            ],
           )
         else
           Row(

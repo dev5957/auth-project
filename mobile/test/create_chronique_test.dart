@@ -540,6 +540,9 @@ void main() {
     expect(find.text('Titre (optionnel)'), findsOneWidget);
     expect(find.text('Texte *'), findsOneWidget);
     expect(find.text('Suivant'), findsOneWidget);
+    expect(find.text('+ Média'), findsOneWidget);
+    expect(find.byKey(const ValueKey('wizard-add-media')), findsOneWidget);
+    expect(find.byKey(const ValueKey('wizard-next')), findsOneWidget);
     expect(find.text('Publier'), findsNothing);
     expect(find.text('0 / 1000'), findsOneWidget);
     expect(find.text('+ Ajouter un média'), findsOneWidget);
@@ -1498,6 +1501,7 @@ void main() {
     expect(find.text('Premier soir'), findsWidgets);
     expect(find.text(_validBody), findsWidgets);
     expect(find.byKey(const ValueKey('chronique-preview-card')), findsOneWidget);
+    expect(find.byKey(const ValueKey('chronique-share')), findsNothing);
     expect(find.text(kChroniquePausedOptionsPreviewTitle), findsNothing);
 
     await tester.tap(find.text('Retour'));
@@ -2001,5 +2005,54 @@ void main() {
       lessThan(tester.getRect(find.text('Suivant')).top),
     );
     expect(api.createCalls, 0);
+  });
+
+  testWidgets('content action bar keeps + Média and Suivant reachable with keyboard inset', (
+    tester,
+  ) async {
+    await _pumpHome(tester, api: _ChroniqueApiProbe());
+    await _openCreate(tester);
+    await tester.enterText(find.byType(TextField).at(1), _validBody);
+    await tester.pump();
+    await tester.showKeyboard(find.byType(TextField).at(1));
+    tester.view.viewInsets = const FakeViewPadding(bottom: 320);
+    addTearDown(tester.view.resetViewInsets);
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('wizard-add-media')).hitTestable(), findsOneWidget);
+    expect(find.byKey(const ValueKey('wizard-next')).hitTestable(), findsOneWidget);
+    expect(
+      tester.getRect(find.byKey(const ValueKey('wizard-add-media'))).bottom,
+      lessThanOrEqualTo(tester.view.physicalSize.height / tester.view.devicePixelRatio),
+    );
+    expect(
+      tester.getRect(find.byKey(const ValueKey('wizard-next'))).bottom,
+      lessThanOrEqualTo(tester.view.physicalSize.height / tester.view.devicePixelRatio),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('wizard-add-media')));
+    await tester.pumpAndSettle();
+    expect(find.text('Image'), findsOneWidget);
+    expect(find.text('Vidéo'), findsOneWidget);
+  });
+
+  testWidgets('preview omits share while keeping three wizard steps', (tester) async {
+    await _pumpHome(tester, api: _ChroniqueApiProbe());
+    await _openCreate(tester);
+    expect(find.text('+ Média'), findsOneWidget);
+    expect(find.text('Suivant'), findsOneWidget);
+
+    await _enterValidBody(tester);
+    await _goToPublication(tester);
+    expect(find.text('+ Média'), findsNothing);
+    expect(find.text('Retour'), findsOneWidget);
+    expect(find.text('Suivant'), findsOneWidget);
+
+    await tester.tap(find.text('Suivant'));
+    await tester.pumpAndSettle();
+    expect(find.text('Aperçu'), findsWidgets);
+    expect(find.byKey(const ValueKey('chronique-preview-card')), findsOneWidget);
+    expect(find.byKey(const ValueKey('chronique-share')), findsNothing);
+    expect(find.byTooltip('Partager'), findsNothing);
   });
 }

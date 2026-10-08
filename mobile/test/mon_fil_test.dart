@@ -397,6 +397,7 @@ void main() {
     await _openMonFil(tester);
 
     expect(find.byType(ChroniqueCard), findsOneWidget);
+    expect(find.byKey(const ValueKey('chronique-share')), findsOneWidget);
     expect(find.text('Premier soir'), findsOneWidget);
     expect(
       find.text('Le texte de la chronique, d au moins vingt caracteres.'),
