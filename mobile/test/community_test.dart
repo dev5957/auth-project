@@ -37,9 +37,12 @@ import 'package:mobile/core/widgets/app_card.dart';
 import 'package:mobile/core/widgets/app_loading.dart';
 import 'package:mobile/features/community/presentation/screens/community_search_screen.dart';
 import 'package:mobile/features/chronique/models/chronique.dart';
+import 'package:mobile/features/chronique/models/chronique_correction_window.dart';
 import 'package:mobile/features/chronique/models/chronique_date.dart';
 import 'package:mobile/features/chronique/presentation/widgets/chronique_media_viewer.dart';
+import 'package:mobile/features/chronique/presentation/widgets/chronique_ready_remote_media_list.dart';
 import 'package:mobile/features/community/presentation/screens/community_publication_detail_screen.dart';
+import 'package:mobile/features/community/presentation/screens/edit_community_publication_screen.dart';
 import 'package:mobile/features/community/presentation/widgets/community_comments_section.dart';
 import 'package:mobile/features/community/presentation/screens/create_community_publication_screen.dart';
 import 'package:mobile/features/community/presentation/screens/create_community_screen.dart';
@@ -381,6 +384,8 @@ class _FakeCommunityApi extends CommunityApiService {
   final List<int> deletedPublicationIds = <int>[];
   final List<int> restoredPublicationIds = <int>[];
   final List<int> patchedPublicationIds = <int>[];
+  String? lastPatchTitle;
+  String? lastPatchBody;
   int nextPublicationId = 90;
   ApiException? failListPublications;
   ApiException? failCreatePublication;
@@ -480,6 +485,8 @@ class _FakeCommunityApi extends CommunityApiService {
   }) async {
     networkOps.add('PATCH /communities/$communityId/publications/$publicationId');
     patchedPublicationIds.add(publicationId);
+    lastPatchTitle = title;
+    lastPatchBody = body;
     if (failPatchPublication != null) {
       throw failPatchPublication!;
     }
@@ -4052,6 +4059,95 @@ void main() {
     );
   }
 
+  String recentPublishedAt() =>
+      DateTime.now().toUtc().subtract(const Duration(minutes: 5)).toIso8601String();
+
+  String closedWindowPublishedAt() =>
+      DateTime.now().toUtc().subtract(const Duration(minutes: 31)).toIso8601String();
+
+  CommunityPublication authorActivePublication({
+    int id = 80,
+    int authorId = 1,
+    String? publishedAt,
+    String title = 'Titre actif auteur',
+    String body = 'Publication active auteur encore membre.',
+    List<ChroniqueMedia> media = const [],
+    bool commentsEnabled = true,
+    int likeCount = 0,
+  }) {
+    return CommunityPublication(
+      id: id,
+      communityId: 3,
+      communityName: 'Jardin secret',
+      author: CommunityPublicationAuthor(
+        userId: authorId,
+        login: authorId == 1 ? 'tgjjk' : 'other',
+        isFormerMember: false,
+      ),
+      title: title,
+      body: body,
+      status: 'active',
+      publishedAt: publishedAt ?? recentPublishedAt(),
+      commentsEnabled: commentsEnabled,
+      likeCount: likeCount,
+      media: media,
+    );
+  }
+
+  Future<void> openCommunityPublicationMenu(WidgetTester tester) async {
+    await tester.tap(find.byKey(const ValueKey('community-publication-menu')));
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> enterAuthorCorrection(WidgetTester tester) async {
+    await openCommunityPublicationMenu(tester);
+    await tester.tap(find.text('Modifier'));
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> pumpPublicationDetailOnStack(
+    WidgetTester tester,
+    _FakeCommunityApi api, {
+    required int publicationId,
+  }) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authTokenStorageProvider.overrideWithValue(
+            InMemoryAuthTokenStorage(accessToken: 'access-test', refreshToken: 'refresh-test'),
+          ),
+          authControllerProvider.overrideWith(() => _SeededAuthController()),
+          communityApiServiceProvider.overrideWithValue(api),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.light,
+          home: Builder(
+            builder: (context) {
+              return Scaffold(
+                body: TextButton(
+                  key: const ValueKey('open-community-publication-detail'),
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => CommunityPublicationDetailScreen(
+                          communityId: 3,
+                          publicationId: publicationId,
+                        ),
+                      ),
+                    );
+                  },
+                  child: const Text('Open'),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('open-community-publication-detail')));
+    await tester.pumpAndSettle();
+  }
+
   Future<void> openMyPublications(WidgetTester tester, _FakeCommunityApi api) async {
     await _pumpApp(tester, api: api);
     await tester.tap(find.byKey(const ValueKey('home-user-avatar')));
@@ -5189,5 +5285,349 @@ void main() {
     expect(find.byKey(const ValueKey('community-manage-join-requests')), findsOneWidget);
     expect(find.byKey(const ValueKey('community-manage-history')), findsOneWidget);
     expect(find.text('Publications supprimées'), findsNothing);
+  });
+
+  testWidgets('A author active under 30 minutes sees Modifier', (tester) async {
+    final api = _FakeCommunityApi()
+      ..publications = [authorActivePublication()]
+      ..myPublications = [authorActivePublication()];
+    await pumpPublicationDetail(tester, api, publicationId: 80);
+    await openCommunityPublicationMenu(tester);
+    expect(find.text('Modifier'), findsOneWidget);
+    expect(find.text('Supprimer'), findsOneWidget);
+  });
+
+  testWidgets('B author Modifier stays on detail and enters edit mode', (tester) async {
+    final api = _FakeCommunityApi()
+      ..publications = [authorActivePublication()]
+      ..myPublications = [authorActivePublication()];
+    await pumpPublicationDetail(tester, api, publicationId: 80);
+    await enterAuthorCorrection(tester);
+    expect(find.byType(CommunityPublicationDetailScreen), findsOneWidget);
+    expect(find.byType(EditCommunityPublicationScreen), findsNothing);
+    expect(find.text('Modifier la publication'), findsOneWidget);
+    expect(find.text('Annuler'), findsOneWidget);
+    expect(find.text('Enregistrer'), findsOneWidget);
+    expect(
+      tester.widget<TextField>(find.byType(TextField).at(0)).controller?.text,
+      'Titre actif auteur',
+    );
+    expect(
+      tester.widget<TextField>(find.byType(TextField).at(1)).controller?.text,
+      'Publication active auteur encore membre.',
+    );
+  });
+
+  testWidgets('C author save patches title only payload through existing PATCH', (tester) async {
+    final original = authorActivePublication();
+    final api = _FakeCommunityApi()
+      ..publications = [original]
+      ..myPublications = [original];
+    await pumpPublicationDetail(tester, api, publicationId: 80);
+    await enterAuthorCorrection(tester);
+    await tester.enterText(find.byType(TextField).first, 'Nouveau titre jardin');
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('community-publication-save')));
+    await tester.pumpAndSettle();
+    expect(api.patchedPublicationIds, [80]);
+    expect(api.lastPatchTitle, 'Nouveau titre jardin');
+    expect(api.lastPatchBody, original.body);
+    expect(find.byType(EditCommunityPublicationScreen), findsNothing);
+    expect(find.byType(CommunityPublicationDetailScreen), findsOneWidget);
+    expect(find.text('Nouveau titre jardin'), findsOneWidget);
+    expect(find.text('Modifier la publication'), findsNothing);
+  });
+
+  testWidgets('D author save patches body through existing PATCH', (tester) async {
+    const nextBody = 'Texte modifié d au moins vingt caracteres.';
+    final original = authorActivePublication();
+    final api = _FakeCommunityApi()
+      ..publications = [original]
+      ..myPublications = [original];
+    await pumpPublicationDetail(tester, api, publicationId: 80);
+    await enterAuthorCorrection(tester);
+    await tester.enterText(find.byType(TextField).at(1), nextBody);
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('community-publication-save')));
+    await tester.pumpAndSettle();
+    expect(api.patchedPublicationIds, [80]);
+    expect(api.lastPatchTitle, original.title);
+    expect(api.lastPatchBody, nextBody);
+    expect(find.text(nextBody), findsOneWidget);
+  });
+
+  testWidgets('E cancel leaves detail unchanged without PATCH', (tester) async {
+    final original = authorActivePublication();
+    final api = _FakeCommunityApi()
+      ..publications = [original]
+      ..myPublications = [original];
+    await pumpPublicationDetail(tester, api, publicationId: 80);
+    await enterAuthorCorrection(tester);
+    await tester.enterText(find.byType(TextField).first, 'Titre abandonné');
+    await tester.pump();
+    await tester.tap(find.text('Annuler'));
+    await tester.pumpAndSettle();
+    expect(api.patchedPublicationIds, isEmpty);
+    expect(find.byType(CommunityPublicationDetailScreen), findsOneWidget);
+    expect(find.text('Titre actif auteur'), findsOneWidget);
+    expect(find.text('Titre abandonné'), findsNothing);
+    expect(find.text('Modifier la publication'), findsNothing);
+  });
+
+  testWidgets('F system back exits edit before leaving the detail', (tester) async {
+    final original = authorActivePublication();
+    final api = _FakeCommunityApi()
+      ..publications = [original]
+      ..myPublications = [original];
+    await pumpPublicationDetailOnStack(tester, api, publicationId: 80);
+    await enterAuthorCorrection(tester);
+    expect(find.text('Modifier la publication'), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byType(CommunityPublicationDetailScreen), findsOneWidget);
+    expect(find.text('Modifier la publication'), findsNothing);
+    expect(find.text('Titre actif auteur'), findsOneWidget);
+    expect(api.patchedPublicationIds, isEmpty);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byType(CommunityPublicationDetailScreen), findsNothing);
+  });
+
+  testWidgets('G author after 30 minutes has no Modifier but keeps delete', (tester) async {
+    final publication = authorActivePublication(publishedAt: closedWindowPublishedAt());
+    final api = _FakeCommunityApi()
+      ..publications = [publication]
+      ..myPublications = [publication];
+    await pumpPublicationDetail(tester, api, publicationId: 80);
+    await openCommunityPublicationMenu(tester);
+    expect(find.text('Modifier'), findsNothing);
+    expect(find.text('Supprimer'), findsOneWidget);
+  });
+
+  testWidgets('H author delete remains available inside the correction window', (tester) async {
+    final publication = authorActivePublication();
+    final api = _FakeCommunityApi()
+      ..publications = [publication]
+      ..myPublications = [publication];
+    await pumpPublicationDetail(tester, api, publicationId: 80);
+    await openCommunityPublicationMenu(tester);
+    expect(find.text('Supprimer'), findsOneWidget);
+    await tester.tap(find.text('Supprimer'));
+    await tester.pumpAndSettle();
+    expect(find.text('Elle disparaîtra du fil.'), findsOneWidget);
+    expect(api.deletedPublicationIds, isEmpty);
+  });
+
+  testWidgets('I 409 correction_window_expired shows user message and exits edit', (tester) async {
+    final publication = authorActivePublication();
+    final api = _FakeCommunityApi()
+      ..publications = [publication]
+      ..myPublications = [publication]
+      ..failPatchPublication = const ApiException(
+        message: kCorrectionWindowExpiredCode,
+        statusCode: 409,
+      );
+    await pumpPublicationDetail(tester, api, publicationId: 80);
+    final getsBefore = api.networkOps.where((op) => op.contains('GET /communities/3/publications/80')).length;
+    await enterAuthorCorrection(tester);
+    await tester.enterText(find.byType(TextField).first, 'Titre trop tard');
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('community-publication-save')));
+    await tester.pumpAndSettle();
+    expect(find.text('La période de modification est terminée.'), findsWidgets);
+    expect(find.text(kCorrectionWindowExpiredCode), findsNothing);
+    expect(find.text('Modifier la publication'), findsNothing);
+    expect(find.byType(CommunityPublicationDetailScreen), findsOneWidget);
+    expect(find.text('Titre actif auteur'), findsOneWidget);
+    expect(
+      api.networkOps.where((op) => op.contains('GET /communities/3/publications/80')).length,
+      getsBefore + 1,
+    );
+  });
+
+  testWidgets('J member non-author does not see Modifier', (tester) async {
+    final api = _FakeCommunityApi()
+      ..items[0] = const Community(
+        id: 3,
+        name: 'Jardin secret',
+        visibility: 'private',
+        myRole: CommunityRole.member,
+        memberCount: 1,
+      )
+      ..publications = [authorActivePublication(authorId: 2)];
+    await pumpPublicationDetail(tester, api, publicationId: 80);
+    expect(find.byKey(const ValueKey('community-publication-menu')), findsNothing);
+    expect(find.text('Modifier'), findsNothing);
+    expect(api.patchedPublicationIds, isEmpty);
+  });
+
+  testWidgets('K owner non-author keeps delete without Modifier or PATCH', (tester) async {
+    final api = _FakeCommunityApi()
+      ..publications = [authorActivePublication(authorId: 2)];
+    await pumpPublicationDetail(tester, api, publicationId: 80);
+    await openCommunityPublicationMenu(tester);
+    expect(find.text('Modifier'), findsNothing);
+    expect(find.text('Supprimer'), findsOneWidget);
+    expect(api.patchedPublicationIds, isEmpty);
+  });
+
+  testWidgets('L admin non-author keeps delete without Modifier or PATCH', (tester) async {
+    final api = _FakeCommunityApi()
+      ..items[0] = const Community(
+        id: 3,
+        name: 'Jardin secret',
+        visibility: 'private',
+        myRole: CommunityRole.admin,
+        memberCount: 1,
+      )
+      ..publications = [authorActivePublication(authorId: 2)];
+    await pumpPublicationDetail(tester, api, publicationId: 80);
+    await openCommunityPublicationMenu(tester);
+    expect(find.text('Modifier'), findsNothing);
+    expect(find.text('Supprimer'), findsOneWidget);
+    expect(api.patchedPublicationIds, isEmpty);
+  });
+
+  testWidgets('M owner who is also author gets Modifier from authorship plus delete', (
+    tester,
+  ) async {
+    final api = _FakeCommunityApi()
+      ..publications = [authorActivePublication()]
+      ..myPublications = [authorActivePublication()];
+    await pumpPublicationDetail(tester, api, publicationId: 80);
+    expect(api.items.first.myRole, CommunityRole.owner);
+    await openCommunityPublicationMenu(tester);
+    expect(find.text('Modifier'), findsOneWidget);
+    expect(find.text('Supprimer'), findsOneWidget);
+  });
+
+  testWidgets('N existing media stay visible without add-media mutation', (tester) async {
+    const image = ChroniqueMedia(
+      id: 10,
+      kind: 'image',
+      status: 'ready',
+      contentType: 'image/jpeg',
+      sortOrder: 0,
+      readUrl: 'https://example.test/a.jpg',
+    );
+    final publication = authorActivePublication(media: const [image]);
+    final api = _FakeCommunityApi()
+      ..publications = [publication]
+      ..myPublications = [publication];
+    await pumpPublicationDetail(tester, api, publicationId: 80);
+    expect(find.byType(ChroniqueReadyRemoteMediaList), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-media-delete-10')), findsOneWidget);
+    expect(find.text('+ Ajouter un média'), findsNothing);
+    await enterAuthorCorrection(tester);
+    expect(find.byType(ChroniqueReadyRemoteMediaList), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-media-delete-10')), findsNothing);
+    expect(find.text('+ Ajouter un média'), findsNothing);
+  });
+
+  const ChroniqueMedia _authorSpaceImage = ChroniqueMedia(
+    id: 10,
+    kind: 'image',
+    status: 'ready',
+    contentType: 'image/jpeg',
+    sortOrder: 0,
+    readUrl: 'https://example.test/a.jpg',
+  );
+
+  testWidgets('author under 30 minutes can delete media', (tester) async {
+    final publication = authorActivePublication(media: const [_authorSpaceImage]);
+    final api = _FakeCommunityApi()
+      ..publications = [publication]
+      ..myPublications = [publication];
+    await pumpPublicationDetail(tester, api, publicationId: 80);
+    expect(find.byKey(const ValueKey('community-media-delete-10')), findsOneWidget);
+  });
+
+  testWidgets('author after 30 minutes cannot delete media but can still delete the publication', (
+    tester,
+  ) async {
+    final publication = authorActivePublication(
+      publishedAt: closedWindowPublishedAt(),
+      media: const [_authorSpaceImage],
+    );
+    final api = _FakeCommunityApi()
+      ..publications = [publication]
+      ..myPublications = [publication];
+    await pumpPublicationDetail(tester, api, publicationId: 80);
+    expect(find.byType(ChroniqueReadyRemoteMediaList), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-media-delete-10')), findsNothing);
+    await openCommunityPublicationMenu(tester);
+    expect(find.text('Modifier'), findsNothing);
+    expect(find.text('Supprimer'), findsOneWidget);
+  });
+
+  testWidgets('non-author member cannot delete media', (tester) async {
+    final api = _FakeCommunityApi()
+      ..items[0] = const Community(
+        id: 3,
+        name: 'Jardin secret',
+        visibility: 'private',
+        myRole: CommunityRole.member,
+        memberCount: 1,
+      )
+      ..publications = [authorActivePublication(authorId: 2, media: const [_authorSpaceImage])];
+    await pumpPublicationDetail(tester, api, publicationId: 80);
+    expect(find.byType(ChroniqueReadyRemoteMediaList), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-media-delete-10')), findsNothing);
+    expect(find.byKey(const ValueKey('community-publication-menu')), findsNothing);
+  });
+
+  testWidgets('owner non-author cannot delete media and keeps publication delete', (tester) async {
+    final api = _FakeCommunityApi()
+      ..publications = [authorActivePublication(authorId: 2, media: const [_authorSpaceImage])];
+    await pumpPublicationDetail(tester, api, publicationId: 80);
+    expect(find.byKey(const ValueKey('community-media-delete-10')), findsNothing);
+    await openCommunityPublicationMenu(tester);
+    expect(find.text('Modifier'), findsNothing);
+    expect(find.text('Supprimer'), findsOneWidget);
+  });
+
+  testWidgets('admin non-author cannot delete media and keeps publication delete', (tester) async {
+    final api = _FakeCommunityApi()
+      ..items[0] = const Community(
+        id: 3,
+        name: 'Jardin secret',
+        visibility: 'private',
+        myRole: CommunityRole.admin,
+        memberCount: 1,
+      )
+      ..publications = [authorActivePublication(authorId: 2, media: const [_authorSpaceImage])];
+    await pumpPublicationDetail(tester, api, publicationId: 80);
+    expect(find.byKey(const ValueKey('community-media-delete-10')), findsNothing);
+    await openCommunityPublicationMenu(tester);
+    expect(find.text('Modifier'), findsNothing);
+    expect(find.text('Supprimer'), findsOneWidget);
+  });
+
+  testWidgets('O likes and comments remain on the author detail hub', (tester) async {
+    final publication = authorActivePublication(likeCount: 3);
+    final api = _FakeCommunityApi()
+      ..publications = [publication]
+      ..myPublications = [publication];
+    await pumpPublicationDetail(tester, api, publicationId: 80);
+    expect(find.byKey(const ValueKey('community-like-80')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-comment-input')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('community-like-80')));
+    await tester.pumpAndSettle();
+    expect(api.likedPublicationIds, [80]);
+    await tester.enterText(find.byKey(const ValueKey('community-comment-input')), 'Super soiree');
+    await tester.tap(find.byKey(const ValueKey('community-comment-submit')));
+    await tester.pumpAndSettle();
+    expect(api.networkOps, contains('POST /communities/3/publications/80/comments'));
+  });
+
+  testWidgets('P scheduled still uses the existing edit screen', (tester) async {
+    final original = scheduledMine();
+    final api = _FakeCommunityApi()..myPublications = [original];
+    await openMyPublications(tester, api);
+    await tester.tap(find.byKey(const ValueKey('me-pub-current-70')));
+    await tester.pumpAndSettle();
+    await enterAuthorCorrection(tester);
+    expect(find.byType(EditCommunityPublicationScreen), findsOneWidget);
+    expect(find.text('Modifier la publication'), findsOneWidget);
   });
 }
