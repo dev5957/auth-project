@@ -1,7 +1,7 @@
 const AppError = require('../errors/AppError');
 
-const BODY_MIN = 20;
-const BODY_MAX = 5000;
+const BODY_MIN_NON_WHITESPACE = 10;
+const BODY_MAX = 1000;
 const TITLE_MAX = 200;
 const CHRONIQUE_STATUS = Object.freeze({
   DRAFT: 'draft',
@@ -18,6 +18,8 @@ const LIST_STATUSES = [
   CHRONIQUE_STATUS.ARCHIVED,
   CHRONIQUE_STATUS.EXPIRED,
 ];
+/** Rétention consultable après expiration. Aligné sur `purge_after` / jobs. */
+const PURGE_DELAY_DAYS = 30;
 const PUBLISH_MODES = ['draft', 'now', 'schedule'];
 const FORBIDDEN_CREATE_FIELDS = [
   'user_id',
@@ -49,6 +51,10 @@ const PATCH_FIELDS = [
 
 function codePointLength(value) {
   return Array.from(value).length;
+}
+
+function nonWhitespaceLength(value) {
+  return codePointLength(String(value).replace(/\s/gu, ''));
 }
 
 function assertObject(body) {
@@ -104,11 +110,10 @@ function parseBody(value) {
   if (body === '') {
     throw new AppError(400, 'body is required');
   }
-  const length = codePointLength(body);
-  if (length < BODY_MIN) {
+  if (nonWhitespaceLength(body) < BODY_MIN_NON_WHITESPACE) {
     throw new AppError(400, 'body is too short');
   }
-  if (length > BODY_MAX) {
+  if (codePointLength(body) > BODY_MAX) {
     throw new AppError(400, 'body is too long');
   }
   return body;
@@ -331,11 +336,12 @@ function parseChroniqueId(value) {
 }
 
 module.exports = {
-  BODY_MIN,
+  BODY_MIN_NON_WHITESPACE,
   BODY_MAX,
   TITLE_MAX,
   CHRONIQUE_STATUS,
   LIST_STATUSES,
+  PURGE_DELAY_DAYS,
   parseCreateInput,
   parsePatchInput,
   parseRestoreInput,

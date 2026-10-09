@@ -45,6 +45,13 @@ function createRateLimiter({ windowMs, max }) {
 
 const FIFTEEN_MINUTES_MS = 15 * 60 * 1000;
 
+const USER_SEARCH_RATE_LIMIT = Object.freeze({
+  windowMs: FIFTEEN_MINUTES_MS,
+  max: 20,
+});
+
+const userSearchRateLimit = createRateLimiter(USER_SEARCH_RATE_LIMIT);
+
 const authRateLimit = {
   registerStart: createRateLimiter({ windowMs: FIFTEEN_MINUTES_MS, max: 5 }),
   verifyPhone: createRateLimiter({ windowMs: FIFTEEN_MINUTES_MS, max: 10 }),
@@ -61,4 +68,6 @@ const authRateLimit = {
 module.exports = {
   createRateLimiter,
   authRateLimit,
+  userSearchRateLimit,
+  USER_SEARCH_RATE_LIMIT,
 };

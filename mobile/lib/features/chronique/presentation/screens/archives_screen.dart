@@ -2,20 +2,104 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../core/network/api_exception.dart';
 import '../../../../core/router/app_routes.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_text_theme.dart';
 import '../../../../core/widgets/app_loading.dart';
+import '../../models/chronique.dart';
+import '../../providers/chronique_providers.dart';
 import '../state/archives_controller.dart';
 import '../widgets/chronique_card.dart';
+import '../widgets/chronique_card_menu.dart';
+import '../widgets/chronique_lifecycle_dialogs.dart';
 
 /// Archives volontaires : `GET /chroniques?status=archived`.
-class ArchivesScreen extends ConsumerWidget {
+class ArchivesScreen extends ConsumerStatefulWidget {
   const ArchivesScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ArchivesScreen> createState() => _ArchivesScreenState();
+}
+
+class _ArchivesScreenState extends ConsumerState<ArchivesScreen> {
+  bool _busy = false;
+
+  Future<void> _onRefresh() {
+    return ref.read(archivesControllerProvider.notifier).refresh();
+  }
+
+  Widget _refreshable({required Widget child}) {
+    return RefreshIndicator(
+      onRefresh: _onRefresh,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
+          SizedBox(
+            height: 360,
+            child: child,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _onMenu(Chronique chronique, ChroniqueCardMenuAction action) async {
+    if (_busy) {
+      return;
+    }
+    switch (action) {
+      case ChroniqueCardMenuAction.edit:
+      case ChroniqueCardMenuAction.archive:
+        break;
+      case ChroniqueCardMenuAction.delete:
+        final confirmed = await confirmDeleteChronique(
+          context,
+          scheduled: false,
+          fromArchives: true,
+        );
+        if (!confirmed || !mounted) {
+          return;
+        }
+        setState(() {
+          _busy = true;
+        });
+        try {
+          await ref.read(chroniqueRepositoryProvider).delete(chronique.id);
+          if (!mounted) {
+            return;
+          }
+          ref.read(archivesControllerProvider.notifier).removeById(chronique.id);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Chronique supprimée')),
+          );
+        } on ApiException catch (error) {
+          if (!mounted) {
+            return;
+          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(messageForChroniqueApiError(error))),
+          );
+        } on FormatException {
+          if (!mounted) {
+            return;
+          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Unexpected error')),
+          );
+        } finally {
+          if (mounted) {
+            setState(() {
+              _busy = false;
+            });
+          }
+        }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final colors = context.luminaColors;
     final state = ref.watch(archivesControllerProvider);
 
@@ -30,38 +114,14 @@ class ArchivesScreen extends ConsumerWidget {
           style: AppTextTheme.titleMedium.copyWith(color: colors.textPrimary),
         ),
       ),
-      body: SafeArea(child: _body(context, ref, state)),
+      body: SafeArea(child: _body(context, colors, state)),
     );
   }
 
-  Future<void> _onRefresh(WidgetRef ref) {
-    return ref.read(archivesControllerProvider.notifier).refresh();
-  }
-
-  Widget _refreshable({
-    required WidgetRef ref,
-    required Widget child,
-  }) {
-    return RefreshIndicator(
-      onRefresh: () => _onRefresh(ref),
-      child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        children: [
-          SizedBox(
-            height: 360,
-            child: child,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _body(BuildContext context, WidgetRef ref, ArchivesState state) {
-    final colors = context.luminaColors;
+  Widget _body(BuildContext context, LuminaColors colors, ArchivesState state) {
     return switch (state) {
       ArchivesLoading() => const AppLoading(),
       ArchivesError(:final message) => _refreshable(
-          ref: ref,
           child: Center(
             child: Padding(
               padding: const EdgeInsets.all(AppSpacing.xxl),
@@ -74,7 +134,6 @@ class ArchivesScreen extends ConsumerWidget {
           ),
         ),
       ArchivesReady(:final items) when items.isEmpty => _refreshable(
-          ref: ref,
           child: Center(
             child: Padding(
               padding: const EdgeInsets.all(AppSpacing.xxl),
@@ -87,19 +146,23 @@ class ArchivesScreen extends ConsumerWidget {
           ),
         ),
       ArchivesReady(:final items) => RefreshIndicator(
-          onRefresh: () => _onRefresh(ref),
+          onRefresh: _onRefresh,
           child: ListView.separated(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.all(AppSpacing.xxl),
             itemCount: items.length,
             separatorBuilder: (context, index) => const SizedBox(height: AppSpacing.md),
             itemBuilder: (context, index) {
+              final item = items[index];
               return ChroniqueCard(
-                chronique: items[index],
-                onTap: () => context.push(
-                  AppRoutes.chroniqueDetail(items[index].id),
-                  extra: items[index],
-                ),
+                chronique: item,
+                onTap: _busy
+                    ? null
+                    : () => context.push(
+                          AppRoutes.chroniqueDetail(item.id),
+                          extra: item,
+                        ),
+                onMenuSelected: _busy ? null : (action) => _onMenu(item, action),
               );
             },
           ),

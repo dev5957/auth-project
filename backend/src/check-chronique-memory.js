@@ -1,5 +1,17 @@
+const { PURGE_DELAY_DAYS } = require('./validators/chroniqueFields');
+
 function sqlKey(sql) {
   return String(sql).replace(/\s+/g, ' ').trim().toUpperCase();
+}
+
+function isExpiredWithinRetention(row, nowMs = Date.now()) {
+  if (row.purge_after) {
+    return new Date(row.purge_after).getTime() > nowMs;
+  }
+  if (!row.expired_at) {
+    return false;
+  }
+  return new Date(row.expired_at).getTime() + PURGE_DELAY_DAYS * 24 * 60 * 60 * 1000 > nowMs;
 }
 
 function cloneRow(row) {
@@ -10,6 +22,7 @@ function createPublicationsMemory(initialRows = []) {
   let nextId = initialRows.reduce((max, row) => Math.max(max, Number(row.id) || 0), 0) + 1;
   const state = {
     rows: initialRows.map(cloneRow),
+    media: [],
   };
 
   async function query(sql, params = []) {
@@ -55,6 +68,14 @@ function createPublicationsMemory(initialRows = []) {
           Number(item.user_id) === Number(params[1]) &&
           item.status !== 'deleted'
       );
+      if (
+        row &&
+        row.status === 'expired' &&
+        key.includes('COALESCE(PURGE_AFTER') &&
+        !isExpiredWithinRetention(row)
+      ) {
+        return { rows: [], rowCount: 0 };
+      }
       return { rows: row ? [cloneRow(row)] : [], rowCount: row ? 1 : 0 };
     }
 
@@ -65,8 +86,27 @@ function createPublicationsMemory(initialRows = []) {
       return { rows: row ? [cloneRow(row)] : [], rowCount: row ? 1 : 0 };
     }
 
+    if (key.startsWith('DELETE FROM PUBLICATION_MEDIA')) {
+      const publicationId = params[0];
+      const remaining = [];
+      let removed = 0;
+      for (const item of state.media) {
+        if (Number(item.publication_id) === Number(publicationId)) {
+          removed += 1;
+        } else {
+          remaining.push(item);
+        }
+      }
+      state.media = remaining;
+      return { rows: [], rowCount: removed };
+    }
+
     if (key.includes('FROM PUBLICATION_MEDIA')) {
-      return { rows: [], rowCount: 0 };
+      const publicationId = params[0];
+      const rows = state.media
+        .filter((item) => Number(item.publication_id) === Number(publicationId))
+        .map(cloneRow);
+      return { rows, rowCount: rows.length };
     }
 
     if (key.includes('FROM PUBLICATIONS') && key.includes('WHERE USER_ID = $1') && key.includes('AND STATUS = $2')) {
@@ -76,6 +116,9 @@ function createPublicationsMemory(initialRows = []) {
       let rows = state.rows.filter(
         (item) => Number(item.user_id) === Number(userId) && item.status === status
       );
+      if (status === 'expired' && key.includes('COALESCE(PURGE_AFTER')) {
+        rows = rows.filter((item) => isExpiredWithinRetention(item));
+      }
       const sortColumn =
         status === 'active'
           ? 'published_at'
@@ -130,11 +173,14 @@ function createPublicationsMemory(initialRows = []) {
       return { rows, rowCount: rows.length };
     }
 
-    if (key.includes('FROM PUBLICATIONS') && key.includes("STATUS = 'EXPIRED'")) {
+    if (key.startsWith('SELECT') && key.includes('FROM PUBLICATIONS') && key.includes("STATUS = 'EXPIRED'")) {
       const now = params[0];
-      const limit = Number(params[1]);
+      const limit = Number(params[params.length - 1]);
+      const hasCursor = params.length >= 4;
+      const cursorAt = hasCursor ? new Date(params[1]).getTime() : null;
+      const cursorId = hasCursor ? Number(params[2]) : null;
       const nowMs = new Date(now).getTime();
-      const rows = state.rows
+      let rows = state.rows
         .filter((item) => {
           if (item.status !== 'expired') {
             return false;
@@ -147,8 +193,18 @@ function createPublicationsMemory(initialRows = []) {
           }
           return new Date(item.expired_at).getTime() <= nowMs - 30 * 24 * 60 * 60 * 1000;
         })
-        .slice(0, limit)
-        .map(cloneRow);
+        .sort((a, b) => {
+          const av = new Date(a.purge_after || a.expired_at).getTime();
+          const bv = new Date(b.purge_after || b.expired_at).getTime();
+          return av - bv || Number(a.id) - Number(b.id);
+        });
+      if (hasCursor) {
+        rows = rows.filter((item) => {
+          const it = new Date(item.purge_after || item.expired_at).getTime();
+          return it > cursorAt || (it === cursorAt && Number(item.id) > cursorId);
+        });
+      }
+      rows = rows.slice(0, limit).map(cloneRow);
       return { rows, rowCount: rows.length };
     }
 
@@ -193,6 +249,18 @@ function createPublicationsMemory(initialRows = []) {
       row.deleted_at = params[1];
       row.updated_at = params[2];
       return { rows: [cloneRow(row)], rowCount: 1 };
+    }
+
+    if (key.startsWith('DELETE FROM PUBLICATIONS')) {
+      const id = params[0];
+      const index = state.rows.findIndex(
+        (item) => Number(item.id) === Number(id) && item.status === 'expired'
+      );
+      if (index < 0) {
+        return { rows: [], rowCount: 0 };
+      }
+      const [removed] = state.rows.splice(index, 1);
+      return { rows: [cloneRow(removed)], rowCount: 1 };
     }
 
     if (key.startsWith('UPDATE PUBLICATIONS')) {

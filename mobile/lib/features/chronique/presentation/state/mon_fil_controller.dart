@@ -64,7 +64,7 @@ class MonFilController extends AutoDisposeNotifier<MonFilState> {
     }
     state = MonFilReady([
       for (final item in current.items)
-        if (item.id == chronique.id) chronique else item,
+        if (item.id == chronique.id) Chronique.keepExistingMedia(item, chronique) else item,
     ]);
   }
 

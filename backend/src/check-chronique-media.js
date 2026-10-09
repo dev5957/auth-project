@@ -9,9 +9,11 @@ const {
   createMediaUpload,
   completeMedia,
   deleteMedia,
+  reorderMedia,
   MAX_MEDIA,
   MAX_BYTES,
 } = require('./services/chroniqueMediaService');
+const { CORRECTION_WINDOW_MS } = require('./services/chroniqueService');
 
 const TEST_SECRET = 'chronique-media-test-secret-not-for-production';
 const TEST_ISSUER = 'auth-project';
@@ -95,6 +97,16 @@ function createMemoryDb({ publications = [], media = [] } = {}) {
     if (key.includes('FROM PUBLICATIONS') && key.includes('FOR UPDATE')) {
       const row = state.publications.find(
         (item) => Number(item.id) === Number(params[0]) && Number(item.user_id) === Number(params[1])
+      );
+      return { rows: row ? [{ ...row }] : [], rowCount: row ? 1 : 0 };
+    }
+
+    if (key.includes('FROM PUBLICATIONS') && key.includes('LIMIT 1') && key.includes('STATUS <>')) {
+      const row = state.publications.find(
+        (item) =>
+          Number(item.id) === Number(params[0]) &&
+          Number(item.user_id) === Number(params[1]) &&
+          item.status !== 'deleted'
       );
       return { rows: row ? [{ ...row }] : [], rowCount: row ? 1 : 0 };
     }
@@ -393,6 +405,16 @@ async function main() {
   expectAppError(() => parseMediaOrder({ media_ids: [] }), 400, 'media_ids is invalid');
   console.log('A OK validators media / document');
 
+  const { thumbnailStorageKey, THUMBNAIL_SUFFIX } = require('./services/mediaStorageKeys');
+  const sampleKey = 'publications/1/media/550e8400-e29b-41d4-a716-446655440000';
+  assert(thumbnailStorageKey(sampleKey) === `${sampleKey}${THUMBNAIL_SUFFIX}`, 'deterministic thumb key');
+  assert(thumbnailStorageKey(sampleKey) !== sampleKey, 'thumb key distinct from original');
+  assert(
+    thumbnailStorageKey(thumbnailStorageKey(sampleKey)) === thumbnailStorageKey(sampleKey),
+    'thumb key idempotent'
+  );
+  assert(!String(thumbnailStorageKey(sampleKey)).includes('soir.jpg'), 'independent of filename');
+
   const db = createMemoryDb({ publications: [samplePublication()] });
   const created = await createMediaUpload(OWNER_ID, 1, validUpload(), { db, storage: mockStorage });
   assert(created.media.status === 'pending_upload', 'pending status');
@@ -400,6 +422,7 @@ async function main() {
   assert(created.upload.method === 'PUT', 'upload method');
   assert(String(created.upload.url).startsWith('https://mock-storage.local/upload/'), 'mock url');
   assert(created.media.storage_key == null, 'storage_key must not be public');
+  assert(created.thumbnail_upload == null, 'image has no thumbnail_upload');
   const stored = db.state.media[0];
   assert(stored.status === 'pending_upload', 'row pending');
   assert(stored.storage_key.includes('publications/1/media/'), 'opaque key');
@@ -491,7 +514,73 @@ async function main() {
     400,
     'Too many media'
   );
-  console.log('F OK quota 20 / 200 Mio');
+  console.log('F OK quota 5 / 200 Mio');
+
+  const exactBytesDb = createMemoryDb({
+    publications: [samplePublication({ id: 4, media_total_bytes: 0 })],
+  });
+  const exact = await createMediaUpload(
+    OWNER_ID,
+    4,
+    validUpload({ byte_size: MAX_BYTES }),
+    { db: exactBytesDb, storage: mockStorage }
+  );
+  assert(exact.media.byte_size === MAX_BYTES, 'exactly 200 MiB accepted');
+
+  const mixedKinds = [
+    validUpload({ kind: 'image', source_type: 'gallery', content_type: 'image/jpeg', original_filename: 'a.jpg' }),
+    validUpload({ kind: 'video', source_type: 'gallery', content_type: 'video/mp4', original_filename: 'b.mp4' }),
+    validUpload({ kind: 'audio', source_type: 'upload', content_type: 'audio/mpeg', original_filename: 'c.mp3' }),
+    validUpload({
+      kind: 'document',
+      source_type: 'upload',
+      content_type: 'application/pdf',
+      original_filename: 'd.pdf',
+    }),
+    validUpload({ kind: 'image', source_type: 'camera', content_type: 'image/jpeg', original_filename: 'e.jpg' }),
+  ];
+  const mixedDb = createMemoryDb({
+    publications: [samplePublication({ id: 5, media_total_bytes: 0 })],
+  });
+  for (const item of mixedKinds) {
+    await createMediaUpload(OWNER_ID, 5, item, { db: mixedDb, storage: mockStorage });
+  }
+  assert(mixedDb.state.media.length === 5, 'five mixed kinds accepted');
+  await expectStatus(
+    () => createMediaUpload(OWNER_ID, 5, validUpload(), { db: mixedDb, storage: mockStorage }),
+    400,
+    'Too many media'
+  );
+  assert(mixedDb.state.media.length === 5, 'sixth mixed upload does not insert');
+
+  const sixReady = [];
+  for (let i = 0; i < 6; i += 1) {
+    sixReady.push({
+      id: 400 + i,
+      publication_id: 6,
+      kind: i % 2 === 0 ? 'image' : 'video',
+      source_type: 'gallery',
+      storage_key: `publications/6/media/${i}`,
+      content_type: i % 2 === 0 ? 'image/jpeg' : 'video/mp4',
+      byte_size: 10,
+      original_filename: `old${i}.bin`,
+      sort_order: i,
+      status: 'ready',
+      created_at: new Date(),
+    });
+  }
+  const sixDb = createMemoryDb({
+    publications: [samplePublication({ id: 6, media_total_bytes: 60 })],
+    media: sixReady,
+  });
+  assert(sixDb.state.media.length === 6, 'existing 6 media are not deleted');
+  await expectStatus(
+    () => createMediaUpload(OWNER_ID, 6, validUpload(), { db: sixDb, storage: mockStorage }),
+    400,
+    'Too many media'
+  );
+  assert(sixDb.state.media.length === 6, 'existing 6 media unchanged after refused add');
+  console.log('F2 OK 5 mixed / 200 MiB exact / existing 6 media readable');
 
   const beforeDelete = db.state.media.length;
   const toDelete = db.state.media.find((row) => row.status === 'ready');
@@ -499,6 +588,39 @@ async function main() {
   assert(db.state.media.length === beforeDelete - 1, 'media row removed');
   assert(mockStorage.getObject(toDelete.storage_key) == null, 'mock object deleted');
   console.log('G OK suppression media + mock delete');
+
+  const videoCreated = await createMediaUpload(
+    OWNER_ID,
+    1,
+    {
+      kind: 'video',
+      source_type: 'gallery',
+      content_type: 'video/mp4',
+      byte_size: 4096,
+      original_filename: 'clip.mp4',
+    },
+    { db, storage: mockStorage }
+  );
+  assert(videoCreated.media.kind === 'video', 'video kind');
+  assert(videoCreated.media.storage_key == null, 'video storage_key not public');
+  assert(videoCreated.thumbnail_upload && videoCreated.thumbnail_upload.method === 'PUT', 'thumbnail upload');
+  assert(
+    String(videoCreated.thumbnail_upload.url).startsWith('https://mock-storage.local/upload/'),
+    'thumbnail mock url'
+  );
+  assert(videoCreated.thumbnail_upload.url !== videoCreated.upload.url, 'thumbnail url distinct');
+  assert(!Object.prototype.hasOwnProperty.call(videoCreated, 'storage_key'), 'no storage_key on payload');
+  const videoRow = db.state.media.find((row) => row.id === videoCreated.media.id);
+  const videoThumbKey = thumbnailStorageKey(videoRow.storage_key);
+  mockStorage.put(videoRow.storage_key, { byteSize: 4096, contentType: 'video/mp4' });
+  mockStorage.put(videoThumbKey, { byteSize: 80, contentType: 'image/jpeg' });
+  const videoReady = await completeMedia(OWNER_ID, 1, videoRow.id, { db, storage: mockStorage });
+  assert(videoReady.media.some((item) => item.id === videoRow.id && item.status === 'ready'), 'video ready without depending on thumbnail');
+  const deletedVideo = await deleteMedia(OWNER_ID, 1, videoRow.id, { db, storage: mockStorage });
+  assert(!deletedVideo.media.some((item) => item.id === videoRow.id), 'video row gone');
+  assert(mockStorage.getObject(videoRow.storage_key) == null, 'video object deleted');
+  assert(mockStorage.getObject(videoThumbKey) == null, 'thumbnail object deleted');
+  console.log('G2 OK video thumbnail upload url + delete original and thumbnail');
 
   const foreign = createMemoryDb({
     publications: [samplePublication({ id: 9, user_id: 99 })],
@@ -509,6 +631,250 @@ async function main() {
     'Chronique not found'
   );
   console.log('H OK ownership refusee');
+
+  const publishedAt = new Date('2026-10-08T14:00:00.000Z');
+  const tPlus29999 = new Date(publishedAt.getTime() + CORRECTION_WINDOW_MS - 1);
+  const tPlus30 = new Date(publishedAt.getTime() + CORRECTION_WINDOW_MS);
+  const tPlus30001 = new Date(publishedAt.getTime() + CORRECTION_WINDOW_MS + 1);
+  const tPlus40 = new Date(publishedAt.getTime() + 40 * 60 * 1000);
+
+  function windowReadyMedia(id, publicationId, sortOrder) {
+    return {
+      id,
+      publication_id: publicationId,
+      kind: 'image',
+      source_type: 'gallery',
+      storage_key: `publications/${publicationId}/media/${id}`,
+      content_type: 'image/jpeg',
+      byte_size: 1024,
+      original_filename: `img-${id}.jpg`,
+      sort_order: sortOrder,
+      status: 'ready',
+      created_at: publishedAt,
+    };
+  }
+
+  const withinDb = createMemoryDb({
+    publications: [samplePublication({ id: 30, published_at: publishedAt })],
+  });
+  const withinUpload = await createMediaUpload(OWNER_ID, 30, validUpload(), {
+    db: withinDb,
+    storage: mockStorage,
+    now: tPlus29999,
+  });
+  assert(withinUpload.media.status === 'pending_upload', 'A: upload T+29:59.999');
+  assert(withinDb.state.media.length === 1, 'A: pending row created');
+  console.log('W1 OK media upload T+29:59.999');
+
+  const exactDb = createMemoryDb({
+    publications: [samplePublication({ id: 31, published_at: publishedAt })],
+  });
+  await expectStatus(
+    () =>
+      createMediaUpload(OWNER_ID, 31, validUpload(), {
+        db: exactDb,
+        storage: mockStorage,
+        now: tPlus30,
+      }),
+    409,
+    'correction_window_expired'
+  );
+  assert(exactDb.state.media.length === 0, 'B: no pending at T+30:00.000');
+  console.log('W2 OK media upload T+30:00.000 refuse');
+
+  const afterDb = createMemoryDb({
+    publications: [samplePublication({ id: 32, published_at: publishedAt })],
+  });
+  await expectStatus(
+    () =>
+      createMediaUpload(OWNER_ID, 32, validUpload(), {
+        db: afterDb,
+        storage: mockStorage,
+        now: tPlus30001,
+      }),
+    409,
+    'correction_window_expired'
+  );
+  assert(afterDb.state.media.length === 0, 'C: no pending at T+30:00.001');
+  console.log('W3 OK media upload T+30:00.001 refuse');
+
+  const scheduledDb = createMemoryDb({
+    publications: [
+      samplePublication({
+        id: 33,
+        status: 'scheduled',
+        published_at: null,
+        scheduled_at: tPlus40,
+      }),
+    ],
+    media: [windowReadyMedia(501, 33, 0), windowReadyMedia(502, 33, 1)],
+  });
+  mockStorage.put('publications/33/media/501', { byteSize: 1024, contentType: 'image/jpeg' });
+  const scheduledUpload = await createMediaUpload(OWNER_ID, 33, validUpload({ byte_size: 512 }), {
+    db: scheduledDb,
+    storage: mockStorage,
+    now: tPlus40,
+  });
+  const scheduledPending = scheduledDb.state.media.find((row) => row.status === 'pending_upload');
+  mockStorage.put(scheduledPending.storage_key, { byteSize: 512, contentType: 'image/jpeg' });
+  const scheduledReady = await completeMedia(OWNER_ID, 33, scheduledPending.id, {
+    db: scheduledDb,
+    storage: mockStorage,
+    now: tPlus40,
+  });
+  assert(
+    scheduledReady.media.some((item) => item.id === scheduledUpload.media.id && item.status === 'ready'),
+    'D: scheduled complete'
+  );
+  const scheduledDeleted = await deleteMedia(OWNER_ID, 33, 502, {
+    db: scheduledDb,
+    storage: mockStorage,
+    now: tPlus40,
+  });
+  assert(!scheduledDeleted.media.some((item) => item.id === 502), 'D: scheduled delete');
+  await reorderMedia(
+    OWNER_ID,
+    33,
+    { media_ids: [scheduledUpload.media.id, 501] },
+    { db: scheduledDb, now: tPlus40 }
+  );
+  const scheduledOrder = scheduledDb.state.media
+    .filter((row) => row.status === 'ready')
+    .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id)
+    .map((row) => Number(row.id));
+  assert(scheduledOrder[0] === Number(scheduledUpload.media.id), 'D: scheduled reorder first');
+  assert(scheduledOrder[1] === 501, 'D: scheduled reorder second');
+  console.log('D OK scheduled media mutations autorisees');
+
+  await expectStatus(
+    () =>
+      createMediaUpload(
+        OWNER_ID,
+        34,
+        validUpload(),
+        {
+          db: createMemoryDb({
+            publications: [samplePublication({ id: 34, status: 'archived', published_at: publishedAt })],
+          }),
+          storage: mockStorage,
+          now: tPlus29999,
+        }
+      ),
+    400,
+    'Chronique cannot accept media in this status'
+  );
+  await expectStatus(
+    () =>
+      createMediaUpload(
+        OWNER_ID,
+        35,
+        validUpload(),
+        {
+          db: createMemoryDb({
+            publications: [samplePublication({ id: 35, status: 'expired', published_at: publishedAt })],
+          }),
+          storage: mockStorage,
+          now: tPlus29999,
+        }
+      ),
+    400,
+    'Chronique cannot accept media in this status'
+  );
+  console.log('E OK archived/expired media refusees sans 409');
+
+  await expectStatus(
+    () =>
+      createMediaUpload(
+        OWNER_ID,
+        36,
+        validUpload(),
+        {
+          db: createMemoryDb({
+            publications: [samplePublication({ id: 36, status: 'deleted', published_at: publishedAt })],
+          }),
+          storage: mockStorage,
+          now: tPlus29999,
+        }
+      ),
+    404,
+    'Chronique not found'
+  );
+  console.log('F OK deleted media 404');
+
+  const lateUploadDb = createMemoryDb({
+    publications: [samplePublication({ id: 37, published_at: publishedAt })],
+  });
+  await expectStatus(
+    () =>
+      createMediaUpload(OWNER_ID, 37, validUpload(), {
+        db: lateUploadDb,
+        storage: mockStorage,
+        now: tPlus30,
+      }),
+    409,
+    'correction_window_expired'
+  );
+  assert(lateUploadDb.state.media.length === 0, 'H: aucune ligne pending apres expiration');
+  console.log('H2 OK upload apres expiration sans pending');
+
+  const completeLateDb = createMemoryDb({
+    publications: [samplePublication({ id: 38, published_at: publishedAt })],
+  });
+  const earlyUpload = await createMediaUpload(OWNER_ID, 38, validUpload({ byte_size: 2048 }), {
+    db: completeLateDb,
+    storage: mockStorage,
+    now: tPlus29999,
+  });
+  const earlyRow = completeLateDb.state.media.find((row) => row.id === earlyUpload.media.id);
+  mockStorage.put(earlyRow.storage_key, { byteSize: 2048, contentType: 'image/jpeg' });
+  await expectStatus(
+    () =>
+      completeMedia(OWNER_ID, 38, earlyUpload.media.id, {
+        db: completeLateDb,
+        storage: mockStorage,
+        now: tPlus30,
+      }),
+    409,
+    'correction_window_expired'
+  );
+  assert(completeLateDb.state.media[0].status === 'pending_upload', 'I: pending not ready after late complete');
+  console.log('I OK complete apres expiration 409');
+
+  const deleteLateDb = createMemoryDb({
+    publications: [samplePublication({ id: 39, published_at: publishedAt })],
+    media: [windowReadyMedia(601, 39, 0)],
+  });
+  mockStorage.put('publications/39/media/601', { byteSize: 1024, contentType: 'image/jpeg' });
+  await expectStatus(
+    () =>
+      deleteMedia(OWNER_ID, 39, 601, {
+        db: deleteLateDb,
+        storage: mockStorage,
+        now: tPlus30,
+      }),
+    409,
+    'correction_window_expired'
+  );
+  assert(deleteLateDb.state.media.some((row) => row.id === 601), 'J: media row kept');
+  assert(mockStorage.getObject('publications/39/media/601') != null, 'J: R2 object kept');
+  console.log('J OK delete apres expiration 409');
+
+  const reorderLateDb = createMemoryDb({
+    publications: [samplePublication({ id: 40, published_at: publishedAt })],
+    media: [windowReadyMedia(701, 40, 0), windowReadyMedia(702, 40, 1)],
+  });
+  await expectStatus(
+    () =>
+      reorderMedia(OWNER_ID, 40, { media_ids: [702, 701] }, { db: reorderLateDb, now: tPlus30 }),
+    409,
+    'correction_window_expired'
+  );
+  const keptOrder = reorderLateDb.state.media
+    .filter((row) => row.status === 'ready')
+    .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id)
+    .map((row) => row.id);
+  assert(keptOrder[0] === 701 && keptOrder[1] === 702, 'K: order unchanged');
+  console.log('K OK reorder apres expiration 409');
 
   const { child, logs } = startTestServer(TEST_PORT);
   try {

@@ -1,15 +1,45 @@
 import 'package:flutter/material.dart';
 
-import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_spacing.dart';
-import '../../../../core/theme/app_text_theme.dart';
-import '../../../../core/widgets/app_card.dart';
-import '../../models/chronique_date.dart';
+import '../../models/chronique.dart';
+import '../../models/chronique_fields.dart';
 import '../../models/chronique_schedule_draft.dart';
 import '../../models/media_draft.dart';
-import 'media_draft_list.dart';
+import 'chronique_card.dart';
+import 'chronique_media_viewer.dart';
 
-/// Prévisualisation locale, proche d’une future ChroniqueCard.
+List<ChroniqueMedia> chroniquePreviewMediaFromDrafts(List<MediaDraft> drafts) {
+  final capped = drafts.length > 5 ? drafts.sublist(0, 5) : drafts;
+  return [
+    for (var i = 0; i < capped.length; i++)
+      ChroniqueMedia(
+        id: capped[i].id,
+        kind: capped[i].kind.name,
+        status: 'ready',
+        originalFilename: capped[i].fileName,
+        byteSize: capped[i].byteSize,
+        contentType: capped[i].contentType,
+        sortOrder: i,
+      ),
+  ];
+}
+
+Map<int, String> chroniquePreviewLocalPaths(List<MediaDraft> drafts) {
+  return {
+    for (final draft in drafts)
+      if (draft.localPath != null && draft.localPath!.trim().isNotEmpty)
+        draft.id: draft.localPath!.trim(),
+  };
+}
+
+Map<int, String> chroniquePreviewLocalThumbnails(List<MediaDraft> drafts) {
+  return {
+    for (final draft in drafts)
+      if (draft.localThumbnailPath != null && draft.localThumbnailPath!.trim().isNotEmpty)
+        draft.id: draft.localThumbnailPath!.trim(),
+  };
+}
+
+/// Prévisualisation identique à une carte du fil. Aucun GET.
 class ChroniquePreview extends StatelessWidget {
   const ChroniquePreview({
     super.key,
@@ -26,58 +56,33 @@ class ChroniquePreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.luminaColors;
-    final trimmedTitle = title.trim();
-    final publishLabel = schedule.publishMode == ChroniquePublishMode.schedule &&
-            schedule.scheduledAt != null
-        ? ChroniqueDateHelper.formatLocal(schedule.scheduledAt!)
-        : 'Maintenant';
+    final trimmedTitle = ChroniqueFields.trimmedTitle(title);
+    final trimmedBody = ChroniqueFields.trimmedBody(body);
+    final previewMedias = chroniquePreviewMediaFromDrafts(medias);
+    final localPaths = chroniquePreviewLocalPaths(medias);
+    final localThumbnails = chroniquePreviewLocalThumbnails(medias);
+    final scheduled = schedule.publishMode == ChroniquePublishMode.schedule;
     final expires = schedule.resolvedExpiresLocal();
-    final expirationLabel =
-        expires == null ? 'Pas d\'expiration' : ChroniqueDateHelper.formatLocal(expires);
-
-    return AppCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Publication',
-            style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
-          ),
-          const SizedBox(height: AppSpacing.xs),
-          Text(
-            publishLabel,
-            key: const ValueKey('preview-publication'),
-            style: AppTextTheme.bodyMedium.copyWith(color: colors.textPrimary),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          Text(
-            'Expiration',
-            style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
-          ),
-          const SizedBox(height: AppSpacing.xs),
-          Text(
-            expirationLabel,
-            key: const ValueKey('preview-expiration'),
-            style: AppTextTheme.bodyMedium.copyWith(color: colors.textPrimary),
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          if (trimmedTitle.isNotEmpty) ...[
-            Text(
-              trimmedTitle,
-              style: AppTextTheme.titleSmall.copyWith(color: colors.textPrimary),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-          ],
-          Text(
-            body,
-            style: AppTextTheme.bodyMedium.copyWith(color: colors.textPrimary),
-          ),
-          if (medias.isNotEmpty) ...[
-            const SizedBox(height: AppSpacing.lg),
-            MediaDraftList(medias: medias),
-          ],
-        ],
+    return ChroniqueCard(
+      key: const ValueKey('chronique-preview-card'),
+      chronique: Chronique(
+        id: 0,
+        title: trimmedTitle,
+        body: trimmedBody,
+        status: scheduled ? 'scheduled' : 'active',
+        scheduledAt: scheduled ? schedule.scheduledAt : null,
+        isTimeLimited: schedule.apiIsTimeLimited,
+        expiresAt: expires,
+        media: previewMedias,
+      ),
+      showFeedMedia: true,
+      showInactiveSocialActions: false,
+      localMediaPaths: localPaths,
+      localThumbnailPaths: localThumbnails,
+      onMediaSelected: (media) => openChroniqueFeedMedia(
+        context,
+        media,
+        localPath: media.id == null ? null : localPaths[media.id],
       ),
     );
   }

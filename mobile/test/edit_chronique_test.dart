@@ -17,6 +17,7 @@ import 'package:mobile/features/chronique/presentation/screens/chronique_detail_
 import 'package:mobile/features/chronique/presentation/screens/edit_chronique_screen.dart';
 import 'package:mobile/features/chronique/presentation/screens/mon_fil_screen.dart';
 import 'package:mobile/features/chronique/presentation/widgets/chronique_card.dart';
+import 'package:mobile/features/chronique/presentation/widgets/chronique_ready_remote_media_list.dart';
 import 'package:mobile/features/chronique/providers/chronique_providers.dart';
 import 'package:mobile/features/chronique/services/chronique_api_service.dart';
 import 'package:mobile/features/home/presentation/screens/home_screen.dart';
@@ -100,13 +101,13 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
   ApiException? failDeleteWith;
   ApiException? failArchiveWith;
 
-  static const sample = Chronique(
-    id: 42,
-    title: 'Premier soir',
-    body: 'Le texte de la chronique, d au moins vingt caracteres.',
-    status: 'active',
-    publishedAt: '2026-09-22T10:00:00.000Z',
-  );
+  static Chronique get sample => Chronique(
+        id: 42,
+        title: 'Premier soir',
+        body: 'Le texte de la chronique, d au moins vingt caracteres.',
+        status: 'active',
+        publishedAt: DateTime.now().toUtc().toIso8601String(),
+      );
 
   @override
   Future<ChroniquePage> list({
@@ -161,12 +162,20 @@ class _ChroniqueApiProbe extends ChroniqueApiService {
     if (error != null) {
       throw error;
     }
+    Chronique? source;
+    for (final item in items) {
+      if (item.id == id) {
+        source = item;
+        break;
+      }
+    }
     final updated = Chronique(
       id: id,
       title: title,
       body: body,
-      status: 'active',
-      publishedAt: '2026-09-22T10:00:00.000Z',
+      status: source?.status ?? 'active',
+      publishedAt: source?.publishedAt ?? DateTime.now().toUtc().toIso8601String(),
+      media: source?.media ?? const [],
     );
     items = [
       for (final item in items)
@@ -287,7 +296,7 @@ InkWell _saveInkWell(WidgetTester tester) {
 
 void main() {
   testWidgets('edit screen opens prefilled from the published chronique', (tester) async {
-    final api = _ChroniqueApiProbe()..items = const [_ChroniqueApiProbe.sample];
+    final api = _ChroniqueApiProbe()..items = [_ChroniqueApiProbe.sample];
     final container = await _pumpHome(tester, api: api);
     await _openDetail(tester, api: api);
 
@@ -299,7 +308,8 @@ void main() {
     await tester.tap(find.text('Modifier'));
     await tester.pumpAndSettle();
 
-    expect(find.byType(EditChroniqueScreen), findsOneWidget);
+    expect(find.byType(EditChroniqueScreen), findsNothing);
+    expect(find.byType(ChroniqueDetailScreen), findsOneWidget);
     expect(find.text('Modifier la chronique'), findsOneWidget);
     expect(find.text('+ Ajouter un média'), findsNothing);
     expect(
@@ -310,14 +320,14 @@ void main() {
       tester.widget<TextField>(find.byType(TextField).at(1)).controller?.text,
       'Le texte de la chronique, d au moins vingt caracteres.',
     );
-    expect(find.text('${_ChroniqueApiProbe.sample.body.trim().runes.length} / 5000'), findsOneWidget);
+    expect(find.text('${_ChroniqueApiProbe.sample.body.trim().runes.length} / 1000'), findsOneWidget);
     expect(_saveInkWell(tester).onTap, isNull);
     expect(api.updateCalls, 0);
     expect(container.read(authControllerProvider), isA<AuthAuthenticated>());
   });
 
   testWidgets('edit validation matches CREATE and does not call PATCH', (tester) async {
-    final api = _ChroniqueApiProbe()..items = const [_ChroniqueApiProbe.sample];
+    final api = _ChroniqueApiProbe()..items = [_ChroniqueApiProbe.sample];
     await _pumpHome(tester, api: api);
     await _openDetail(tester);
     await _openMenu(tester);
@@ -331,10 +341,15 @@ void main() {
 
     await tester.enterText(find.byType(TextField).at(1), 'trop court');
     await tester.pump();
-    expect(find.text('Le texte doit contenir au moins 20 caractères'), findsOneWidget);
+    expect(find.text('Le texte doit contenir au moins 10 caractères'), findsOneWidget);
     expect(_saveInkWell(tester).onTap, isNull);
 
-    await tester.enterText(find.byType(TextField).at(1), 'a' * 5001);
+    await tester.enterText(find.byType(TextField).at(1), 'abcdefghij');
+    await tester.pump();
+    expect(find.text('Le texte doit contenir au moins 10 caractères'), findsNothing);
+    expect(find.text('10 / 1000'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).at(1), 'a' * 1001);
     await tester.pump();
     expect(find.text('Le texte est trop long'), findsOneWidget);
     expect(_saveInkWell(tester).onTap, isNull);
@@ -342,7 +357,7 @@ void main() {
   });
 
   testWidgets('saving calls PATCH then returns the updated detail', (tester) async {
-    final api = _ChroniqueApiProbe()..items = const [_ChroniqueApiProbe.sample];
+    final api = _ChroniqueApiProbe()..items = [_ChroniqueApiProbe.sample];
     final container = await _pumpHome(tester, api: api);
     await _openDetail(tester);
     await _openMenu(tester);
@@ -379,7 +394,7 @@ void main() {
 
   testWidgets('PATCH error is shown without logout', (tester) async {
     final api = _ChroniqueApiProbe()
-      ..items = const [_ChroniqueApiProbe.sample]
+      ..items = [_ChroniqueApiProbe.sample]
       ..failUpdateWith = const ApiException(message: 'body is too short', statusCode: 400);
     final container = await _pumpHome(tester, api: api);
     await _openDetail(tester);
@@ -397,13 +412,14 @@ void main() {
 
     expect(api.updateCalls, 1);
     expect(find.text('body is too short'), findsOneWidget);
-    expect(find.byType(EditChroniqueScreen), findsOneWidget);
+    expect(find.byType(ChroniqueDetailScreen), findsOneWidget);
+    expect(find.text('Enregistrer'), findsOneWidget);
     expect(container.read(authControllerProvider), isA<AuthAuthenticated>());
     expect(find.text('Logout'), findsNothing);
   });
 
   testWidgets('delete confirms then returns to Mon Fil', (tester) async {
-    final api = _ChroniqueApiProbe()..items = const [_ChroniqueApiProbe.sample];
+    final api = _ChroniqueApiProbe()..items = [_ChroniqueApiProbe.sample];
     final container = await _pumpHome(tester, api: api);
     await _openDetail(tester);
     await _openMenu(tester);
@@ -411,6 +427,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Supprimer cette chronique ?'), findsOneWidget);
+    expect(find.text('Elle sera retirée de Mon Fil.'), findsOneWidget);
     expect(find.text('Annuler'), findsOneWidget);
 
     await tester.tap(find.widgetWithText(TextButton, 'Supprimer'));
@@ -427,7 +444,7 @@ void main() {
   });
 
   testWidgets('delete cancellation does not call DELETE', (tester) async {
-    final api = _ChroniqueApiProbe()..items = const [_ChroniqueApiProbe.sample];
+    final api = _ChroniqueApiProbe()..items = [_ChroniqueApiProbe.sample];
     await _pumpHome(tester, api: api);
     await _openDetail(tester);
     await _openMenu(tester);
@@ -442,7 +459,7 @@ void main() {
 
   testWidgets('DELETE error is shown without logout', (tester) async {
     final api = _ChroniqueApiProbe()
-      ..items = const [_ChroniqueApiProbe.sample]
+      ..items = [_ChroniqueApiProbe.sample]
       ..failDeleteWith = const ApiException(message: 'Too many requests', statusCode: 429);
     final container = await _pumpHome(tester, api: api);
     await _openDetail(tester);
@@ -460,7 +477,7 @@ void main() {
   });
 
   testWidgets('archive confirms then returns to Mon Fil without the item', (tester) async {
-    final api = _ChroniqueApiProbe()..items = const [_ChroniqueApiProbe.sample];
+    final api = _ChroniqueApiProbe()..items = [_ChroniqueApiProbe.sample];
     final container = await _pumpHome(tester, api: api);
     await _openDetail(tester);
     await _openMenu(tester);
@@ -489,7 +506,7 @@ void main() {
 
   testWidgets('archive API error is shown without logout', (tester) async {
     final api = _ChroniqueApiProbe()
-      ..items = const [_ChroniqueApiProbe.sample]
+      ..items = [_ChroniqueApiProbe.sample]
       ..failArchiveWith = const ApiException(
         message: 'Chronique cannot be archived in this status',
         statusCode: 400,
@@ -507,5 +524,121 @@ void main() {
     expect(find.byType(ChroniqueDetailScreen), findsOneWidget);
     expect(container.read(authControllerProvider), isA<AuthAuthenticated>());
     expect(find.text('Logout'), findsNothing);
+  });
+
+  testWidgets('PATCH by owner keeps existing media after title and body edit', (tester) async {
+    const media = ChroniqueMedia(
+      id: 10,
+      kind: 'image',
+      status: 'ready',
+      originalFilename: 'soir.jpg',
+      sortOrder: 0,
+      readUrl: 'https://example.test/soir.jpg',
+    );
+    final api = _ChroniqueApiProbe()
+      ..items = [
+        Chronique(
+          id: 42,
+          title: 'Premier soir',
+          body: 'Le texte de la chronique, d au moins vingt caracteres.',
+          status: 'active',
+          publishedAt: DateTime.now().toUtc().toIso8601String(),
+          media: [media],
+        ),
+      ];
+    await _pumpHome(tester, api: api);
+    await _openDetail(tester);
+    await _openMenu(tester);
+    await tester.tap(find.text('Modifier'));
+    await tester.pumpAndSettle();
+    expect(find.byType(ChroniqueReadyRemoteMediaList), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).at(0), 'Soir deux');
+    await tester.enterText(
+      find.byType(TextField).at(1),
+      'Texte modifié d au moins vingt caracteres.',
+    );
+    await tester.pump();
+    await tester.tap(find.text('Enregistrer'));
+    await tester.pumpAndSettle();
+
+    expect(api.updateCalls, 1);
+    expect(find.text('Soir deux'), findsWidgets);
+    expect(find.byType(ChroniqueReadyRemoteMediaList), findsOneWidget);
+    expect(find.byType(EditChroniqueScreen), findsNothing);
+  });
+
+  testWidgets('non-owner PATCH 404 is shown without logout', (tester) async {
+    final api = _ChroniqueApiProbe()
+      ..items = [_ChroniqueApiProbe.sample]
+      ..failUpdateWith = const ApiException(message: 'Chronique not found', statusCode: 404);
+    final container = await _pumpHome(tester, api: api);
+    await _openDetail(tester);
+    await _openMenu(tester);
+    await tester.tap(find.text('Modifier'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byType(TextField).at(1),
+      'Texte modifié d au moins vingt caracteres.',
+    );
+    await tester.pump();
+    await tester.tap(find.text('Enregistrer'));
+    await tester.pump();
+
+    expect(api.updateCalls, 1);
+    expect(find.text('Chronique not found'), findsOneWidget);
+    expect(find.byType(ChroniqueDetailScreen), findsOneWidget);
+    expect(find.text('Enregistrer'), findsOneWidget);
+    expect(container.read(authControllerProvider), isA<AuthAuthenticated>());
+  });
+
+  testWidgets('Modifier is hidden after the 30-minute window; archive and delete remain', (
+    tester,
+  ) async {
+    final api = _ChroniqueApiProbe()
+      ..items = [
+        Chronique(
+          id: 42,
+          title: 'Premier soir',
+          body: 'Le texte de la chronique, d au moins vingt caracteres.',
+          status: 'active',
+          publishedAt: DateTime.now().toUtc().subtract(const Duration(minutes: 31)).toIso8601String(),
+        ),
+      ];
+    await _pumpHome(tester, api: api);
+    await _openDetail(tester);
+    await _openMenu(tester);
+    expect(find.text('Modifier'), findsNothing);
+    expect(find.text('Archiver'), findsOneWidget);
+    expect(find.text('Supprimer'), findsOneWidget);
+  });
+
+  testWidgets('409 correction_window_expired exits edit with a clear message', (tester) async {
+    final api = _ChroniqueApiProbe()
+      ..items = [_ChroniqueApiProbe.sample]
+      ..failUpdateWith = const ApiException(
+        message: 'correction_window_expired',
+        statusCode: 409,
+      );
+    await _pumpHome(tester, api: api);
+    await _openDetail(tester);
+    await _openMenu(tester);
+    await tester.tap(find.text('Modifier'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byType(TextField).at(1),
+      'Texte modifié d au moins vingt caracteres.',
+    );
+    await tester.pump();
+    await tester.tap(find.text('Enregistrer'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(api.updateCalls, 1);
+    expect(find.text('correction_window_expired'), findsNothing);
+    expect(find.text('La période de modification est terminée.'), findsWidgets);
+    expect(find.text('Enregistrer'), findsNothing);
+    expect(find.byType(ChroniqueDetailScreen), findsOneWidget);
+    expect(find.byType(EditChroniqueScreen), findsNothing);
   });
 }

@@ -58,6 +58,17 @@ class ArchivesController extends AutoDisposeNotifier<ArchivesState> {
   }
 
   Future<void> refresh() => load(keepReadyOnError: true);
+
+  void removeById(int id) {
+    final current = state;
+    if (current is! ArchivesReady) {
+      return;
+    }
+    state = ArchivesReady([
+      for (final item in current.items)
+        if (item.id != id) item,
+    ]);
+  }
 }
 
 final archivesControllerProvider =

@@ -7,13 +7,14 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_text_theme.dart';
 import '../../../../core/widgets/app_button.dart';
-import '../../../../core/widgets/app_text_field.dart';
 import '../../models/chronique.dart';
 import '../../models/chronique_fields.dart';
 import '../../models/chronique_schedule_draft.dart';
 import '../../models/media_draft.dart';
 import '../state/edit_chronique_controller.dart';
+import '../widgets/chronique_lifecycle_dialogs.dart';
 import '../widgets/chronique_publication_fields.dart';
+import '../widgets/chronique_title_body_fields.dart';
 import '../widgets/media_draft_list.dart';
 
 /// Édition V1 d’une chronique publiée (texte uniquement).
@@ -44,8 +45,6 @@ class _EditChroniqueScreenState extends ConsumerState<EditChroniqueScreen> {
   String? get _originalTitle => ChroniqueFields.trimmedTitle(widget.chronique.title ?? '');
 
   String get _originalBody => ChroniqueFields.trimmedBody(widget.chronique.body);
-
-  int get _bodyCount => ChroniqueFields.runeLength(_bodyController.text.trim());
 
   bool get _isDirty {
     final title = ChroniqueFields.trimmedTitle(_titleController.text);
@@ -99,20 +98,7 @@ class _EditChroniqueScreenState extends ConsumerState<EditChroniqueScreen> {
     return bodyError == null && titleError == null && scheduleError == null;
   }
 
-  String _messageFor(ApiException error) {
-    final message = error.message.trim();
-    if (message.isNotEmpty) {
-      return message;
-    }
-    switch (error.statusCode) {
-      case 401:
-        return 'Unauthorized';
-      case 429:
-        return 'Too many requests';
-      default:
-        return 'Unexpected error';
-    }
-  }
+  String _messageFor(ApiException error) => messageForChroniqueApiError(error);
 
   Future<void> _save() async {
     if (_submitting || !_isDirty) {
@@ -192,33 +178,12 @@ class _EditChroniqueScreenState extends ConsumerState<EditChroniqueScreen> {
                       style: AppTextTheme.titleSmall.copyWith(color: colors.textSecondary),
                     ),
                     const SizedBox(height: AppSpacing.xxl),
-                    AppTextField(
-                      label: 'Titre (optionnel)',
-                      hint: 'Titre',
-                      controller: _titleController,
-                      errorText: _titleError,
+                    ChroniqueTitleBodyFields(
+                      titleController: _titleController,
+                      bodyController: _bodyController,
+                      titleError: _titleError,
+                      bodyError: _bodyError,
                       enabled: !_submitting,
-                      textInputAction: TextInputAction.next,
-                      textCapitalization: TextCapitalization.sentences,
-                    ),
-                    const SizedBox(height: AppSpacing.lg),
-                    AppTextField(
-                      label: 'Texte *',
-                      hint: 'Votre texte',
-                      controller: _bodyController,
-                      errorText: _bodyError,
-                      enabled: !_submitting,
-                      keyboardType: TextInputType.multiline,
-                      textInputAction: TextInputAction.newline,
-                      textCapitalization: TextCapitalization.sentences,
-                      minLines: 6,
-                      maxLines: 12,
-                    ),
-                    const SizedBox(height: AppSpacing.sm),
-                    Text(
-                      '$_bodyCount / ${ChroniqueFields.bodyMax}',
-                      textAlign: TextAlign.right,
-                      style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
                     ),
                     if (widget.chronique.media.isNotEmpty) ...[
                       const SizedBox(height: AppSpacing.xxl),

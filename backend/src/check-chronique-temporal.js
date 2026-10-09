@@ -241,8 +241,7 @@ async function main() {
   const deletedRows = await runPurgeExpiredJob({ db, now, query: db.query.bind(db) });
   assert(deletedRows.length === 1, 'purge job count');
   assert(deletedRows[0].status === 'deleted', 'purge job status');
-  assert(db.state.rows.find((row) => row.id === 4).status === 'deleted', 'row deleted logically');
-  assert(db.state.rows.find((row) => row.id === 4).deleted_at != null, 'no hard delete');
+  assert(db.state.rows.find((row) => row.id === 4) == null, 'row hard deleted');
   console.log('H OK jobs SQL memoire publish/expire/purge');
 
   if (!previousDb) {

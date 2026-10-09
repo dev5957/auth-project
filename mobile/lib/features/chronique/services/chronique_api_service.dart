@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_exception.dart';
 import '../models/chronique.dart';
+import '../models/chronique_media_upload.dart';
 import '../models/chronique_page.dart';
 
 /// Appels HTTP Chronique. Bearer posé par appel, comme Auth.
@@ -128,6 +129,91 @@ class ChroniqueApiService {
       '/chroniques/$id',
       accessToken: accessToken,
     );
+  }
+
+  /// `POST /chroniques/:id/media/uploads` — métadonnées seulement, jamais le binaire.
+  Future<ChroniqueMediaUploadSession> createMediaUpload({
+    required String accessToken,
+    required int chroniqueId,
+    required String kind,
+    required String sourceType,
+    required String contentType,
+    required int byteSize,
+    String? originalFilename,
+  }) async {
+    debugPrint(
+      '[chronique-http] ChroniqueApiService.createMediaUpload() '
+      '→ POST /chroniques/$chroniqueId/media/uploads',
+    );
+    final json = await _send(
+      'POST',
+      '/chroniques/$chroniqueId/media/uploads',
+      accessToken: accessToken,
+      data: <String, dynamic>{
+        'kind': kind,
+        'source_type': sourceType,
+        'content_type': contentType,
+        'byte_size': byteSize,
+        if (originalFilename != null && originalFilename.isNotEmpty)
+          'original_filename': originalFilename,
+      },
+    );
+    return ChroniqueMediaUploadSession.fromJson(json);
+  }
+
+  /// `POST /chroniques/:id/media/:mediaId/complete`
+  Future<Chronique> completeMediaUpload({
+    required String accessToken,
+    required int chroniqueId,
+    required int mediaId,
+  }) async {
+    debugPrint(
+      '[chronique-http] ChroniqueApiService.completeMediaUpload() '
+      '→ POST /chroniques/$chroniqueId/media/$mediaId/complete',
+    );
+    final json = await _send(
+      'POST',
+      '/chroniques/$chroniqueId/media/$mediaId/complete',
+      accessToken: accessToken,
+    );
+    return _chroniqueFrom(json);
+  }
+
+  /// `DELETE /chroniques/:id/media/:mediaId` — non branché à l’édition V1.
+  Future<Chronique> deleteMedia({
+    required String accessToken,
+    required int chroniqueId,
+    required int mediaId,
+  }) async {
+    debugPrint(
+      '[chronique-http] ChroniqueApiService.deleteMedia() '
+      '→ DELETE /chroniques/$chroniqueId/media/$mediaId',
+    );
+    final json = await _send(
+      'DELETE',
+      '/chroniques/$chroniqueId/media/$mediaId',
+      accessToken: accessToken,
+    );
+    return _chroniqueFrom(json);
+  }
+
+  /// `PATCH /chroniques/:id/media/order` — non branché à l’édition V1.
+  Future<Chronique> reorderMedia({
+    required String accessToken,
+    required int chroniqueId,
+    required List<int> mediaIds,
+  }) async {
+    debugPrint(
+      '[chronique-http] ChroniqueApiService.reorderMedia() '
+      '→ PATCH /chroniques/$chroniqueId/media/order',
+    );
+    final json = await _send(
+      'PATCH',
+      '/chroniques/$chroniqueId/media/order',
+      accessToken: accessToken,
+      data: <String, dynamic>{'media_ids': mediaIds},
+    );
+    return _chroniqueFrom(json);
   }
 
   Chronique _chroniqueFrom(Map<String, dynamic> json) {

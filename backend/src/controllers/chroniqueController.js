@@ -94,11 +94,15 @@ async function remove(req, res, next) {
 async function createUpload(req, res, next) {
   try {
     const result = await createMediaUpload(req.user.userId, req.params.id, req.body);
-    res.status(201).json({
+    const payload = {
       message: 'Upload created',
       media: result.media,
       upload: result.upload,
-    });
+    };
+    if (result.thumbnail_upload) {
+      payload.thumbnail_upload = result.thumbnail_upload;
+    }
+    res.status(201).json(payload);
   } catch (err) {
     next(err);
   }
