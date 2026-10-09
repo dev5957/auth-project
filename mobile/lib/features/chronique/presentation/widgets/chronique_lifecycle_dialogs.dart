@@ -67,6 +67,29 @@ Future<bool> confirmDeleteChronique(
   return confirmed == true;
 }
 
+Future<bool> confirmDeleteChroniqueMedia(BuildContext context) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) {
+      return AlertDialog(
+        title: const Text('Supprimer ce média ?'),
+        content: const Text('Cette action supprimera ce média de la Chronique.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Annuler'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      );
+    },
+  );
+  return confirmed == true;
+}
+
 String messageForChroniqueApiError(ApiException error) {
   final message = error.message.trim();
   if (message == kCorrectionWindowExpiredCode) {

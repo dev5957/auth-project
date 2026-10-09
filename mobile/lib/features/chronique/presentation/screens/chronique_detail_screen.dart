@@ -8,15 +8,22 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_text_theme.dart';
 import '../../../../core/widgets/app_button.dart';
+import '../../media/chronique_detail_media_upload.dart';
+import '../../media/chronique_local_media_picker.dart';
+import '../../media/chronique_media_limits.dart';
 import '../../models/chronique.dart';
 import '../../models/chronique_correction_window.dart';
 import '../../models/chronique_date.dart';
 import '../../models/chronique_fields.dart';
+import '../../models/media_draft.dart';
 import '../../providers/chronique_providers.dart';
 import '../state/chronique_detail_controller.dart';
 import '../state/edit_chronique_controller.dart';
 import '../state/mon_fil_controller.dart';
 import '../state/upcoming_chroniques_controller.dart';
+import '../widgets/add_media_kind_sheet.dart';
+import '../widgets/audio_recording_sheet.dart';
+import '../widgets/chronique_detail_media_section.dart';
 import '../widgets/chronique_lifecycle_dialogs.dart';
 import '../widgets/chronique_ready_remote_media_list.dart';
 import '../widgets/chronique_title_body_fields.dart';
@@ -268,16 +275,7 @@ class _ChroniqueDetailScreenState extends ConsumerState<ChroniqueDetailScreen> {
         return;
       }
       if (error.message.trim() == kCorrectionWindowExpiredCode) {
-        _disposeEditControllers();
-        setState(() {
-          _editing = false;
-          _submitting = false;
-          _error = kCorrectionWindowExpiredUserMessage;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text(kCorrectionWindowExpiredUserMessage)),
-        );
-        await _loadFromApi();
+        await _onCorrectionWindowExpired();
         return;
       }
       setState(() {
@@ -290,6 +288,271 @@ class _ChroniqueDetailScreenState extends ConsumerState<ChroniqueDetailScreen> {
       }
       setState(() {
         _submitting = false;
+        _error = 'Unexpected error';
+      });
+    }
+  }
+
+  bool _canMutateMedia(Chronique resolved) {
+    return !_editing && !_busy && !_submitting && isChroniqueTextCorrectionOpen(resolved);
+  }
+
+  void _syncFeeds(Chronique updated) {
+    ref.read(monFilControllerProvider.notifier).upsert(updated);
+    ref.read(upcomingChroniquesControllerProvider.notifier).upsert(updated);
+  }
+
+  Future<void> _onCorrectionWindowExpired() async {
+    if (!mounted) {
+      return;
+    }
+    _disposeEditControllers();
+    setState(() {
+      _editing = false;
+      _submitting = false;
+      _busy = false;
+      _error = kCorrectionWindowExpiredUserMessage;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text(kCorrectionWindowExpiredUserMessage)),
+    );
+    await _loadFromApi();
+  }
+
+  Future<void> _addMedia() async {
+    final current = _chronique;
+    final id = _id;
+    if (current == null || id == null || !_canMutateMedia(current)) {
+      return;
+    }
+    final remaining = kChroniqueMaxMediaCount - chroniqueQuotaMediaCount(current.media);
+    if (remaining <= 0) {
+      return;
+    }
+    final kind = await showAddMediaKindSheet(context);
+    if (!mounted || kind == null) {
+      return;
+    }
+    final picker = ref.read(chroniqueLocalMediaPickerProvider);
+    late final MediaPickResult result;
+    if (kind == MediaDraftKind.image) {
+      final source = await showAddImageSourceSheet(context);
+      if (!mounted || source == null) {
+        return;
+      }
+      result = source == MediaDraftSourceType.camera
+          ? await picker.pickImageFromCamera()
+          : await picker.pickImage(limit: remaining);
+    } else if (kind == MediaDraftKind.video) {
+      final source = await showAddVideoSourceSheet(context);
+      if (!mounted || source == null) {
+        return;
+      }
+      result = source == MediaDraftSourceType.camera
+          ? await picker.pickVideoFromCamera()
+          : await picker.pickVideo(limit: remaining);
+    } else if (kind == MediaDraftKind.audio) {
+      final source = await showAddAudioSourceSheet(context);
+      if (!mounted || source == null) {
+        return;
+      }
+      if (source == MediaDraftSourceType.microphone) {
+        result = await showChroniqueAudioRecordingSheet(
+          context,
+          recorder: ref.read(chroniqueMicrophoneRecorderProvider),
+        );
+      } else {
+        result = await picker.pickAudio();
+      }
+    } else {
+      result = await picker.pickDocument(limit: remaining);
+    }
+    if (!mounted) {
+      return;
+    }
+    await _uploadPickedMedia(result);
+  }
+
+  List<MediaPickSelected> _selectedPicks(MediaPickResult result) {
+    return switch (result) {
+      MediaPickCancelled() => const [],
+      MediaPickFailed() => const [],
+      MediaPickSelected() => [result],
+      MediaPickMany(:final items) => items,
+    };
+  }
+
+  Future<void> _uploadPickedMedia(MediaPickResult result) async {
+    final id = _id;
+    if (id == null) {
+      return;
+    }
+    if (result is MediaPickFailed) {
+      setState(() => _error = result.message);
+      return;
+    }
+    final picks = _selectedPicks(result);
+    if (picks.isEmpty) {
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final repository = ref.read(chroniqueRepositoryProvider);
+      final uploadClient = ref.read(chroniqueMediaUploadClientProvider);
+      var remaining = kChroniqueMaxMediaCount -
+          chroniqueQuotaMediaCount(_chronique?.media ?? const []);
+      for (final pick in picks) {
+        if (remaining <= 0) {
+          setState(() => _error = kTooManyMediaMessage);
+          break;
+        }
+        final updated = await uploadChroniquePickedMedia(
+          repository: repository,
+          uploadClient: uploadClient,
+          chroniqueId: id,
+          pick: pick,
+        );
+        remaining -= 1;
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _chronique = updated;
+          _error = null;
+        });
+        _syncFeeds(updated);
+      }
+    } on ApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      if (error.message.trim() == kCorrectionWindowExpiredCode) {
+        await _onCorrectionWindowExpired();
+        return;
+      }
+      setState(() => _error = messageForChroniqueApiError(error));
+    } on FormatException {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _error = 'Unexpected error');
+    } finally {
+      if (mounted && _error != kCorrectionWindowExpiredUserMessage) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
+  Future<void> _deleteMedia(int mediaId) async {
+    final current = _chronique;
+    final id = _id;
+    if (current == null || id == null || !_canMutateMedia(current)) {
+      return;
+    }
+    final confirmed = await confirmDeleteChroniqueMedia(context);
+    if (confirmed != true || !mounted) {
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final updated = await ref.read(chroniqueRepositoryProvider).deleteMedia(
+            chroniqueId: id,
+            mediaId: mediaId,
+          );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _chronique = updated;
+        _busy = false;
+        _error = null;
+      });
+      _syncFeeds(updated);
+    } on ApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      if (error.message.trim() == kCorrectionWindowExpiredCode) {
+        await _onCorrectionWindowExpired();
+        return;
+      }
+      setState(() {
+        _busy = false;
+        _error = messageForChroniqueApiError(error);
+      });
+    } on FormatException {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _busy = false;
+        _error = 'Unexpected error';
+      });
+    }
+  }
+
+  Future<void> _moveMedia(int mediaId, int delta) async {
+    final current = _chronique;
+    final id = _id;
+    if (current == null || id == null || !_canMutateMedia(current)) {
+      return;
+    }
+    final ready = readyChroniqueMedia(current.media);
+    if (ready.length < 2) {
+      return;
+    }
+    final ids = [for (final media in ready) media.id!];
+    final index = ids.indexOf(mediaId);
+    final nextIndex = index + delta;
+    if (index < 0 || nextIndex < 0 || nextIndex >= ids.length) {
+      return;
+    }
+    final swapped = [...ids];
+    final moved = swapped.removeAt(index);
+    swapped.insert(nextIndex, moved);
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final updated = await ref.read(chroniqueRepositoryProvider).reorderMedia(
+            chroniqueId: id,
+            mediaIds: swapped,
+          );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _chronique = updated;
+        _busy = false;
+        _error = null;
+      });
+      _syncFeeds(updated);
+    } on ApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      if (error.message.trim() == kCorrectionWindowExpiredCode) {
+        await _onCorrectionWindowExpired();
+        return;
+      }
+      setState(() {
+        _busy = false;
+        _error = messageForChroniqueApiError(error);
+      });
+      await _loadFromApi();
+    } on FormatException {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _busy = false;
         _error = 'Unexpected error';
       });
     }
@@ -548,9 +811,27 @@ class _ChroniqueDetailScreenState extends ConsumerState<ChroniqueDetailScreen> {
                                 ),
                               ),
                             ],
-                            if (displayableChroniqueRemoteMedia(resolved.media).isNotEmpty) ...[
+                            if (displayableChroniqueRemoteMedia(resolved.media).isNotEmpty ||
+                                readyChroniqueMedia(resolved.media).isNotEmpty ||
+                                (_canMutateMedia(resolved) &&
+                                    chroniqueQuotaMediaCount(resolved.media) <
+                                        kChroniqueMaxMediaCount)) ...[
                               const SizedBox(height: AppSpacing.xxl),
-                              ChroniqueReadyRemoteMediaList(medias: resolved.media),
+                              ChroniqueDetailMediaSection(
+                                medias: resolved.media,
+                                canAdd: _canMutateMedia(resolved) &&
+                                    chroniqueQuotaMediaCount(resolved.media) <
+                                        kChroniqueMaxMediaCount,
+                                canDelete: _canMutateMedia(resolved) &&
+                                    readyChroniqueMedia(resolved.media).isNotEmpty,
+                                canReorder: _canMutateMedia(resolved) &&
+                                    readyChroniqueMedia(resolved.media).length >= 2,
+                                busy: _busy || _submitting,
+                                onAdd: _addMedia,
+                                onDelete: _deleteMedia,
+                                onMoveUp: (mediaId) => _moveMedia(mediaId, -1),
+                                onMoveDown: (mediaId) => _moveMedia(mediaId, 1),
+                              ),
                             ],
                             if (_error != null) ...[
                               const SizedBox(height: AppSpacing.lg),

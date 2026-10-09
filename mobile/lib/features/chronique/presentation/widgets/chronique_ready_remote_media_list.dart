@@ -7,6 +7,14 @@ import 'chronique_ready_document_list.dart';
 import 'chronique_ready_image_list.dart';
 import 'chronique_ready_video_list.dart';
 
+int _mediaSort(ChroniqueMedia a, ChroniqueMedia b) {
+  final order = (a.sortOrder ?? 0).compareTo(b.sortOrder ?? 0);
+  if (order != 0) {
+    return order;
+  }
+  return (a.id ?? 0).compareTo(b.id ?? 0);
+}
+
 List<ChroniqueMedia> displayableChroniqueRemoteMedia(Iterable<ChroniqueMedia> medias) {
   final items = [
     for (final media in medias)
@@ -16,14 +24,29 @@ List<ChroniqueMedia> displayableChroniqueRemoteMedia(Iterable<ChroniqueMedia> me
           chroniqueMediaIsDisplayableDocument(media))
         media,
   ];
-  items.sort((a, b) {
-    final order = (a.sortOrder ?? 0).compareTo(b.sortOrder ?? 0);
-    if (order != 0) {
-      return order;
-    }
-    return (a.id ?? 0).compareTo(b.id ?? 0);
-  });
+  items.sort(_mediaSort);
   return items;
+}
+
+/// Médias `ready` avec id, ordre API (`sort_order`, puis `id`).
+List<ChroniqueMedia> readyChroniqueMedia(Iterable<ChroniqueMedia> medias) {
+  final items = [
+    for (final media in medias)
+      if (media.status == 'ready' && media.id != null) media,
+  ];
+  items.sort(_mediaSort);
+  return items;
+}
+
+/// Compteur quota UX : `pending_upload` + `ready` (plafond 5 inchangé).
+int chroniqueQuotaMediaCount(Iterable<ChroniqueMedia> medias) {
+  var count = 0;
+  for (final media in medias) {
+    if (media.status == 'ready' || media.status == 'pending_upload') {
+      count += 1;
+    }
+  }
+  return count;
 }
 
 Widget _tileFor(ChroniqueMedia media, ChroniqueDocumentOpenHandler? openHandler) {

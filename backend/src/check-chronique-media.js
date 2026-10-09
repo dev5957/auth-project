@@ -9,9 +9,11 @@ const {
   createMediaUpload,
   completeMedia,
   deleteMedia,
+  reorderMedia,
   MAX_MEDIA,
   MAX_BYTES,
 } = require('./services/chroniqueMediaService');
+const { CORRECTION_WINDOW_MS } = require('./services/chroniqueService');
 
 const TEST_SECRET = 'chronique-media-test-secret-not-for-production';
 const TEST_ISSUER = 'auth-project';
@@ -629,6 +631,250 @@ async function main() {
     'Chronique not found'
   );
   console.log('H OK ownership refusee');
+
+  const publishedAt = new Date('2026-10-08T14:00:00.000Z');
+  const tPlus29999 = new Date(publishedAt.getTime() + CORRECTION_WINDOW_MS - 1);
+  const tPlus30 = new Date(publishedAt.getTime() + CORRECTION_WINDOW_MS);
+  const tPlus30001 = new Date(publishedAt.getTime() + CORRECTION_WINDOW_MS + 1);
+  const tPlus40 = new Date(publishedAt.getTime() + 40 * 60 * 1000);
+
+  function windowReadyMedia(id, publicationId, sortOrder) {
+    return {
+      id,
+      publication_id: publicationId,
+      kind: 'image',
+      source_type: 'gallery',
+      storage_key: `publications/${publicationId}/media/${id}`,
+      content_type: 'image/jpeg',
+      byte_size: 1024,
+      original_filename: `img-${id}.jpg`,
+      sort_order: sortOrder,
+      status: 'ready',
+      created_at: publishedAt,
+    };
+  }
+
+  const withinDb = createMemoryDb({
+    publications: [samplePublication({ id: 30, published_at: publishedAt })],
+  });
+  const withinUpload = await createMediaUpload(OWNER_ID, 30, validUpload(), {
+    db: withinDb,
+    storage: mockStorage,
+    now: tPlus29999,
+  });
+  assert(withinUpload.media.status === 'pending_upload', 'A: upload T+29:59.999');
+  assert(withinDb.state.media.length === 1, 'A: pending row created');
+  console.log('W1 OK media upload T+29:59.999');
+
+  const exactDb = createMemoryDb({
+    publications: [samplePublication({ id: 31, published_at: publishedAt })],
+  });
+  await expectStatus(
+    () =>
+      createMediaUpload(OWNER_ID, 31, validUpload(), {
+        db: exactDb,
+        storage: mockStorage,
+        now: tPlus30,
+      }),
+    409,
+    'correction_window_expired'
+  );
+  assert(exactDb.state.media.length === 0, 'B: no pending at T+30:00.000');
+  console.log('W2 OK media upload T+30:00.000 refuse');
+
+  const afterDb = createMemoryDb({
+    publications: [samplePublication({ id: 32, published_at: publishedAt })],
+  });
+  await expectStatus(
+    () =>
+      createMediaUpload(OWNER_ID, 32, validUpload(), {
+        db: afterDb,
+        storage: mockStorage,
+        now: tPlus30001,
+      }),
+    409,
+    'correction_window_expired'
+  );
+  assert(afterDb.state.media.length === 0, 'C: no pending at T+30:00.001');
+  console.log('W3 OK media upload T+30:00.001 refuse');
+
+  const scheduledDb = createMemoryDb({
+    publications: [
+      samplePublication({
+        id: 33,
+        status: 'scheduled',
+        published_at: null,
+        scheduled_at: tPlus40,
+      }),
+    ],
+    media: [windowReadyMedia(501, 33, 0), windowReadyMedia(502, 33, 1)],
+  });
+  mockStorage.put('publications/33/media/501', { byteSize: 1024, contentType: 'image/jpeg' });
+  const scheduledUpload = await createMediaUpload(OWNER_ID, 33, validUpload({ byte_size: 512 }), {
+    db: scheduledDb,
+    storage: mockStorage,
+    now: tPlus40,
+  });
+  const scheduledPending = scheduledDb.state.media.find((row) => row.status === 'pending_upload');
+  mockStorage.put(scheduledPending.storage_key, { byteSize: 512, contentType: 'image/jpeg' });
+  const scheduledReady = await completeMedia(OWNER_ID, 33, scheduledPending.id, {
+    db: scheduledDb,
+    storage: mockStorage,
+    now: tPlus40,
+  });
+  assert(
+    scheduledReady.media.some((item) => item.id === scheduledUpload.media.id && item.status === 'ready'),
+    'D: scheduled complete'
+  );
+  const scheduledDeleted = await deleteMedia(OWNER_ID, 33, 502, {
+    db: scheduledDb,
+    storage: mockStorage,
+    now: tPlus40,
+  });
+  assert(!scheduledDeleted.media.some((item) => item.id === 502), 'D: scheduled delete');
+  await reorderMedia(
+    OWNER_ID,
+    33,
+    { media_ids: [scheduledUpload.media.id, 501] },
+    { db: scheduledDb, now: tPlus40 }
+  );
+  const scheduledOrder = scheduledDb.state.media
+    .filter((row) => row.status === 'ready')
+    .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id)
+    .map((row) => Number(row.id));
+  assert(scheduledOrder[0] === Number(scheduledUpload.media.id), 'D: scheduled reorder first');
+  assert(scheduledOrder[1] === 501, 'D: scheduled reorder second');
+  console.log('D OK scheduled media mutations autorisees');
+
+  await expectStatus(
+    () =>
+      createMediaUpload(
+        OWNER_ID,
+        34,
+        validUpload(),
+        {
+          db: createMemoryDb({
+            publications: [samplePublication({ id: 34, status: 'archived', published_at: publishedAt })],
+          }),
+          storage: mockStorage,
+          now: tPlus29999,
+        }
+      ),
+    400,
+    'Chronique cannot accept media in this status'
+  );
+  await expectStatus(
+    () =>
+      createMediaUpload(
+        OWNER_ID,
+        35,
+        validUpload(),
+        {
+          db: createMemoryDb({
+            publications: [samplePublication({ id: 35, status: 'expired', published_at: publishedAt })],
+          }),
+          storage: mockStorage,
+          now: tPlus29999,
+        }
+      ),
+    400,
+    'Chronique cannot accept media in this status'
+  );
+  console.log('E OK archived/expired media refusees sans 409');
+
+  await expectStatus(
+    () =>
+      createMediaUpload(
+        OWNER_ID,
+        36,
+        validUpload(),
+        {
+          db: createMemoryDb({
+            publications: [samplePublication({ id: 36, status: 'deleted', published_at: publishedAt })],
+          }),
+          storage: mockStorage,
+          now: tPlus29999,
+        }
+      ),
+    404,
+    'Chronique not found'
+  );
+  console.log('F OK deleted media 404');
+
+  const lateUploadDb = createMemoryDb({
+    publications: [samplePublication({ id: 37, published_at: publishedAt })],
+  });
+  await expectStatus(
+    () =>
+      createMediaUpload(OWNER_ID, 37, validUpload(), {
+        db: lateUploadDb,
+        storage: mockStorage,
+        now: tPlus30,
+      }),
+    409,
+    'correction_window_expired'
+  );
+  assert(lateUploadDb.state.media.length === 0, 'H: aucune ligne pending apres expiration');
+  console.log('H2 OK upload apres expiration sans pending');
+
+  const completeLateDb = createMemoryDb({
+    publications: [samplePublication({ id: 38, published_at: publishedAt })],
+  });
+  const earlyUpload = await createMediaUpload(OWNER_ID, 38, validUpload({ byte_size: 2048 }), {
+    db: completeLateDb,
+    storage: mockStorage,
+    now: tPlus29999,
+  });
+  const earlyRow = completeLateDb.state.media.find((row) => row.id === earlyUpload.media.id);
+  mockStorage.put(earlyRow.storage_key, { byteSize: 2048, contentType: 'image/jpeg' });
+  await expectStatus(
+    () =>
+      completeMedia(OWNER_ID, 38, earlyUpload.media.id, {
+        db: completeLateDb,
+        storage: mockStorage,
+        now: tPlus30,
+      }),
+    409,
+    'correction_window_expired'
+  );
+  assert(completeLateDb.state.media[0].status === 'pending_upload', 'I: pending not ready after late complete');
+  console.log('I OK complete apres expiration 409');
+
+  const deleteLateDb = createMemoryDb({
+    publications: [samplePublication({ id: 39, published_at: publishedAt })],
+    media: [windowReadyMedia(601, 39, 0)],
+  });
+  mockStorage.put('publications/39/media/601', { byteSize: 1024, contentType: 'image/jpeg' });
+  await expectStatus(
+    () =>
+      deleteMedia(OWNER_ID, 39, 601, {
+        db: deleteLateDb,
+        storage: mockStorage,
+        now: tPlus30,
+      }),
+    409,
+    'correction_window_expired'
+  );
+  assert(deleteLateDb.state.media.some((row) => row.id === 601), 'J: media row kept');
+  assert(mockStorage.getObject('publications/39/media/601') != null, 'J: R2 object kept');
+  console.log('J OK delete apres expiration 409');
+
+  const reorderLateDb = createMemoryDb({
+    publications: [samplePublication({ id: 40, published_at: publishedAt })],
+    media: [windowReadyMedia(701, 40, 0), windowReadyMedia(702, 40, 1)],
+  });
+  await expectStatus(
+    () =>
+      reorderMedia(OWNER_ID, 40, { media_ids: [702, 701] }, { db: reorderLateDb, now: tPlus30 }),
+    409,
+    'correction_window_expired'
+  );
+  const keptOrder = reorderLateDb.state.media
+    .filter((row) => row.status === 'ready')
+    .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id)
+    .map((row) => row.id);
+  assert(keptOrder[0] === 701 && keptOrder[1] === 702, 'K: order unchanged');
+  console.log('K OK reorder apres expiration 409');
 
   const { child, logs } = startTestServer(TEST_PORT);
   try {

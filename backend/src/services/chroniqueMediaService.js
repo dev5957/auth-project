@@ -2,7 +2,12 @@ const crypto = require('crypto');
 const AppError = require('../errors/AppError');
 const { parseChroniqueId } = require('../validators/chroniqueFields');
 const { parseMediaId, parseUploadInput, parseMediaOrder } = require('../validators/mediaFields');
-const { toPublicChronique, toPublicMedia, withOwnedPublication } = require('./chroniqueService');
+const {
+  toPublicChronique,
+  toPublicMedia,
+  withOwnedPublication,
+  assertWithinCorrectionWindow,
+} = require('./chroniqueService');
 const { getStorage } = require('./storageService');
 const { thumbnailStorageKey } = require('./mediaStorageKeys');
 
@@ -79,6 +84,8 @@ async function createMediaUpload(userId, rawId, body, deps = {}) {
 
   return withOwnedPublication(userId, rawId, deps, async (client, row) => {
     assertAcceptsMedia(row);
+    const now = deps.now || new Date();
+    assertWithinCorrectionWindow(row, now);
     const usage = await quotaUsage(client, row.id);
     if (usage.count >= MAX_MEDIA) {
       throw new AppError(400, 'Too many media');
@@ -156,6 +163,8 @@ async function completeMedia(userId, rawId, rawMediaId, deps = {}) {
 
   return withOwnedPublication(userId, rawId, deps, async (client, row) => {
     assertAcceptsMedia(row);
+    const now = deps.now || new Date();
+    assertWithinCorrectionWindow(row, now);
     const found = await client.query(
       `SELECT *
        FROM publication_media
@@ -237,6 +246,8 @@ async function deleteMedia(userId, rawId, rawMediaId, deps = {}) {
 
   return withOwnedPublication(userId, rawId, deps, async (client, row) => {
     assertAcceptsMedia(row);
+    const now = deps.now || new Date();
+    assertWithinCorrectionWindow(row, now);
     const found = await client.query(
       `SELECT *
        FROM publication_media
@@ -282,6 +293,8 @@ async function reorderMedia(userId, rawId, body, deps = {}) {
 
   return withOwnedPublication(userId, rawId, deps, async (client, row) => {
     assertAcceptsMedia(row);
+    const now = deps.now || new Date();
+    assertWithinCorrectionWindow(row, now);
     const ready = await client.query(
       `SELECT id
        FROM publication_media
