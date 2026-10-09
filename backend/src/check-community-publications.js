@@ -1150,7 +1150,7 @@ async function main() {
   assertNoThumbnail(readyFeed.media[0], 'image');
   assertNoStorageKey(readyFeed);
 
-  const gotMulti = await getPublication(OWNER_ID, COMMUNITY_ID, multi.id, deps);
+  const gotMulti = await getPublication(MEMBER_ID, COMMUNITY_ID, multi.id, deps);
   assert(gotMulti.media.length === 3, 'get hydrates all ready');
   gotMulti.media.forEach((item, index) => {
     assertSignedReadyMedia(item, multiKeys[index]);
@@ -1167,6 +1167,22 @@ async function main() {
   assert(gotPendingItem, 'get includes pending');
   assert(!Object.prototype.hasOwnProperty.call(gotPendingItem, 'read_url'), 'pending omits read_url');
   assertNoStorageKey(gotReady);
+
+  await expectRejectMessage(
+    getPublication(OWNER_ID, COMMUNITY_ID, readyPub.id, deps),
+    404,
+    'Community publication not found'
+  );
+  await expectRejectMessage(
+    getPublication(ADMIN_ID, COMMUNITY_ID, readyPub.id, deps),
+    404,
+    'Community publication not found'
+  );
+  await expectRejectMessage(
+    getPublication(OWNER_ID, COMMUNITY_ID, 999999, deps),
+    404,
+    'Community publication not found'
+  );
 
   const mineCurrent = await listMine(MEMBER_ID, { scope: 'current' }, deps);
   const mineMulti = mineCurrent.items.find((item) => Number(item.id) === Number(multi.id));

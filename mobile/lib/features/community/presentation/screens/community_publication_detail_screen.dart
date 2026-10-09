@@ -277,7 +277,13 @@ class _CommunityPublicationDetailScreenState
       if (!mounted) {
         return;
       }
-      setState(() => _error = error.message.trim().isEmpty ? 'Unexpected error' : error.message);
+      setState(() {
+        if (error.statusCode == 404) {
+          _error = 'Publication indisponible';
+        } else {
+          _error = error.message.trim().isEmpty ? 'Unexpected error' : error.message;
+        }
+      });
     } on FormatException {
       if (!mounted) {
         return;

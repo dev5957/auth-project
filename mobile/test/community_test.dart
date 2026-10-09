@@ -39,6 +39,7 @@ import 'package:mobile/features/community/presentation/screens/community_search_
 import 'package:mobile/features/chronique/models/chronique.dart';
 import 'package:mobile/features/chronique/models/chronique_correction_window.dart';
 import 'package:mobile/features/chronique/models/chronique_date.dart';
+import 'package:mobile/features/chronique/presentation/widgets/chronique_card_menu.dart';
 import 'package:mobile/features/chronique/presentation/widgets/chronique_media_viewer.dart';
 import 'package:mobile/features/chronique/presentation/widgets/chronique_ready_remote_media_list.dart';
 import 'package:mobile/features/community/presentation/screens/community_publication_detail_screen.dart';
@@ -390,6 +391,7 @@ class _FakeCommunityApi extends CommunityApiService {
   ApiException? failListPublications;
   ApiException? failCreatePublication;
   ApiException? failGetPublication;
+  int viewerUserId = 1;
   ApiException? failPatchPublication;
   ApiException? failDeletePublication;
   ApiException? failRestorePublication;
@@ -469,10 +471,20 @@ class _FakeCommunityApi extends CommunityApiService {
     if (failGetPublication != null) {
       throw failGetPublication!;
     }
-    return publications.firstWhere(
+    final found = publications.firstWhere(
       (item) => item.id == publicationId && item.communityId == communityId,
-      orElse: () => throw const ApiException(message: 'Not found', statusCode: 404),
+      orElse: () => throw const ApiException(
+        message: 'Community publication not found',
+        statusCode: 404,
+      ),
     );
+    if (found.author.userId != viewerUserId) {
+      throw const ApiException(
+        message: 'Community publication not found',
+        statusCode: 404,
+      );
+    }
+    return found;
   }
 
   @override
@@ -1790,6 +1802,11 @@ void main() {
         matching: find.byType(Scrollable),
       ).first,
     );
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> openFeedComments(WidgetTester tester, {int publicationId = 21}) async {
+    await tester.tap(find.byKey(ValueKey('community-comments-$publicationId')));
     await tester.pumpAndSettle();
   }
 
@@ -3675,6 +3692,41 @@ void main() {
     expect(find.byKey(const ValueKey('community-feed-item-22')), findsNothing);
   });
 
+  testWidgets('feed tap opens own publication detail only', (tester) async {
+    final api = _FakeCommunityApi()
+      ..publications = [
+        const CommunityPublication(
+          id: 21,
+          communityId: 3,
+          author: CommunityPublicationAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
+          body: 'Texte de publication active assez long.',
+          status: 'active',
+        ),
+        const CommunityPublication(
+          id: 22,
+          communityId: 3,
+          author: CommunityPublicationAuthor(userId: 2, login: 'other', isFormerMember: false),
+          body: 'Publication active d un autre membre.',
+          status: 'active',
+        ),
+      ];
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    expect(find.byKey(const ValueKey('community-feed-mod-menu-21')), findsNothing);
+    expect(find.byKey(const ValueKey('community-feed-mod-menu-22')), findsOneWidget);
+    expect(find.byType(ChroniqueCardMenu), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('community-feed-item-21')));
+    await tester.pumpAndSettle();
+    expect(find.byType(CommunityPublicationDetailScreen), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-publication-author')), findsOneWidget);
+    tester.state<NavigatorState>(find.byType(Navigator).first).pop();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('community-feed-item-22')));
+    await tester.pumpAndSettle();
+    expect(find.byType(CommunityPublicationDetailScreen), findsNothing);
+    expect(find.text('Publication indisponible'), findsNothing);
+  });
+
   CommunityPublication feedPublication({
     required int id,
     required List<ChroniqueMedia> media,
@@ -4274,9 +4326,12 @@ void main() {
       ..publications = [scheduledMine(authorId: 2)]
       ..myPublications = [scheduledMine(authorId: 2)];
     await pumpPublicationDetail(tester, api, publicationId: 70);
+    expect(find.text('Publication indisponible'), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-publication-error')), findsOneWidget);
     expect(find.byKey(const ValueKey('community-publication-menu')), findsNothing);
-    expect(find.text('Modifier'), findsNothing);
-    expect(find.text('Supprimer'), findsNothing);
+    expect(find.byKey(const ValueKey('community-publication-author')), findsNothing);
+    expect(find.text('vous n’êtes pas l’auteur'), findsNothing);
+    expect(find.text("vous n'êtes pas l'auteur"), findsNothing);
   });
 
   testWidgets('E former member cannot edit or delete scheduled from me', (tester) async {
@@ -4303,6 +4358,31 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Modifier'), findsOneWidget);
     expect(find.text('Supprimer'), findsOneWidget);
+  });
+
+  testWidgets('me actuelles author can write a comment from detail', (tester) async {
+    final api = _FakeCommunityApi()
+      ..myPublications = [
+        const CommunityPublication(
+          id: 72,
+          communityId: 3,
+          communityName: 'Jardin secret',
+          author: CommunityPublicationAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
+          title: 'Active titre',
+          body: 'Publication active auteur encore membre.',
+          status: 'active',
+          commentsEnabled: true,
+        ),
+      ];
+    await openMyPublications(tester, api);
+    await tester.tap(find.byKey(const ValueKey('me-pub-current-72')));
+    await tester.pumpAndSettle();
+    expect(find.byType(CommunityPublicationDetailScreen), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-comment-input')), findsOneWidget);
+    await tester.enterText(find.byKey(const ValueKey('community-comment-input')), 'Depuis mes publications');
+    await tester.tap(find.byKey(const ValueKey('community-comment-submit')));
+    await tester.pumpAndSettle();
+    expect(api.networkOps, contains('POST /communities/3/publications/72/comments'));
   });
 
   testWidgets('F left scheduled stays read only', (tester) async {
@@ -4383,7 +4463,7 @@ void main() {
         const CommunityPublication(
           id: 21,
           communityId: 3,
-          author: CommunityPublicationAuthor(userId: 2, login: 'other', isFormerMember: false),
+          author: CommunityPublicationAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
           body: 'Texte de publication active assez long.',
           status: 'active',
           commentsEnabled: true,
@@ -4421,44 +4501,34 @@ void main() {
     );
   }
 
-  testWidgets('owner sees restore on moderated comment after community detail becomes ready', (
+  testWidgets('owner restores moderated comment from feed sheet without opening detail', (
     tester,
   ) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     final api = _FakeCommunityApi()
-      ..holdGet = true
       ..publications = [_activePublication()]
       ..comments = [_moderatedComment()];
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          authTokenStorageProvider.overrideWithValue(
-            InMemoryAuthTokenStorage(accessToken: 'access-test', refreshToken: 'refresh-test'),
-          ),
-          authControllerProvider.overrideWith(() => _SeededAuthController()),
-          communityApiServiceProvider.overrideWithValue(api),
-        ],
-        child: MaterialApp(
-          theme: AppTheme.light,
-          home: const CommunityPublicationDetailScreen(communityId: 3, publicationId: 21),
-        ),
-      ),
-    );
-    await tester.pump();
-    await tester.pump();
-    expect(find.byKey(const ValueKey('community-comment-moderated-2')), findsOneWidget);
-    expect(find.byKey(const ValueKey('community-comment-restore-2')), findsNothing);
-
-    expect(api.getHolds, isNotEmpty);
-    api.getHolds.single.complete(api.items.first);
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    expect(find.byType(CommunityPublicationDetailScreen), findsNothing);
+    await openFeedComments(tester);
+    expect(find.byType(CommunityPublicationDetailScreen), findsNothing);
+    expect(find.byKey(const ValueKey('community-comments-sheet-21')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-feed-21-comment-moderated-2')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-feed-21-comment-restore-2')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('community-feed-21-comment-restore-2')));
     await tester.pumpAndSettle();
-
-    expect(find.byKey(const ValueKey('community-comment-restore-2')), findsOneWidget);
-    expect(find.text('Restaurer'), findsOneWidget);
+    expect(api.networkOps, contains('POST /communities/3/publications/21/comments/2/restore'));
+    expect(find.byKey(const ValueKey('community-feed-21-comment-item-2')), findsOneWidget);
+    expect(find.byType(CommunityPublicationDetailScreen), findsNothing);
   });
 
-  testWidgets('admin sees restore on moderated comment', (tester) async {
+  testWidgets('admin sees restore on moderated comment from feed sheet', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     final api = _FakeCommunityApi()
-      ..items[0] = Community(
+      ..items[0] = const Community(
         id: 3,
         name: 'Jardin secret',
         visibility: 'private',
@@ -4467,8 +4537,11 @@ void main() {
       )
       ..publications = [_activePublication()]
       ..comments = [_moderatedComment()];
-    await pumpPublicationDetail(tester, api, publicationId: 21);
-    expect(find.byKey(const ValueKey('community-comment-restore-2')), findsOneWidget);
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    await openFeedComments(tester);
+    expect(find.byType(CommunityPublicationDetailScreen), findsNothing);
+    expect(find.byKey(const ValueKey('community-feed-21-comment-restore-2')), findsOneWidget);
   });
 
   testWidgets('publication author sees restore on moderated comment', (tester) async {
@@ -4499,9 +4572,11 @@ void main() {
     expect(find.byKey(const ValueKey('community-comment-item-2')), findsOneWidget);
   });
 
-  testWidgets('member does not see restore on moderated comment', (tester) async {
+  testWidgets('member does not see restore on moderated comment from feed sheet', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     final api = _FakeCommunityApi()
-      ..items[0] = Community(
+      ..items[0] = const Community(
         id: 3,
         name: 'Jardin secret',
         visibility: 'private',
@@ -4510,9 +4585,12 @@ void main() {
       )
       ..publications = [_activePublication()]
       ..comments = [_moderatedComment()];
-    await pumpPublicationDetail(tester, api, publicationId: 21);
-    expect(find.byKey(const ValueKey('community-comment-moderated-2')), findsOneWidget);
-    expect(find.byKey(const ValueKey('community-comment-restore-2')), findsNothing);
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    await openFeedComments(tester);
+    expect(find.byType(CommunityPublicationDetailScreen), findsNothing);
+    expect(find.byKey(const ValueKey('community-feed-21-comment-moderated-2')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-feed-21-comment-restore-2')), findsNothing);
   });
 
   testWidgets('community detail hides composer when comments are disabled', (tester) async {
@@ -4560,7 +4638,17 @@ void main() {
   });
 
   testWidgets('invalid comment error clears after the text becomes valid', (tester) async {
-    final api = _FakeCommunityApi()..publications = [_activePublication()];
+    final api = _FakeCommunityApi()
+      ..publications = [
+        const CommunityPublication(
+          id: 21,
+          communityId: 3,
+          author: CommunityPublicationAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
+          body: 'Texte de publication active assez long.',
+          status: 'active',
+          commentsEnabled: true,
+        ),
+      ];
     await pumpPublicationDetail(tester, api, publicationId: 21);
     await tester.enterText(find.byKey(const ValueKey('community-comment-input')), 'x');
     await tester.tap(find.byKey(const ValueKey('community-comment-submit')));
@@ -4574,7 +4662,15 @@ void main() {
   testWidgets('deleting own comment shows snackbar and updates the detail counter', (tester) async {
     final api = _FakeCommunityApi()
       ..publications = [
-        _activePublication().copyWith(commentCount: 1),
+        const CommunityPublication(
+          id: 21,
+          communityId: 3,
+          author: CommunityPublicationAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
+          body: 'Texte de publication active assez long.',
+          status: 'active',
+          commentsEnabled: true,
+          commentCount: 1,
+        ),
       ]
       ..comments = [
         const CommunityComment(
@@ -4603,7 +4699,7 @@ void main() {
         const CommunityPublication(
           id: 21,
           communityId: 3,
-          author: CommunityPublicationAuthor(userId: 2, login: 'other', isFormerMember: false),
+          author: CommunityPublicationAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
           body: 'Texte de publication active assez long.',
           status: 'active',
           commentsEnabled: true,
@@ -4632,7 +4728,7 @@ void main() {
         const CommunityPublication(
           id: 21,
           communityId: 3,
-          author: CommunityPublicationAuthor(userId: 2, login: 'other', isFormerMember: false),
+          author: CommunityPublicationAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
           body: 'Texte de publication active assez long.',
           status: 'active',
           commentsEnabled: true,
@@ -4786,17 +4882,19 @@ void main() {
   });
 
   testWidgets('comment then like keeps the updated comment_count on the feed', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     final api = _FakeCommunityApi()
       ..publications = [_activePublication().copyWith(commentCount: 5)];
     await openCommunityDetail(tester, api);
     await revealCommunityFeed(tester);
     expect(tester.widget<Text>(find.byKey(const ValueKey('community-comment-count-21'))).data, '5');
-    await tester.tap(find.byKey(const ValueKey('community-feed-item-21')));
+    await openFeedComments(tester);
+    expect(find.byType(CommunityPublicationDetailScreen), findsNothing);
+    await tester.enterText(find.byKey(const ValueKey('community-feed-21-comment-input')), 'Super soiree');
+    await tester.tap(find.byKey(const ValueKey('community-feed-21-comment-submit')));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(const ValueKey('community-comment-input')), 'Super soiree');
-    await tester.tap(find.byKey(const ValueKey('community-comment-submit')));
-    await tester.pumpAndSettle();
-    tester.state<NavigatorState>(find.byType(Navigator).first).pop();
+    Navigator.of(tester.element(find.byKey(const ValueKey('community-comments-sheet-21')))).pop();
     await tester.pumpAndSettle();
     expect(tester.widget<Text>(find.byKey(const ValueKey('community-comment-count-21'))).data, '6');
     await tester.tap(find.byKey(const ValueKey('community-like-21')));
@@ -5034,16 +5132,23 @@ void main() {
       ];
     await openCommunityDetail(tester, api);
     await revealCommunityFeed(tester);
-    await tester.tap(find.byKey(const ValueKey('community-feed-item-21')));
+    expect(find.byType(CommunityPublicationDetailScreen), findsNothing);
+    expect(find.byType(ChroniqueCardMenu), findsNothing);
+    expect(find.byKey(const ValueKey('community-feed-mod-menu-21')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('community-feed-mod-menu-21')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('community-publication-menu')));
-    await tester.pumpAndSettle();
+    expect(find.text('Modifier'), findsNothing);
+    expect(find.text('Archiver'), findsNothing);
+    expect(find.text('Supprimer'), findsOneWidget);
     await tester.tap(find.text('Supprimer'));
     await tester.pumpAndSettle();
+    expect(find.text('Supprimer la publication ?'), findsOneWidget);
     await tester.tap(find.widgetWithText(TextButton, 'Supprimer'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     expect(api.deletedPublicationIds, [21]);
+    expect(api.networkOps, contains('DELETE /communities/3/publications/21'));
+    expect(find.byType(CommunityPublicationDetailScreen), findsNothing);
     expect(find.text('Publication supprimée'), findsWidgets);
     expect(find.byType(SnackBarAction), findsNothing);
     expect(find.text('Restaurer'), findsNothing);
@@ -5185,24 +5290,26 @@ void main() {
           author: CommunityCommentAuthor(userId: 2, login: 'other', isFormerMember: false),
         ),
       ];
-    await pumpPublicationDetail(tester, api, publicationId: 21);
-    expect(find.byKey(const ValueKey('community-comment-reply-7')), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('community-comment-reply-7')));
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    await openFeedComments(tester);
+    expect(find.byType(CommunityPublicationDetailScreen), findsNothing);
+    expect(find.byKey(const ValueKey('community-feed-21-comment-reply-7')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('community-feed-21-comment-reply-7')));
     await tester.pump();
-    expect(find.byKey(const ValueKey('community-comment-reply-mode')), findsOneWidget);
-    expect(find.byKey(const ValueKey('community-comment-reply-target')), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('community-comment-reply-cancel')));
+    expect(find.byKey(const ValueKey('community-feed-21-comment-reply-mode')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('community-feed-21-comment-reply-cancel')));
     await tester.pump();
-    expect(find.byKey(const ValueKey('community-comment-reply-mode')), findsNothing);
-    await tester.tap(find.byKey(const ValueKey('community-comment-reply-7')));
+    expect(find.byKey(const ValueKey('community-feed-21-comment-reply-mode')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('community-feed-21-comment-reply-7')));
     await tester.pump();
-    await tester.enterText(find.byKey(const ValueKey('community-comment-input')), 'Ma reponse');
-    await tester.tap(find.byKey(const ValueKey('community-comment-submit')));
+    await tester.enterText(find.byKey(const ValueKey('community-feed-21-comment-input')), 'Ma reponse');
+    await tester.tap(find.byKey(const ValueKey('community-feed-21-comment-submit')));
     await tester.pumpAndSettle();
     expect(api.createCommentCalls.single['parentCommentId'], 7);
-    expect(find.byKey(const ValueKey('community-comment-item-500')), findsOneWidget);
-    expect(find.byKey(const ValueKey('community-comment-reply-indent-500')), findsOneWidget);
-    expect(find.byKey(const ValueKey('community-comment-reply-500')), findsNothing);
+    expect(find.byKey(const ValueKey('community-feed-21-comment-item-500')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-feed-21-comment-reply-indent-500')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-feed-21-comment-reply-500')), findsNothing);
     expect(tester.widget<Text>(find.byKey(const ValueKey('community-comment-count-21'))).data, '2');
   });
 
@@ -5240,13 +5347,16 @@ void main() {
           author: CommunityCommentAuthor(userId: 3, login: 'third', isFormerMember: false),
         ),
       ];
-    await pumpPublicationDetail(tester, api, publicationId: 21);
-    expect(find.byKey(const ValueKey('community-comment-reply-indent-8')), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('community-comment-mod-menu-7')));
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    await openFeedComments(tester);
+    expect(find.byType(CommunityPublicationDetailScreen), findsNothing);
+    expect(find.byKey(const ValueKey('community-feed-21-comment-reply-indent-8')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('community-feed-21-comment-mod-menu-7')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Modérer'));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('community-comment-item-8')), findsNothing);
+    expect(find.byKey(const ValueKey('community-feed-21-comment-item-8')), findsNothing);
     expect(tester.widget<Text>(find.byKey(const ValueKey('community-comment-count-21'))).data, '0');
   });
 
@@ -5254,7 +5364,16 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(800, 1400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final api = _FakeCommunityApi()
-      ..publications = [_activePublication()];
+      ..publications = [
+        const CommunityPublication(
+          id: 21,
+          communityId: 3,
+          author: CommunityPublicationAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
+          body: 'Texte de publication active assez long.',
+          status: 'active',
+          commentsEnabled: true,
+        ),
+      ];
     await openCommunityDetail(tester, api);
     await revealCommunityFeed(tester);
     await tester.tap(find.byKey(const ValueKey('community-feed-item-21')));
@@ -5445,7 +5564,7 @@ void main() {
     );
   });
 
-  testWidgets('J member non-author does not see Modifier', (tester) async {
+  testWidgets('J member non-author cannot open someone else detail', (tester) async {
     final api = _FakeCommunityApi()
       ..items[0] = const Community(
         id: 3,
@@ -5456,22 +5575,34 @@ void main() {
       )
       ..publications = [authorActivePublication(authorId: 2)];
     await pumpPublicationDetail(tester, api, publicationId: 80);
+    expect(find.text('Publication indisponible'), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-publication-error')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-publication-author')), findsNothing);
     expect(find.byKey(const ValueKey('community-publication-menu')), findsNothing);
     expect(find.text('Modifier'), findsNothing);
     expect(api.patchedPublicationIds, isEmpty);
+    expect(api.networkOps, contains('GET /communities/3/publications/80'));
   });
 
-  testWidgets('K owner non-author keeps delete without Modifier or PATCH', (tester) async {
-    final api = _FakeCommunityApi()
-      ..publications = [authorActivePublication(authorId: 2)];
-    await pumpPublicationDetail(tester, api, publicationId: 80);
-    await openCommunityPublicationMenu(tester);
+  testWidgets('K owner non-author deletes from dedicated feed menu without Modifier or PATCH', (
+    tester,
+  ) async {
+    final api = _FakeCommunityApi()..publications = [authorActivePublication(authorId: 2)];
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    expect(find.byType(CommunityPublicationDetailScreen), findsNothing);
+    expect(find.byType(ChroniqueCardMenu), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('community-feed-mod-menu-80')));
+    await tester.pumpAndSettle();
     expect(find.text('Modifier'), findsNothing);
+    expect(find.text('Archiver'), findsNothing);
     expect(find.text('Supprimer'), findsOneWidget);
     expect(api.patchedPublicationIds, isEmpty);
   });
 
-  testWidgets('L admin non-author keeps delete without Modifier or PATCH', (tester) async {
+  testWidgets('L admin non-author deletes from dedicated feed menu without Modifier or PATCH', (
+    tester,
+  ) async {
     final api = _FakeCommunityApi()
       ..items[0] = const Community(
         id: 3,
@@ -5481,9 +5612,14 @@ void main() {
         memberCount: 1,
       )
       ..publications = [authorActivePublication(authorId: 2)];
-    await pumpPublicationDetail(tester, api, publicationId: 80);
-    await openCommunityPublicationMenu(tester);
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    expect(find.byType(CommunityPublicationDetailScreen), findsNothing);
+    expect(find.byType(ChroniqueCardMenu), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('community-feed-mod-menu-80')));
+    await tester.pumpAndSettle();
     expect(find.text('Modifier'), findsNothing);
+    expect(find.text('Archiver'), findsNothing);
     expect(find.text('Supprimer'), findsOneWidget);
     expect(api.patchedPublicationIds, isEmpty);
   });
@@ -5570,19 +5706,26 @@ void main() {
         memberCount: 1,
       )
       ..publications = [authorActivePublication(authorId: 2, media: const [_authorSpaceImage])];
-    await pumpPublicationDetail(tester, api, publicationId: 80);
-    expect(find.byType(ChroniqueReadyRemoteMediaList), findsOneWidget);
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    expect(find.byType(CommunityPublicationDetailScreen), findsNothing);
     expect(find.byKey(const ValueKey('community-media-delete-10')), findsNothing);
-    expect(find.byKey(const ValueKey('community-publication-menu')), findsNothing);
+    expect(find.byKey(const ValueKey('community-feed-mod-menu-80')), findsNothing);
+    expect(find.byType(ChroniqueCardMenu), findsNothing);
   });
 
   testWidgets('owner non-author cannot delete media and keeps publication delete', (tester) async {
     final api = _FakeCommunityApi()
       ..publications = [authorActivePublication(authorId: 2, media: const [_authorSpaceImage])];
-    await pumpPublicationDetail(tester, api, publicationId: 80);
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    expect(find.byType(CommunityPublicationDetailScreen), findsNothing);
     expect(find.byKey(const ValueKey('community-media-delete-10')), findsNothing);
-    await openCommunityPublicationMenu(tester);
+    expect(find.byType(ChroniqueCardMenu), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('community-feed-mod-menu-80')));
+    await tester.pumpAndSettle();
     expect(find.text('Modifier'), findsNothing);
+    expect(find.text('Archiver'), findsNothing);
     expect(find.text('Supprimer'), findsOneWidget);
   });
 
@@ -5596,10 +5739,15 @@ void main() {
         memberCount: 1,
       )
       ..publications = [authorActivePublication(authorId: 2, media: const [_authorSpaceImage])];
-    await pumpPublicationDetail(tester, api, publicationId: 80);
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    expect(find.byType(CommunityPublicationDetailScreen), findsNothing);
     expect(find.byKey(const ValueKey('community-media-delete-10')), findsNothing);
-    await openCommunityPublicationMenu(tester);
+    expect(find.byType(ChroniqueCardMenu), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('community-feed-mod-menu-80')));
+    await tester.pumpAndSettle();
     expect(find.text('Modifier'), findsNothing);
+    expect(find.text('Archiver'), findsNothing);
     expect(find.text('Supprimer'), findsOneWidget);
   });
 

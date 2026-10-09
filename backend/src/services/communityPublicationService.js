@@ -369,7 +369,7 @@ function canMemberRead(row, userId, membership) {
     return false;
   }
   if (row.status === STATUS.ACTIVE) {
-    return true;
+    return Number(row.author_user_id) === Number(userId);
   }
   if (Number(row.author_user_id) === Number(userId) && (row.status === STATUS.DRAFT || row.status === STATUS.SCHEDULED)) {
     return true;

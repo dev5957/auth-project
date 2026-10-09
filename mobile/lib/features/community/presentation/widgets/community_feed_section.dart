@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../core/network/api_exception.dart';
 import '../../../../core/router/app_routes.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
@@ -14,6 +15,7 @@ import '../../../chronique/presentation/widgets/chronique_card.dart';
 import '../../../chronique/presentation/widgets/chronique_media_viewer.dart';
 import '../../models/community.dart';
 import '../../models/community_publication.dart';
+import '../../providers/community_providers.dart';
 import '../state/community_feed_controller.dart';
 import '../state/community_publication_sync.dart';
 import 'community_comments_sheet.dart';
@@ -46,6 +48,64 @@ class _CommunityFeedSectionState extends ConsumerState<CommunityFeedSection> {
       return auth.user.id;
     }
     return null;
+  }
+
+  bool _isAuthor(CommunityPublication item) {
+    final viewerId = _viewerId;
+    return viewerId != null && item.author.userId == viewerId;
+  }
+
+  bool _canModeratorDelete(CommunityPublication item) {
+    final role = widget.community.myRole;
+    if (role != CommunityRole.owner && role != CommunityRole.admin) {
+      return false;
+    }
+    if (item.status != 'active') {
+      return false;
+    }
+    return !_isAuthor(item);
+  }
+
+  void _openAuthorDetail(CommunityPublication item) {
+    context.push(AppRoutes.communityPublicationDetail(widget.community.id, item.id));
+  }
+
+  Future<void> _confirmModeratorDelete(CommunityPublication item) async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Supprimer la publication ?'),
+        content: const Text('Elle disparaîtra du fil.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Annuler')),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Supprimer')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) {
+      return;
+    }
+    try {
+      await ref.read(communityRepositoryProvider).deletePublication(
+            communityId: widget.community.id,
+            publicationId: item.id,
+          );
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Publication supprimée')),
+      );
+      await ref.read(communityFeedControllerProvider(widget.community.id).notifier).load();
+    } on ApiException {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Impossible de supprimer la publication')),
+      );
+    }
   }
 
   void _openMedia(BuildContext context, ChroniqueMedia media) {
@@ -150,9 +210,29 @@ class _CommunityFeedSectionState extends ConsumerState<CommunityFeedSection> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              item.author.displayLabel,
-                              style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    item.author.displayLabel,
+                                    style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
+                                  ),
+                                ),
+                                if (_canModeratorDelete(item))
+                                  PopupMenuButton<String>(
+                                    key: ValueKey('community-feed-mod-menu-${item.id}'),
+                                    tooltip: 'Actions',
+                                    icon: Icon(Icons.more_vert, color: colors.textSecondary),
+                                    onSelected: (value) {
+                                      if (value == 'delete') {
+                                        _confirmModeratorDelete(item);
+                                      }
+                                    },
+                                    itemBuilder: (context) => const [
+                                      PopupMenuItem(value: 'delete', child: Text('Supprimer')),
+                                    ],
+                                  ),
+                              ],
                             ),
                             const SizedBox(height: AppSpacing.xs),
                             ChroniqueCard(
@@ -160,9 +240,7 @@ class _CommunityFeedSectionState extends ConsumerState<CommunityFeedSection> {
                               chronique: item.asChronique(),
                               showFeedMedia: true,
                               menuEnabled: false,
-                              onTap: () => context.push(
-                                AppRoutes.communityPublicationDetail(community.id, item.id),
-                              ),
+                              onTap: _isAuthor(item) ? () => _openAuthorDetail(item) : null,
                               onMediaSelected: (media) => _openMedia(context, media),
                             ),
                             CommunityPublicationSocialBar(
