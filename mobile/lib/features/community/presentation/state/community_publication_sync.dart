@@ -81,7 +81,7 @@ List<CommunityPublication> takePublicationPatches(
 }
 
 void syncCommunityPublication(
-  Ref ref, {
+  WidgetRef ref, {
   required int publicationId,
   required int communityId,
   required CommunityPublicationInteractionPatch patch,
