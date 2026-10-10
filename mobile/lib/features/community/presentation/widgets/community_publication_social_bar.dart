@@ -74,11 +74,18 @@ class CommunityPublicationSocialBar extends StatelessWidget {
             ),
           )
         else
-          Icon(
-            Icons.bookmark_border,
+          IconButton(
             key: ValueKey('community-favorite-count-icon-${publication.id}'),
-            color: colors.textSecondary,
-            size: 20,
+            tooltip: 'Favoris reçus',
+            onPressed: null,
+            style: IconButton.styleFrom(
+              foregroundColor: colors.textSecondary,
+              disabledForegroundColor: colors.textSecondary,
+            ),
+            icon: Icon(
+              Icons.bookmark_border,
+              color: colors.textSecondary,
+            ),
           ),
         Text(
           '${publication.favoriteCount}',

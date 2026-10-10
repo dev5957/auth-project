@@ -3844,10 +3844,28 @@ void main() {
     expect(find.byKey(const ValueKey('community-feed-mod-menu-21')), findsNothing);
     expect(find.byKey(const ValueKey('community-feed-mod-menu-22')), findsOneWidget);
     expect(find.byType(ChroniqueCardMenu), findsNothing);
+    expect(find.byKey(const ValueKey('community-favorite-21')), findsNothing);
+    expect(find.byKey(const ValueKey('community-favorite-count-icon-21')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-favorite-count-21')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-favorite-22')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-favorite-count-22')), findsOneWidget);
+    expect(
+      tester.getSize(find.byKey(const ValueKey('community-favorite-count-icon-21'))),
+      tester.getSize(find.byKey(const ValueKey('community-favorite-22'))),
+    );
     await tester.tap(find.byKey(const ValueKey('community-feed-item-21')));
     await tester.pumpAndSettle();
     expect(find.byType(CommunityPublicationDetailScreen), findsOneWidget);
     expect(find.byKey(const ValueKey('community-publication-author')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-favorite-21')), findsNothing);
+    expect(find.byKey(const ValueKey('community-favorite-count-icon-21')), findsOneWidget);
+    expect(
+      tester.widget<IconButton>(find.byKey(const ValueKey('community-favorite-count-icon-21'))).onPressed,
+      isNull,
+    );
+    expect(find.byKey(const ValueKey('community-favorite-count-21')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-like-21')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-comments-21')), findsOneWidget);
     tester.state<NavigatorState>(find.byType(Navigator).first).pop();
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('community-feed-item-22')));
@@ -4912,7 +4930,7 @@ void main() {
         const CommunityPublication(
           id: 21,
           communityId: 3,
-          author: CommunityPublicationAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
+          author: CommunityPublicationAuthor(userId: 2, login: 'other', isFormerMember: false),
           body: 'Texte de publication active assez long.',
           status: 'active',
         ),
@@ -4930,6 +4948,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('community-comments-sheet-21')), findsNothing);
     expect(find.byKey(const ValueKey('community-like-21')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-favorite-21')), findsOneWidget);
     expect(find.byKey(const ValueKey('community-favorite-count-21')), findsOneWidget);
   });
 
@@ -4939,6 +4958,7 @@ void main() {
     VoidCallback? onLike,
     VoidCallback? onComments,
     VoidCallback? onFavorite,
+    bool showFavorite = true,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -4949,6 +4969,7 @@ void main() {
             onLike: onLike,
             onComments: onComments,
             onFavorite: onFavorite,
+            showFavorite: showFavorite,
           ),
         ),
       ),
@@ -5030,6 +5051,40 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('community-comments-21')));
     await tester.pump();
     expect(commentsOpened, isTrue);
+  });
+
+  testWidgets('social bar shows non-interactive bookmark and count when hidden', (tester) async {
+    const publication = CommunityPublication(
+      id: 21,
+      communityId: 3,
+      author: CommunityPublicationAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
+      body: 'Texte de publication active assez long.',
+      status: 'active',
+      commentsEnabled: true,
+      likeCount: 4,
+      commentCount: 2,
+      favoriteCount: 3,
+    );
+    await pumpSocialBar(tester, publication: publication);
+    final interactiveSize = tester.getSize(find.byKey(const ValueKey('community-favorite-21')));
+    await pumpSocialBar(tester, publication: publication, showFavorite: false);
+    final landmark = find.byKey(const ValueKey('community-favorite-count-icon-21'));
+    expect(find.byKey(const ValueKey('community-favorite-21')), findsNothing);
+    expect(landmark, findsOneWidget);
+    expect(tester.widget<IconButton>(landmark).onPressed, isNull);
+    expect(find.byIcon(Icons.bookmark_border), findsOneWidget);
+    expect(tester.getSize(landmark), interactiveSize);
+    expect(tester.widget<Text>(find.byKey(const ValueKey('community-favorite-count-21'))).data, '3');
+    expect(find.byKey(const ValueKey('community-like-21')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-comments-21')), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.byKey(const ValueKey('community-like-21'))).dx,
+      lessThan(tester.getTopLeft(find.byKey(const ValueKey('community-comments-21'))).dx),
+    );
+    expect(
+      tester.getTopLeft(find.byKey(const ValueKey('community-comments-21'))).dx,
+      lessThan(tester.getTopLeft(landmark).dx),
+    );
   });
 
   testWidgets('expired mine publications are historical and read only', (tester) async {
@@ -6066,23 +6121,56 @@ void main() {
   testWidgets('author publication has no favorite action on the feed', (tester) async {
     final api = _FakeCommunityApi()
       ..publications = [
-        favoriteFeedPublication().copyWith(),
+        CommunityPublication(
+          id: 21,
+          communityId: 3,
+          author: const CommunityPublicationAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
+          body: 'Texte de publication active assez long.',
+          status: 'active',
+          commentsEnabled: true,
+          favoriteCount: 2,
+        ),
       ];
-    api.publications = [
-      CommunityPublication(
-        id: 21,
-        communityId: 3,
-        author: const CommunityPublicationAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
-        body: 'Texte de publication active assez long.',
-        status: 'active',
-        commentsEnabled: true,
-        favoriteCount: 2,
-      ),
-    ];
     await openCommunityDetail(tester, api);
     await revealCommunityFeed(tester);
     expect(find.byKey(const ValueKey('community-favorite-21')), findsNothing);
-    expect(find.byKey(const ValueKey('community-favorite-count-21')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-favorite-count-icon-21')), findsOneWidget);
+    expect(
+      tester.widget<IconButton>(find.byKey(const ValueKey('community-favorite-count-icon-21'))).onPressed,
+      isNull,
+    );
+    expect(tester.widget<Text>(find.byKey(const ValueKey('community-favorite-count-21'))).data, '2');
+    expect(find.byKey(const ValueKey('community-like-21')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-comments-21')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('community-favorite-count-icon-21')));
+    await tester.pumpAndSettle();
+    expect(api.favoritedPublicationIds, isEmpty);
+  });
+
+  testWidgets('author publication detail has no favorite action', (tester) async {
+    final api = _FakeCommunityApi()
+      ..publications = [
+        const CommunityPublication(
+          id: 21,
+          communityId: 3,
+          author: CommunityPublicationAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
+          body: 'Texte de publication active assez long.',
+          status: 'active',
+          commentsEnabled: true,
+          favoriteCount: 2,
+        ),
+      ];
+    await pumpPublicationDetail(tester, api, publicationId: 21);
+    expect(find.byType(CommunityPublicationDetailScreen), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-favorite-21')), findsNothing);
+    expect(find.byKey(const ValueKey('community-favorite-count-icon-21')), findsOneWidget);
+    expect(
+      tester.widget<IconButton>(find.byKey(const ValueKey('community-favorite-count-icon-21'))).onPressed,
+      isNull,
+    );
+    expect(tester.widget<Text>(find.byKey(const ValueKey('community-favorite-count-21'))).data, '2');
+    expect(find.byKey(const ValueKey('community-like-21')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-comments-21')), findsOneWidget);
   });
 
   testWidgets('feed favorite then unfavorite uses server counts', (tester) async {
