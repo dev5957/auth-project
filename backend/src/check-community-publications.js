@@ -109,6 +109,7 @@ function createMemory() {
     publications: [],
     media: [],
     likes: [],
+    favorites: [],
     comments: [],
     traces: [],
     storageDeleted: [],
@@ -131,6 +132,7 @@ function createMemory() {
       publications: state.publications.map((item) => ({ ...item })),
       media: state.media.map((item) => ({ ...item })),
       likes: state.likes.map((item) => ({ ...item })),
+      favorites: state.favorites.map((item) => ({ ...item })),
       comments: state.comments.map((item) => ({ ...item })),
       traces: state.traces.map((item) => ({ ...item })),
     };
@@ -181,6 +183,7 @@ function createMemory() {
         state.publications = snapshot.publications;
         state.media = snapshot.media;
         state.likes = snapshot.likes;
+        state.favorites = snapshot.favorites;
         state.comments = snapshot.comments;
         state.traces = snapshot.traces;
         snapshot = null;
@@ -804,6 +807,56 @@ function createMemory() {
       return { rows: [], rowCount: inserted };
     }
 
+    if (key.includes('FROM COMMUNITY_PUBLICATION_FAVORITES') && key.includes('ANY($1')) {
+      const ids = (Array.isArray(params[0]) ? params[0] : []).map((value) => Number(value));
+      const userId = Number(params[1]);
+      const grouped = new Map();
+      for (const item of state.favorites) {
+        const publicationId = Number(item.community_publication_id);
+        if (!ids.includes(publicationId)) {
+          continue;
+        }
+        const current = grouped.get(publicationId) || { favorite_count: 0, favorited_by_me: false };
+        current.favorite_count += 1;
+        if (Number(item.user_id) === userId) {
+          current.favorited_by_me = true;
+        }
+        grouped.set(publicationId, current);
+      }
+      const rows = [...grouped.entries()].map(([community_publication_id, value]) => ({
+        community_publication_id,
+        ...value,
+      }));
+      return { rows, rowCount: rows.length };
+    }
+    if (key.startsWith('SELECT COUNT(*)') && key.includes('FROM COMMUNITY_PUBLICATION_FAVORITES')) {
+      const count = state.favorites.filter(
+        (item) => Number(item.community_publication_id) === Number(params[0])
+      ).length;
+      return { rows: [{ favorite_count: count }], rowCount: 1 };
+    }
+    if (key.startsWith('DELETE FROM COMMUNITY_PUBLICATION_FAVORITES') && key.includes('USER_ID = $2')) {
+      const before = state.favorites.length;
+      if (key.includes('COMMUNITY_ID = $1')) {
+        state.favorites = state.favorites.filter(
+          (item) => !(Number(item.community_id) === Number(params[0]) && Number(item.user_id) === Number(params[1]))
+        );
+      } else {
+        state.favorites = state.favorites.filter(
+          (item) =>
+            !(Number(item.community_publication_id) === Number(params[0]) && Number(item.user_id) === Number(params[1]))
+        );
+      }
+      return { rows: [], rowCount: before - state.favorites.length };
+    }
+    if (key.startsWith('DELETE FROM COMMUNITY_PUBLICATION_FAVORITES')) {
+      const before = state.favorites.length;
+      state.favorites = state.favorites.filter(
+        (item) => Number(item.community_publication_id) !== Number(params[0])
+      );
+      return { rows: [], rowCount: before - state.favorites.length };
+    }
+
     throw new Error(`unexpected sql: ${key.slice(0, 180)}`);
   }
 
@@ -1150,7 +1203,7 @@ async function main() {
   assertNoThumbnail(readyFeed.media[0], 'image');
   assertNoStorageKey(readyFeed);
 
-  const gotMulti = await getPublication(OWNER_ID, COMMUNITY_ID, multi.id, deps);
+  const gotMulti = await getPublication(MEMBER_ID, COMMUNITY_ID, multi.id, deps);
   assert(gotMulti.media.length === 3, 'get hydrates all ready');
   gotMulti.media.forEach((item, index) => {
     assertSignedReadyMedia(item, multiKeys[index]);
@@ -1167,6 +1220,22 @@ async function main() {
   assert(gotPendingItem, 'get includes pending');
   assert(!Object.prototype.hasOwnProperty.call(gotPendingItem, 'read_url'), 'pending omits read_url');
   assertNoStorageKey(gotReady);
+
+  await expectRejectMessage(
+    getPublication(OWNER_ID, COMMUNITY_ID, readyPub.id, deps),
+    404,
+    'Community publication not found'
+  );
+  await expectRejectMessage(
+    getPublication(ADMIN_ID, COMMUNITY_ID, readyPub.id, deps),
+    404,
+    'Community publication not found'
+  );
+  await expectRejectMessage(
+    getPublication(OWNER_ID, COMMUNITY_ID, 999999, deps),
+    404,
+    'Community publication not found'
+  );
 
   const mineCurrent = await listMine(MEMBER_ID, { scope: 'current' }, deps);
   const mineMulti = mineCurrent.items.find((item) => Number(item.id) === Number(multi.id));

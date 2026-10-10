@@ -450,6 +450,51 @@ class CommunityApiService {
     return CommunityLikeState.fromJson(json);
   }
 
+  Future<CommunityFavoriteState> favoritePublication({
+    required String accessToken,
+    required int communityId,
+    required int publicationId,
+  }) async {
+    final json = await _send(
+      'PUT',
+      '/communities/$communityId/publications/$publicationId/favorite',
+      accessToken: accessToken,
+    );
+    return CommunityFavoriteState.fromJson(json);
+  }
+
+  Future<CommunityFavoriteState> unfavoritePublication({
+    required String accessToken,
+    required int communityId,
+    required int publicationId,
+  }) async {
+    final json = await _send(
+      'DELETE',
+      '/communities/$communityId/publications/$publicationId/favorite',
+      accessToken: accessToken,
+    );
+    return CommunityFavoriteState.fromJson(json);
+  }
+
+  Future<CommunityPublicationPage> listMyFavorites({
+    required String accessToken,
+    String? beforeAt,
+    int? beforeId,
+    int? limit,
+  }) async {
+    final json = await _send(
+      'GET',
+      '/me/community-favorites',
+      accessToken: accessToken,
+      queryParameters: <String, dynamic>{
+        if (beforeAt != null) 'before_at': beforeAt,
+        if (beforeId != null) 'before_id': beforeId,
+        if (limit != null) 'limit': limit,
+      },
+    );
+    return CommunityPublicationPage.fromJson(json);
+  }
+
   Future<CommunityCommentPage> listComments({
     required String accessToken,
     required int communityId,

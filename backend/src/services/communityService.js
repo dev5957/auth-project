@@ -167,7 +167,9 @@ async function loadPublicMember(client, communityId, userId) {
 async function deleteMembership(client, communityId, userId, deps = {}) {
   await abandonDraftsAndPendingUploads(client, communityId, userId, deps);
   const { deleteLikesForMember } = require('./communityPublicationLikeService');
+  const { deleteFavoritesForMember } = require('./communityPublicationFavoriteService');
   await deleteLikesForMember(client, communityId, userId);
+  await deleteFavoritesForMember(client, communityId, userId);
   await client.query(
     `DELETE FROM community_members
      WHERE community_id = $1

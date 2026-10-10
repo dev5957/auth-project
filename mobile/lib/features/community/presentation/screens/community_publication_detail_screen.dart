@@ -277,7 +277,13 @@ class _CommunityPublicationDetailScreenState
       if (!mounted) {
         return;
       }
-      setState(() => _error = error.message.trim().isEmpty ? 'Unexpected error' : error.message);
+      setState(() {
+        if (error.statusCode == 404) {
+          _error = 'Publication indisponible';
+        } else {
+          _error = error.message.trim().isEmpty ? 'Unexpected error' : error.message;
+        }
+      });
     } on FormatException {
       if (!mounted) {
         return;
@@ -491,6 +497,50 @@ class _CommunityPublicationDetailScreenState
     }
   }
 
+  Future<void> _toggleFavorite() async {
+    final publication = _publication;
+    if (publication == null || publication.status != 'active' || _isAuthor) {
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      final result = publication.favoritedByMe
+          ? await ref.read(communityRepositoryProvider).unfavoritePublication(
+                communityId: widget.communityId,
+                publicationId: widget.publicationId,
+              )
+          : await ref.read(communityRepositoryProvider).favoritePublication(
+                communityId: widget.communityId,
+                publicationId: widget.publicationId,
+              );
+      if (!mounted) {
+        return;
+      }
+      final updated = publication.copyWith(
+        favoritedByMe: result.favoritedByMe,
+        favoriteCount: result.favoriteCount,
+      );
+      setState(() {
+        _busy = false;
+        _publication = updated;
+      });
+      _syncPublication(
+        CommunityPublicationInteractionPatch(
+          favoritedByMe: result.favoritedByMe,
+          favoriteCount: result.favoriteCount,
+        ),
+      );
+    } on ApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _busy = false;
+        _error = error.message;
+      });
+    }
+  }
+
   Future<void> _toggleLike() async {
     final publication = _publication;
     if (publication == null || publication.status != 'active') {
@@ -669,7 +719,10 @@ class _CommunityPublicationDetailScreenState
                                 CommunityPublicationSocialBar(
                                   publication: publication,
                                   likeEnabled: !_busy && !_submitting,
+                                  showFavorite: !_isAuthor,
+                                  favoriteEnabled: !_busy && !_submitting && !_isAuthor,
                                   onLike: _toggleLike,
+                                  onFavorite: _toggleFavorite,
                                 ),
                                 CommunityCommentsSection(
                                   communityId: widget.communityId,
@@ -763,7 +816,7 @@ class _CommunityPublicationDetailScreenState
       ],
       const SizedBox(height: AppSpacing.sm),
       Text(
-        '${publication.likeCount} j’aime · ${publication.commentCount} commentaires',
+        publication.socialCountsLabel,
         key: const ValueKey('community-publication-expired-counts'),
         style: style,
       ),

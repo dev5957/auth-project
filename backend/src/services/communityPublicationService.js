@@ -99,7 +99,24 @@ async function loadAuthorLogin(client, userId) {
   return result.rows[0] || { id: userId, login: 'unknown' };
 }
 
-function toPublicPublication(row, { isFormerMember, media = [], likedByMe = false } = {}) {
+function favoriteOptions(row, userId, stats, options = {}) {
+  const favorite = stats.get(Number(row.id)) || { favoriteCount: 0, favoritedByMe: false };
+  const isAuthor = userId != null && Number(row.author_user_id) === Number(userId);
+  return {
+    favoriteCount: favorite.favoriteCount,
+    favoritedByMe: isAuthor ? false : Boolean(options.favoritedByMe ?? favorite.favoritedByMe),
+  };
+}
+
+async function loadFavoriteStatsFor(client, publicationIds, userId) {
+  const { loadFavoriteStats } = require('./communityPublicationFavoriteService');
+  return loadFavoriteStats(client, publicationIds, userId);
+}
+
+function toPublicPublication(
+  row,
+  { isFormerMember, media = [], likedByMe = false, favoriteCount = 0, favoritedByMe = false } = {}
+) {
   return {
     id: formatId(row.id),
     community_id: formatId(row.community_id),
@@ -125,6 +142,8 @@ function toPublicPublication(row, { isFormerMember, media = [], likedByMe = fals
     like_count: Number(row.like_count) || 0,
     comment_count: Number(row.comment_count) || 0,
     liked_by_me: Boolean(likedByMe),
+    favorite_count: Number(favoriteCount) || 0,
+    favorited_by_me: Boolean(favoritedByMe),
     created_at: toIso(row.created_at),
     updated_at: toIso(row.updated_at),
     media,
@@ -339,6 +358,11 @@ async function listFeed(userId, rawCommunityId, query, deps = {}) {
     const hasMore = result.rows.length > limit;
     const page = hasMore ? result.rows.slice(0, limit) : result.rows;
     const last = page[page.length - 1];
+    const favoriteStats = await loadFavoriteStatsFor(
+      client,
+      page.map((row) => row.id),
+      userId
+    );
     const items = [];
     for (const row of page) {
       const mediaRows = await loadMediaRows(client, row.id);
@@ -348,6 +372,7 @@ async function listFeed(userId, rawCommunityId, query, deps = {}) {
           isFormerMember: row.is_former_member,
           media: await toPublicMediaList(mediaRows, deps, { readyOnly: true }),
           likedByMe: liked,
+          ...favoriteOptions(row, userId, favoriteStats),
         })
       );
     }
@@ -369,7 +394,7 @@ function canMemberRead(row, userId, membership) {
     return false;
   }
   if (row.status === STATUS.ACTIVE) {
-    return true;
+    return Number(row.author_user_id) === Number(userId);
   }
   if (Number(row.author_user_id) === Number(userId) && (row.status === STATUS.DRAFT || row.status === STATUS.SCHEDULED)) {
     return true;
@@ -398,10 +423,12 @@ async function getPublication(userId, rawCommunityId, rawId, deps = {}) {
     const enriched = await attachAuthorAndFormer(client, row);
     const mediaRows = await loadMediaRows(client, row.id);
     const liked = await publicationLikedByMe(client, row.id, userId);
+    const favoriteStats = await loadFavoriteStatsFor(client, [row.id], userId);
     return toPublicPublication(enriched, {
       isFormerMember: enriched.isFormerMember,
       media: await toPublicMediaList(mediaRows, deps),
       likedByMe: liked,
+      ...favoriteOptions(row, userId, favoriteStats),
     });
   });
 }
@@ -519,7 +546,9 @@ async function deletePublication(userId, rawCommunityId, rawId, deps = {}) {
     }
     assertCanDelete(row, userId, membership);
     const { deleteInteractionsForPublication } = require('./communityPublicationLikeService');
+    const { deleteFavoritesForPublication } = require('./communityPublicationFavoriteService');
     await deleteInteractionsForPublication(client, id);
+    await deleteFavoritesForPublication(client, id);
     const now = deps.now || new Date();
     await client.query(
       `UPDATE community_publications
@@ -645,6 +674,11 @@ async function listMine(userId, query, deps = {}) {
     const hasMore = result.rows.length > limit;
     const page = hasMore ? result.rows.slice(0, limit) : result.rows;
     const last = page[page.length - 1];
+    const favoriteStats = await loadFavoriteStatsFor(
+      client,
+      page.map((row) => row.id),
+      userId
+    );
     const items = [];
     for (const row of page) {
       const mediaRows = await loadMediaRows(client, row.id);
@@ -654,6 +688,7 @@ async function listMine(userId, query, deps = {}) {
           isFormerMember: row.is_former_member,
           media: await toPublicMediaList(mediaRows, deps, { readyOnly: true }),
           likedByMe: liked,
+          ...favoriteOptions(row, userId, favoriteStats),
         })
       );
     }
@@ -691,12 +726,14 @@ async function getMine(userId, rawId, deps = {}) {
     const enriched = await attachAuthorAndFormer(client, row);
     const mediaRows = await loadMediaRows(client, row.id);
     const liked = await publicationLikedByMe(client, row.id, userId);
+    const favoriteStats = await loadFavoriteStatsFor(client, [row.id], userId);
     return toPublicPublication(
       { ...enriched, community_name: row.community_name },
       {
         isFormerMember: enriched.isFormerMember,
         media: await toPublicMediaList(mediaRows, deps, { readyOnly: true }),
         likedByMe: liked,
+        ...favoriteOptions(row, userId, favoriteStats),
       }
     );
   });
@@ -716,6 +753,7 @@ module.exports = {
   CORRECTION_WINDOW_MS,
   toPublicPublication,
   toPublicMedia,
+  toPublicMediaList,
   loadMembership,
   loadMediaRows,
   withTransaction,

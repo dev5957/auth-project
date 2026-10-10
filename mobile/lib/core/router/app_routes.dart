@@ -57,6 +57,9 @@ abstract final class AppRoutes {
   /// Traces personnelles de commentaires sur publications expirées.
   static const String myCommunityCommentTraces = '/me/community-comment-traces';
 
+  /// Publications communautaires mises en favori par l’utilisateur.
+  static const String myFavorites = '/me/favorites';
+
   static const String communityPublicationCreatePath =
       '/communities/:communityId/publications/create';
 
@@ -116,6 +119,7 @@ abstract final class AppRoutes {
         location == joinRequests ||
         location == myCommunityPublications ||
         location == myCommunityCommentTraces ||
+        location == myFavorites ||
         _exploreDetailLocation.hasMatch(location) ||
         _exploreEditLocation.hasMatch(location) ||
         _communityInviteLocation.hasMatch(location) ||

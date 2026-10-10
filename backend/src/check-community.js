@@ -112,7 +112,8 @@ function createCommunityMemory() {
     if (
       key.includes('COMMUNITY_PUBLICATIONS') ||
       key.includes('COMMUNITY_PUBLICATION_MEDIA') ||
-      key.includes('COMMUNITY_PUBLICATION_LIKES')
+      key.includes('COMMUNITY_PUBLICATION_LIKES') ||
+      key.includes('COMMUNITY_PUBLICATION_FAVORITES')
     ) {
       return { rows: [], rowCount: 0 };
     }

@@ -41,6 +41,8 @@ class CommunityPublication {
     this.likeCount = 0,
     this.commentCount = 0,
     this.likedByMe = false,
+    this.favoriteCount = 0,
+    this.favoritedByMe = false,
     this.deletedByUserId,
     this.media = const [],
   });
@@ -62,6 +64,8 @@ class CommunityPublication {
   final int likeCount;
   final int commentCount;
   final bool likedByMe;
+  final int favoriteCount;
+  final bool favoritedByMe;
   final List<ChroniqueMedia> media;
 
   factory CommunityPublication.fromJson(Map<String, dynamic> json) {
@@ -90,6 +94,8 @@ class CommunityPublication {
       likeCount: _parseCount(json['like_count']),
       commentCount: _parseCount(json['comment_count']),
       likedByMe: json['liked_by_me'] == true,
+      favoriteCount: _parseCount(json['favorite_count']),
+      favoritedByMe: json['favorited_by_me'] == true,
       media: mediaRaw is List
           ? [
               for (final item in mediaRaw)
@@ -99,10 +105,15 @@ class CommunityPublication {
     );
   }
 
+  String get socialCountsLabel =>
+      '$likeCount j’aime · $commentCount commentaires · $favoriteCount favoris';
+
   CommunityPublication copyWith({
     int? likeCount,
     int? commentCount,
     bool? likedByMe,
+    int? favoriteCount,
+    bool? favoritedByMe,
     String? title,
     String? body,
     String? status,
@@ -125,6 +136,8 @@ class CommunityPublication {
       likeCount: likeCount ?? this.likeCount,
       commentCount: commentCount ?? this.commentCount,
       likedByMe: likedByMe ?? this.likedByMe,
+      favoriteCount: favoriteCount ?? this.favoriteCount,
+      favoritedByMe: favoritedByMe ?? this.favoritedByMe,
       deletedByUserId: deletedByUserId,
       media: media ?? this.media,
     );
