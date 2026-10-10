@@ -161,10 +161,10 @@ class _CommunityFeedSectionState extends ConsumerState<CommunityFeedSection> {
       padding: const EdgeInsets.fromLTRB(AppSpacing.xxl, AppSpacing.md, AppSpacing.xxl, AppSpacing.xxl),
       children: [
         Material(
-          color: colors.bgSurface,
+          color: colors.bgRaised,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppSpacing.lg),
-            side: BorderSide(color: colors.border),
+            side: BorderSide(color: colors.border, width: 1.5),
           ),
           child: InkWell(
             key: const ValueKey('community-publish-open'),
@@ -174,7 +174,7 @@ class _CommunityFeedSectionState extends ConsumerState<CommunityFeedSection> {
             ),
             borderRadius: BorderRadius.circular(AppSpacing.lg),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.md),
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.lg),
               child: Row(
                 children: [
                   Icon(Icons.edit_outlined, color: colors.textSecondary),
