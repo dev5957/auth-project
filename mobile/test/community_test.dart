@@ -1916,6 +1916,18 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  Future<void> revealFeedButton(WidgetTester tester, Finder button) async {
+    await tester.scrollUntilVisible(
+      button,
+      200,
+      scrollable: find.descendant(
+        of: find.byKey(const ValueKey('community-feed-scroll')),
+        matching: find.byType(Scrollable),
+      ).first,
+    );
+    expect(button.hitTestable(), findsOneWidget);
+  }
+
   Future<void> openFeedComments(WidgetTester tester, {int publicationId = 21}) async {
     await tester.tap(find.byKey(ValueKey('community-comments-$publicationId')));
     await tester.pumpAndSettle();
@@ -5026,11 +5038,11 @@ void main() {
     await revealCommunityFeed(tester);
     expect(tester.widget<Text>(find.byKey(const ValueKey('community-like-count-21'))).data, '5');
     final likeButton = find.byKey(const ValueKey('community-like-21'));
-    await tester.ensureVisible(likeButton);
+    await revealFeedButton(tester, likeButton);
     await tester.tap(likeButton);
     await tester.pumpAndSettle();
     expect(tester.widget<Text>(find.byKey(const ValueKey('community-like-count-21'))).data, '6');
-    await tester.ensureVisible(likeButton);
+    await revealFeedButton(tester, likeButton);
     await tester.tap(likeButton);
     await tester.pumpAndSettle();
     expect(tester.widget<Text>(find.byKey(const ValueKey('community-like-count-21'))).data, '5');
@@ -5962,13 +5974,13 @@ void main() {
     await openCommunityDetail(tester, api);
     await revealCommunityFeed(tester);
     final favoriteButton = find.byKey(const ValueKey('community-favorite-21'));
-    await tester.ensureVisible(favoriteButton);
+    await revealFeedButton(tester, favoriteButton);
     await tester.tap(favoriteButton);
     await tester.pumpAndSettle();
     expect(api.favoritedPublicationIds, [21]);
     expect(tester.widget<Text>(find.byKey(const ValueKey('community-favorite-count-21'))).data, '6');
     expect(tester.widget<Text>(find.byKey(const ValueKey('community-like-count-21'))).data, '0');
-    await tester.ensureVisible(favoriteButton);
+    await revealFeedButton(tester, favoriteButton);
     await tester.tap(favoriteButton);
     await tester.pumpAndSettle();
     expect(api.unfavoritedPublicationIds, [21]);
@@ -6114,7 +6126,7 @@ void main() {
     await openCommunityDetail(tester, api);
     await revealCommunityFeed(tester);
     final favoriteButton = find.byKey(const ValueKey('community-favorite-21'));
-    await tester.ensureVisible(favoriteButton);
+    await revealFeedButton(tester, favoriteButton);
     await tester.tap(favoriteButton);
     await tester.pumpAndSettle();
     expect(tester.widget<Text>(find.byKey(const ValueKey('community-like-count-21'))).data, '4');
