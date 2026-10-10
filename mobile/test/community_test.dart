@@ -48,6 +48,9 @@ import 'package:mobile/features/community/presentation/widgets/community_comment
 import 'package:mobile/features/community/presentation/screens/create_community_publication_screen.dart';
 import 'package:mobile/features/community/presentation/screens/create_community_screen.dart';
 import 'package:mobile/features/community/presentation/screens/my_community_publications_screen.dart';
+import 'package:mobile/features/community/presentation/screens/my_favorites_screen.dart';
+import 'package:mobile/features/community/presentation/state/my_favorites_controller.dart';
+import 'package:mobile/features/chronique/models/chronique_page.dart';
 import 'package:mobile/features/community/presentation/screens/invitation_inbox_screen.dart';
 import 'package:mobile/features/community/presentation/screens/my_join_requests_screen.dart';
 import 'package:mobile/features/community/presentation/screens/user_search_screen.dart';
@@ -603,6 +606,26 @@ class _FakeCommunityApi extends CommunityApiService {
     return item.copyWith(likedByMe: like.likedByMe, likeCount: like.likeCount);
   }
 
+  CommunityPublication _withFavorite(CommunityPublication item, CommunityFavoriteState favorite) {
+    return item.copyWith(
+      favoritedByMe: favorite.favoritedByMe,
+      favoriteCount: favorite.favoriteCount,
+    );
+  }
+
+  ApiException? failFavorite;
+  bool holdFavorite = false;
+  final List<Completer<void>> favoriteHolds = <Completer<void>>[];
+  final List<int> favoritedPublicationIds = <int>[];
+  final List<int> unfavoritedPublicationIds = <int>[];
+  List<CommunityPublication> myFavorites = const [];
+  ChroniqueCursor? myFavoritesNext;
+  ApiException? failListMyFavorites;
+  bool holdListMyFavorites = false;
+  final List<Completer<CommunityPublicationPage>> listMyFavoritesHolds =
+      <Completer<CommunityPublicationPage>>[];
+  int listMyFavoritesCalls = 0;
+
   CommunityPublication _byId(int publicationId) {
     return [...publications, ...myPublications].firstWhere(
       (item) => item.id == publicationId,
@@ -617,6 +640,10 @@ class _FakeCommunityApi extends CommunityApiService {
     ];
     myPublications = [
       for (final item in myPublications)
+        if (item.id == updated.id) updated else item,
+    ];
+    myFavorites = [
+      for (final item in myFavorites)
         if (item.id == updated.id) updated else item,
     ];
   }
@@ -663,6 +690,88 @@ class _FakeCommunityApi extends CommunityApiService {
     );
     _replacePublication(_withLike(current, like));
     return like;
+  }
+
+  @override
+  Future<CommunityFavoriteState> favoritePublication({
+    required String accessToken,
+    required int communityId,
+    required int publicationId,
+  }) async {
+    networkOps.add('PUT /communities/$communityId/publications/$publicationId/favorite');
+    if (failFavorite != null) {
+      throw failFavorite!;
+    }
+    if (holdFavorite) {
+      final hold = Completer<void>();
+      favoriteHolds.add(hold);
+      await hold.future;
+    }
+    favoritedPublicationIds.add(publicationId);
+    final current = _byId(publicationId);
+    final favorite = CommunityFavoriteState(
+      favorited: true,
+      favoriteCount: current.favoritedByMe ? current.favoriteCount : current.favoriteCount + 1,
+      favoritedByMe: true,
+    );
+    final updated = _withFavorite(current, favorite);
+    _replacePublication(updated);
+    if (!myFavorites.any((item) => item.id == updated.id)) {
+      myFavorites = [updated, ...myFavorites];
+    } else {
+      myFavorites = [for (final item in myFavorites) if (item.id == updated.id) updated else item];
+    }
+    return favorite;
+  }
+
+  @override
+  Future<CommunityFavoriteState> unfavoritePublication({
+    required String accessToken,
+    required int communityId,
+    required int publicationId,
+  }) async {
+    networkOps.add('DELETE /communities/$communityId/publications/$publicationId/favorite');
+    unfavoritedPublicationIds.add(publicationId);
+    final current = _byId(publicationId);
+    final favorite = CommunityFavoriteState(
+      favorited: false,
+      favoriteCount: current.favoritedByMe && current.favoriteCount > 0
+          ? current.favoriteCount - 1
+          : current.favoriteCount,
+      favoritedByMe: false,
+    );
+    final updated = _withFavorite(current, favorite);
+    _replacePublication(updated);
+    myFavorites = [for (final item in myFavorites) if (item.id != updated.id) item];
+    return favorite;
+  }
+
+  @override
+  Future<CommunityPublicationPage> listMyFavorites({
+    required String accessToken,
+    String? beforeAt,
+    int? beforeId,
+    int? limit,
+  }) async {
+    listMyFavoritesCalls += 1;
+    networkOps.add('GET /me/community-favorites');
+    if (holdListMyFavorites) {
+      final hold = Completer<CommunityPublicationPage>();
+      listMyFavoritesHolds.add(hold);
+      return hold.future;
+    }
+    if (failListMyFavorites != null) {
+      throw failListMyFavorites!;
+    }
+    if (beforeId != null) {
+      return CommunityPublicationPage(
+        items: [
+          for (final item in myFavorites)
+            if (item.id != beforeId) item,
+        ],
+      );
+    }
+    return CommunityPublicationPage(items: List<CommunityPublication>.from(myFavorites), next: myFavoritesNext);
   }
 
   @override
@@ -815,6 +924,8 @@ class _FakeCommunityApi extends CommunityApiService {
       likeCount: item.likeCount,
       commentCount: item.commentCount,
       likedByMe: item.likedByMe,
+      favoriteCount: item.favoriteCount,
+      favoritedByMe: item.favoritedByMe,
       deletedByUserId: item.deletedByUserId,
       media: item.media,
     );
@@ -3801,6 +3912,8 @@ void main() {
     expect(publication.likeCount, 0);
     expect(publication.commentCount, 0);
     expect(publication.likedByMe, isFalse);
+    expect(publication.favoriteCount, 0);
+    expect(publication.favoritedByMe, isFalse);
   });
 
   test('community publication JSON maps interaction counters', () {
@@ -3813,10 +3926,14 @@ void main() {
       'like_count': 4,
       'comment_count': 2,
       'liked_by_me': true,
+      'favorite_count': 3,
+      'favorited_by_me': true,
     });
     expect(publication.likeCount, 4);
     expect(publication.commentCount, 2);
     expect(publication.likedByMe, isTrue);
+    expect(publication.favoriteCount, 3);
+    expect(publication.favoritedByMe, isTrue);
   });
 
   testWidgets('community feed image is shown and tap opens the viewer', (tester) async {
@@ -4809,7 +4926,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('me-pub-expired-label-74')), findsOneWidget);
     expect(find.byKey(const ValueKey('me-pub-counts-expired-74')), findsOneWidget);
-    expect(find.text('4 j’aime · 2 commentaires'), findsWidgets);
+    expect(find.text('4 j’aime · 2 commentaires · 0 favoris'), findsWidgets);
     await tester.tap(find.byKey(const ValueKey('me-pub-expired-74')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('community-publication-expired')), findsOneWidget);
@@ -5777,5 +5894,205 @@ void main() {
     await enterAuthorCorrection(tester);
     expect(find.byType(EditCommunityPublicationScreen), findsOneWidget);
     expect(find.text('Modifier la publication'), findsOneWidget);
+  });
+
+  CommunityPublication favoriteFeedPublication({
+    int id = 21,
+    int favoriteCount = 2,
+    bool favoritedByMe = false,
+  }) {
+    return CommunityPublication(
+      id: id,
+      communityId: 3,
+      communityName: 'Jardin secret',
+      author: const CommunityPublicationAuthor(userId: 2, login: 'other', isFormerMember: false),
+      body: 'Texte de publication active assez long.',
+      status: 'active',
+      commentsEnabled: true,
+      favoriteCount: favoriteCount,
+      favoritedByMe: favoritedByMe,
+    );
+  }
+
+  Future<void> openMyFavorites(WidgetTester tester, _FakeCommunityApi api) async {
+    await _pumpApp(tester, api: api);
+    await tester.tap(find.byKey(const ValueKey('home-user-avatar')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('home-my-favorites')));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('feed shows favorite count and bookmark icon', (tester) async {
+    final api = _FakeCommunityApi()
+      ..publications = [favoriteFeedPublication(favoritedByMe: true, favoriteCount: 4)];
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    expect(find.byKey(const ValueKey('community-favorite-21')), findsOneWidget);
+    expect(find.byIcon(Icons.bookmark), findsWidgets);
+    expect(tester.widget<Text>(find.byKey(const ValueKey('community-favorite-count-21'))).data, '4');
+  });
+
+  testWidgets('author publication has no favorite action on the feed', (tester) async {
+    final api = _FakeCommunityApi()
+      ..publications = [
+        favoriteFeedPublication().copyWith(),
+      ];
+    api.publications = [
+      CommunityPublication(
+        id: 21,
+        communityId: 3,
+        author: const CommunityPublicationAuthor(userId: 1, login: 'tgjjk', isFormerMember: false),
+        body: 'Texte de publication active assez long.',
+        status: 'active',
+        commentsEnabled: true,
+        favoriteCount: 2,
+      ),
+    ];
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    expect(find.byKey(const ValueKey('community-favorite-21')), findsNothing);
+    expect(find.byKey(const ValueKey('community-favorite-count-21')), findsOneWidget);
+  });
+
+  testWidgets('feed favorite then unfavorite uses server counts', (tester) async {
+    final api = _FakeCommunityApi()..publications = [favoriteFeedPublication(favoriteCount: 5)];
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    await tester.tap(find.byKey(const ValueKey('community-favorite-21')));
+    await tester.pumpAndSettle();
+    expect(api.favoritedPublicationIds, [21]);
+    expect(tester.widget<Text>(find.byKey(const ValueKey('community-favorite-count-21'))).data, '6');
+    expect(tester.widget<Text>(find.byKey(const ValueKey('community-like-count-21'))).data, '0');
+    await tester.tap(find.byKey(const ValueKey('community-favorite-21')));
+    await tester.pumpAndSettle();
+    expect(api.unfavoritedPublicationIds, [21]);
+    expect(tester.widget<Text>(find.byKey(const ValueKey('community-favorite-count-21'))).data, '5');
+  });
+
+  test('concurrent feed favorites do not send a second mutation', () async {
+    final api = _FakeCommunityApi()
+      ..holdFavorite = true
+      ..publications = [favoriteFeedPublication()];
+    final container = await readyCommunityFeed(api);
+    addTearDown(container.dispose);
+    final notifier = container.read(communityFeedControllerProvider(3).notifier);
+    final item = readyFeedPublication(container);
+    final first = notifier.toggleFavorite(item);
+    await Future<void>.delayed(Duration.zero);
+    expect(api.favoriteHolds, hasLength(1));
+    final second = notifier.toggleFavorite(item.copyWith(commentCount: 5));
+    await Future<void>.delayed(Duration.zero);
+    expect(api.favoriteHolds, hasLength(1));
+    api.favoriteHolds.single.complete();
+    expect(await first, isTrue);
+    expect(await second, isTrue);
+    expect(api.favoritedPublicationIds, [21]);
+    expect(readyFeedPublication(container).favoriteCount, 3);
+    expect(readyFeedPublication(container).favoritedByMe, isTrue);
+    expect(readyFeedPublication(container).likeCount, 0);
+  });
+
+  testWidgets('failed favorite keeps the previous counters', (tester) async {
+    final api = _FakeCommunityApi()
+      ..failFavorite = const ApiException(message: 'network', statusCode: 503)
+      ..publications = [favoriteFeedPublication(favoriteCount: 2)];
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    await tester.tap(find.byKey(const ValueKey('community-favorite-21')));
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(find.byKey(const ValueKey('community-favorite-count-21'))).data, '2');
+    expect(find.byIcon(Icons.bookmark_border), findsWidgets);
+  });
+
+  testWidgets('home menu opens mes favoris', (tester) async {
+    final api = _FakeCommunityApi()..myFavorites = [favoriteFeedPublication(favoritedByMe: true)];
+    await openMyFavorites(tester, api);
+    expect(find.byType(MyFavoritesScreen), findsOneWidget);
+    expect(find.byKey(const ValueKey('my-favorite-item-21')), findsOneWidget);
+  });
+
+  testWidgets('mes favoris empty state', (tester) async {
+    await openMyFavorites(tester, _FakeCommunityApi());
+    expect(find.byKey(const ValueKey('my-favorites-empty')), findsOneWidget);
+  });
+
+  testWidgets('mes favoris shows loading then content', (tester) async {
+    final api = _FakeCommunityApi()
+      ..holdListMyFavorites = true
+      ..myFavorites = [favoriteFeedPublication(favoritedByMe: true)];
+    await _pumpApp(tester, api: api);
+    await tester.tap(find.byKey(const ValueKey('home-user-avatar')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('home-my-favorites')));
+    await tester.pump();
+    expect(find.byType(AppLoading), findsWidgets);
+    api.listMyFavoritesHolds.single.complete(
+      CommunityPublicationPage(items: api.myFavorites),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('my-favorite-item-21')), findsOneWidget);
+  });
+
+  testWidgets('mes favoris loading then error retry', (tester) async {
+    final api = _FakeCommunityApi()
+      ..failListMyFavorites = const ApiException(message: 'hors ligne', statusCode: 503);
+    await openMyFavorites(tester, api);
+    expect(find.byKey(const ValueKey('my-favorites-error')), findsOneWidget);
+    api.failListMyFavorites = null;
+    api.myFavorites = [favoriteFeedPublication(favoritedByMe: true)];
+    await tester.tap(find.byKey(const ValueKey('my-favorites-retry')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('my-favorite-item-21')), findsOneWidget);
+  });
+
+  testWidgets('removing a favorite drops the card from mes favoris', (tester) async {
+    final item = favoriteFeedPublication(favoritedByMe: true, favoriteCount: 1);
+    final api = _FakeCommunityApi()
+      ..publications = [item]
+      ..myFavorites = [item];
+    await openMyFavorites(tester, api);
+    await tester.tap(find.byKey(const ValueKey('community-favorite-21')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('my-favorite-item-21')), findsNothing);
+    expect(find.byKey(const ValueKey('my-favorites-empty')), findsOneWidget);
+  });
+
+  testWidgets('mes favoris pagination keeps order and skips duplicates', (tester) async {
+    final first = favoriteFeedPublication(id: 31, favoritedByMe: true);
+    final second = favoriteFeedPublication(id: 32, favoritedByMe: true);
+    final api = _FakeCommunityApi()
+      ..myFavorites = [first]
+      ..myFavoritesNext = const ChroniqueCursor(beforeAt: '2026-10-08T12:00:00.000Z', beforeId: 31);
+    await openMyFavorites(tester, api);
+    expect(find.byKey(const ValueKey('my-favorite-item-31')), findsOneWidget);
+    expect(find.byKey(const ValueKey('my-favorite-item-32')), findsNothing);
+    api.myFavorites = [first, second];
+    await tester.tap(find.byKey(const ValueKey('my-favorites-load-more')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('my-favorite-item-31')), findsOneWidget);
+    expect(find.byKey(const ValueKey('my-favorite-item-32')), findsOneWidget);
+  });
+
+  testWidgets('mes favoris never opens another author private detail', (tester) async {
+    final api = _FakeCommunityApi()..myFavorites = [favoriteFeedPublication(favoritedByMe: true)];
+    await openMyFavorites(tester, api);
+    await tester.tap(find.byKey(const ValueKey('my-favorite-item-21')));
+    await tester.pumpAndSettle();
+    expect(find.byType(CommunityPublicationDetailScreen), findsNothing);
+    expect(
+      api.networkOps.where((op) => op.contains('/publications/21') && !op.contains('/favorite')),
+      isEmpty,
+    );
+  });
+
+  testWidgets('favorite mutation does not change like counters', (tester) async {
+    final api = _FakeCommunityApi()
+      ..publications = [favoriteFeedPublication().copyWith(likeCount: 4, likedByMe: true)];
+    await openCommunityDetail(tester, api);
+    await revealCommunityFeed(tester);
+    await tester.tap(find.byKey(const ValueKey('community-favorite-21')));
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(find.byKey(const ValueKey('community-like-count-21'))).data, '4');
+    expect(tester.widget<Text>(find.byKey(const ValueKey('community-favorite-count-21'))).data, '3');
   });
 }

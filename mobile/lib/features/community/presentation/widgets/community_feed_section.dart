@@ -245,6 +245,7 @@ class _CommunityFeedSectionState extends ConsumerState<CommunityFeedSection> {
                             ),
                             CommunityPublicationSocialBar(
                               publication: item,
+                              showFavorite: !_isAuthor(item),
                               onLike: () async {
                                 final ok = await ref
                                     .read(communityFeedControllerProvider(community.id).notifier)
@@ -252,6 +253,16 @@ class _CommunityFeedSectionState extends ConsumerState<CommunityFeedSection> {
                                 if (!ok && context.mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(content: Text('Impossible de mettre à jour le j’aime')),
+                                  );
+                                }
+                              },
+                              onFavorite: () async {
+                                final ok = await ref
+                                    .read(communityFeedControllerProvider(community.id).notifier)
+                                    .toggleFavorite(item);
+                                if (!ok && context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Impossible de mettre à jour le favori')),
                                   );
                                 }
                               },

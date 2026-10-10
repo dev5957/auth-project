@@ -15,6 +15,7 @@ Future<void> showHomeUserMenu(
   required VoidCallback onArchives,
   required VoidCallback onExpired,
   required VoidCallback onMyCommunityPublications,
+  required VoidCallback onMyFavorites,
   required VoidCallback onLogout,
 }) {
   final colors = context.luminaColors;
@@ -76,6 +77,15 @@ Future<void> showHomeUserMenu(
                 onTap: () {
                   Navigator.of(sheetContext).pop();
                   onMyCommunityPublications();
+                },
+              ),
+              ListTile(
+                key: const ValueKey('home-my-favorites'),
+                leading: Icon(Icons.bookmark_border, color: colors.textPrimary),
+                title: const Text('Mes favoris'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  onMyFavorites();
                 },
               ),
               ListTile(

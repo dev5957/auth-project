@@ -155,6 +155,30 @@ class CommunityCommentPage {
   }
 }
 
+class CommunityFavoriteState {
+  const CommunityFavoriteState({
+    required this.favorited,
+    required this.favoriteCount,
+    required this.favoritedByMe,
+  });
+
+  final bool favorited;
+  final int favoriteCount;
+  final bool favoritedByMe;
+
+  factory CommunityFavoriteState.fromJson(Map<String, dynamic> json) {
+    return CommunityFavoriteState(
+      favorited: json['favorited'] == true,
+      favoriteCount: json['favorite_count'] is int
+          ? json['favorite_count'] as int
+          : json['favorite_count'] is num
+              ? (json['favorite_count'] as num).toInt()
+              : 0,
+      favoritedByMe: json['favorited_by_me'] == true,
+    );
+  }
+}
+
 class CommunityLikeState {
   const CommunityLikeState({
     required this.liked,

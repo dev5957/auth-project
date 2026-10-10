@@ -28,6 +28,7 @@ class CommunityFeedController extends AutoDisposeFamilyNotifier<CommunityFeedSta
   final Map<int, CommunityPublicationInteractionPatch> _patches =
       <int, CommunityPublicationInteractionPatch>{};
   final Set<int> _likeInFlight = <int>{};
+  final Set<int> _favoriteInFlight = <int>{};
 
   @override
   CommunityFeedState build(int communityId) {
@@ -98,6 +99,41 @@ class CommunityFeedController extends AutoDisposeFamilyNotifier<CommunityFeedSta
       return false;
     } finally {
       _likeInFlight.remove(item.id);
+    }
+  }
+
+  CommunityPublication _sourceForFavorite(CommunityPublication item) {
+    return _sourceForLike(item);
+  }
+
+  Future<bool> toggleFavorite(CommunityPublication item) async {
+    if (!_favoriteInFlight.add(item.id)) {
+      return true;
+    }
+    final current = _sourceForFavorite(item);
+    try {
+      final result = current.favoritedByMe
+          ? await ref.read(communityRepositoryProvider).unfavoritePublication(
+                communityId: current.communityId,
+                publicationId: current.id,
+              )
+          : await ref.read(communityRepositoryProvider).favoritePublication(
+                communityId: current.communityId,
+                publicationId: current.id,
+              );
+      final patch = CommunityPublicationInteractionPatch(
+        favoritedByMe: result.favoritedByMe,
+        favoriteCount: result.favoriteCount,
+      );
+      applyPublication(current.id, patch);
+      syncMyCommunityPublications(ref, publicationId: current.id, patch: patch);
+      return true;
+    } on ApiException {
+      return false;
+    } catch (_) {
+      return false;
+    } finally {
+      _favoriteInFlight.remove(item.id);
     }
   }
 }

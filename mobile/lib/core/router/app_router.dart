@@ -29,6 +29,7 @@ import '../../features/community/presentation/screens/create_community_screen.da
 import '../../features/community/presentation/screens/edit_community_publication_screen.dart';
 import '../../features/community/presentation/screens/invitation_inbox_screen.dart';
 import '../../features/community/presentation/screens/my_community_publications_screen.dart';
+import '../../features/community/presentation/screens/my_favorites_screen.dart';
 import '../../features/community/presentation/screens/my_join_requests_screen.dart';
 import '../../features/community/presentation/screens/user_search_screen.dart';
 import '../../features/home/presentation/screens/home_screen.dart';
@@ -163,6 +164,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.myCommunityCommentTraces,
         builder: (context, state) => const CommunityCommentTracesScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.myFavorites,
+        builder: (context, state) => const MyFavoritesScreen(),
       ),
       GoRoute(
         path: AppRoutes.myCommunityPublicationDetailPath,

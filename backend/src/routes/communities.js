@@ -35,6 +35,8 @@ const {
   removeMedia,
   like: likePublication,
   unlike: unlikePublication,
+  favorite: favoritePublication,
+  unfavorite: unfavoritePublication,
   listPublicationComments,
   createPublicationComment,
   updatePublicationComment,
@@ -77,6 +79,8 @@ router.post('/:id/publications', communityRateLimit.write, createPublication);
 router.post('/:id/publications/:publicationId/restore', communityRateLimit.write, restorePublication);
 router.put('/:id/publications/:publicationId/like', communityRateLimit.write, likePublication);
 router.delete('/:id/publications/:publicationId/like', communityRateLimit.write, unlikePublication);
+router.put('/:id/publications/:publicationId/favorite', communityRateLimit.write, favoritePublication);
+router.delete('/:id/publications/:publicationId/favorite', communityRateLimit.write, unfavoritePublication);
 router.get(
   '/:id/publications/:publicationId/comments',
   communityRateLimit.read,

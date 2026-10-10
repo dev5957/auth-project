@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/community_publication.dart';
 import 'community_feed_controller.dart';
 import 'my_community_publications_controller.dart';
+import 'my_favorites_controller.dart';
 
 const kMyCommunityPublicationScopes = <String>['current', 'left', 'expired'];
 
@@ -11,19 +12,30 @@ class CommunityPublicationInteractionPatch {
     this.likeCount,
     this.likedByMe,
     this.commentCount,
+    this.favoriteCount,
+    this.favoritedByMe,
   });
 
   final int? likeCount;
   final bool? likedByMe;
   final int? commentCount;
+  final int? favoriteCount;
+  final bool? favoritedByMe;
 
-  bool get isEmpty => likeCount == null && likedByMe == null && commentCount == null;
+  bool get isEmpty =>
+      likeCount == null &&
+      likedByMe == null &&
+      commentCount == null &&
+      favoriteCount == null &&
+      favoritedByMe == null;
 
   CommunityPublicationInteractionPatch merge(CommunityPublicationInteractionPatch other) {
     return CommunityPublicationInteractionPatch(
       likeCount: other.likeCount ?? likeCount,
       likedByMe: other.likedByMe ?? likedByMe,
       commentCount: other.commentCount ?? commentCount,
+      favoriteCount: other.favoriteCount ?? favoriteCount,
+      favoritedByMe: other.favoritedByMe ?? favoritedByMe,
     );
   }
 
@@ -32,6 +44,8 @@ class CommunityPublicationInteractionPatch {
       likeCount: likeCount,
       likedByMe: likedByMe,
       commentCount: commentCount,
+      favoriteCount: favoriteCount,
+      favoritedByMe: favoritedByMe,
     );
   }
 }
@@ -67,7 +81,7 @@ List<CommunityPublication> takePublicationPatches(
 }
 
 void syncCommunityPublication(
-  WidgetRef ref, {
+  Ref ref, {
   required int publicationId,
   required int communityId,
   required CommunityPublicationInteractionPatch patch,
@@ -84,6 +98,10 @@ void syncCommunityPublication(
       ref.read(mine.notifier).applyPublication(publicationId, patch);
     }
   }
+  final favorites = myFavoritesControllerProvider;
+  if (ref.exists(favorites)) {
+    ref.read(favorites.notifier).applyPublication(publicationId, patch);
+  }
 }
 
 void syncMyCommunityPublications(
@@ -96,5 +114,9 @@ void syncMyCommunityPublications(
     if (ref.exists(mine)) {
       ref.read(mine.notifier).applyPublication(publicationId, patch);
     }
+  }
+  final favorites = myFavoritesControllerProvider;
+  if (ref.exists(favorites)) {
+    ref.read(favorites.notifier).applyPublication(publicationId, patch);
   }
 }

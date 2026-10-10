@@ -18,6 +18,11 @@ const {
   unlikePublication,
 } = require('../services/communityPublicationLikeService');
 const {
+  favoritePublication,
+  unfavoritePublication,
+  listMyFavorites,
+} = require('../services/communityPublicationFavoriteService');
+const {
   listComments,
   createComment,
   updateComment,
@@ -175,6 +180,33 @@ async function unlike(req, res, next) {
   }
 }
 
+async function favorite(req, res, next) {
+  try {
+    const result = await favoritePublication(req.user.userId, req.params.id, req.params.publicationId);
+    res.status(200).json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function unfavorite(req, res, next) {
+  try {
+    const result = await unfavoritePublication(req.user.userId, req.params.id, req.params.publicationId);
+    res.status(200).json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function listMyFavoritesAction(req, res, next) {
+  try {
+    const result = await listMyFavorites(req.user.userId, req.query);
+    res.status(200).json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function listPublicationComments(req, res, next) {
   try {
     const result = await listComments(
@@ -269,6 +301,9 @@ module.exports = {
   getMineAction,
   like,
   unlike,
+  favorite,
+  unfavorite,
+  listMyFavoritesAction,
   listPublicationComments,
   createPublicationComment,
   updatePublicationComment,

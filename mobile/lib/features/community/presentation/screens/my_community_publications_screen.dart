@@ -118,7 +118,7 @@ class _MeScopeList extends ConsumerWidget {
                             Text(item.body, style: AppTextTheme.bodyMedium),
                             const SizedBox(height: AppSpacing.xs),
                             Text(
-                              '${item.likeCount} j’aime · ${item.commentCount} commentaires',
+                              item.socialCountsLabel,
                               key: ValueKey('me-pub-counts-$scope-${item.id}'),
                               style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
                             ),

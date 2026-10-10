@@ -368,6 +368,47 @@ class CommunityRepository {
     );
   }
 
+  Future<CommunityFavoriteState> favoritePublication({
+    required int communityId,
+    required int publicationId,
+  }) {
+    return _withToken(
+      (token) => _api.favoritePublication(
+        accessToken: token,
+        communityId: communityId,
+        publicationId: publicationId,
+      ),
+    );
+  }
+
+  Future<CommunityFavoriteState> unfavoritePublication({
+    required int communityId,
+    required int publicationId,
+  }) {
+    return _withToken(
+      (token) => _api.unfavoritePublication(
+        accessToken: token,
+        communityId: communityId,
+        publicationId: publicationId,
+      ),
+    );
+  }
+
+  Future<CommunityPublicationPage> listMyFavorites({
+    String? beforeAt,
+    int? beforeId,
+    int? limit,
+  }) {
+    return _withToken(
+      (token) => _api.listMyFavorites(
+        accessToken: token,
+        beforeAt: beforeAt,
+        beforeId: beforeId,
+        limit: limit,
+      ),
+    );
+  }
+
   Future<CommunityCommentPage> listComments({
     required int communityId,
     required int publicationId,
