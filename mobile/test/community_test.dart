@@ -31,6 +31,7 @@ import 'package:mobile/features/community/models/join_request_messages.dart';
 import 'package:mobile/features/community/presentation/screens/community_comment_traces_screen.dart';
 import 'package:mobile/features/community/presentation/screens/community_detail_screen.dart';
 import 'package:mobile/features/community/presentation/screens/community_list_screen.dart';
+import 'package:mobile/core/theme/app_colors.dart';
 import 'package:mobile/core/theme/app_theme.dart';
 import 'package:mobile/core/widgets/app_button.dart';
 import 'package:mobile/core/widgets/app_card.dart';
@@ -54,6 +55,7 @@ import 'package:mobile/features/chronique/models/chronique_page.dart';
 import 'package:mobile/features/community/presentation/screens/invitation_inbox_screen.dart';
 import 'package:mobile/features/community/presentation/screens/my_join_requests_screen.dart';
 import 'package:mobile/features/community/presentation/screens/user_search_screen.dart';
+import 'package:mobile/features/community/presentation/widgets/community_publication_social_bar.dart';
 import 'package:mobile/features/community/presentation/widgets/community_join_requests_section.dart';
 import 'package:mobile/features/community/presentation/widgets/community_leave_bar.dart';
 import 'package:mobile/features/community/presentation/widgets/community_member_dialogs.dart';
@@ -4913,7 +4915,117 @@ void main() {
       ];
     await openCommunityDetail(tester, api);
     await revealCommunityFeed(tester);
-    expect(find.byKey(const ValueKey('community-comments-disabled-feed-21')), findsOneWidget);
+    expect(find.text('Commentaires désactivés'), findsNothing);
+    expect(find.byKey(const ValueKey('community-comments-disabled-feed-21')), findsNothing);
+    expect(find.byKey(const ValueKey('community-comments-21')), findsOneWidget);
+    expect(
+      tester.widget<IconButton>(find.byKey(const ValueKey('community-comments-21'))).onPressed,
+      isNull,
+    );
+    await tester.tap(find.byKey(const ValueKey('community-comments-21')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('community-comments-sheet-21')), findsNothing);
+    expect(find.byKey(const ValueKey('community-like-21')), findsOneWidget);
+    expect(find.byKey(const ValueKey('community-favorite-count-21')), findsOneWidget);
+  });
+
+  Future<void> pumpSocialBar(
+    WidgetTester tester, {
+    required CommunityPublication publication,
+    VoidCallback? onLike,
+    VoidCallback? onComments,
+    VoidCallback? onFavorite,
+  }) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Scaffold(
+          body: CommunityPublicationSocialBar(
+            publication: publication,
+            onLike: onLike,
+            onComments: onComments,
+            onFavorite: onFavorite,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Icon socialCommentsIcon(WidgetTester tester) {
+    return tester.widget<IconButton>(find.byKey(const ValueKey('community-comments-21'))).icon as Icon;
+  }
+
+  testWidgets('social bar greys comments and ignores taps when disabled', (tester) async {
+    var commentsOpened = false;
+    var liked = false;
+    var favorited = false;
+    await pumpSocialBar(
+      tester,
+      publication: const CommunityPublication(
+        id: 21,
+        communityId: 3,
+        author: CommunityPublicationAuthor(userId: 2, login: 'other', isFormerMember: false),
+        body: 'Texte de publication active assez long.',
+        status: 'active',
+        commentsEnabled: false,
+        likeCount: 4,
+        commentCount: 2,
+        favoriteCount: 3,
+      ),
+      onLike: () => liked = true,
+      onComments: () => commentsOpened = true,
+      onFavorite: () => favorited = true,
+    );
+    final muted = LuminaColors.light.textSecondary.withValues(
+      alpha: CommunityPublicationSocialBar.commentsDisabledOpacity,
+    );
+    expect(find.text('Commentaires désactivés'), findsNothing);
+    expect(find.byKey(const ValueKey('community-comments-disabled-feed-21')), findsNothing);
+    expect(socialCommentsIcon(tester).color, muted);
+    expect(
+      tester.widget<Text>(find.byKey(const ValueKey('community-comment-count-21'))).style?.color,
+      muted,
+    );
+    expect(
+      tester.widget<IconButton>(find.byKey(const ValueKey('community-comments-21'))).onPressed,
+      isNull,
+    );
+    await tester.tap(find.byKey(const ValueKey('community-comments-21')));
+    await tester.pump();
+    expect(commentsOpened, isFalse);
+    await tester.tap(find.byKey(const ValueKey('community-like-21')));
+    await tester.tap(find.byKey(const ValueKey('community-favorite-21')));
+    await tester.pump();
+    expect(liked, isTrue);
+    expect(favorited, isTrue);
+    expect(tester.widget<Text>(find.byKey(const ValueKey('community-like-count-21'))).data, '4');
+    expect(tester.widget<Text>(find.byKey(const ValueKey('community-favorite-count-21'))).data, '3');
+  });
+
+  testWidgets('social bar keeps comments tappable when enabled', (tester) async {
+    var commentsOpened = false;
+    await pumpSocialBar(
+      tester,
+      publication: const CommunityPublication(
+        id: 21,
+        communityId: 3,
+        author: CommunityPublicationAuthor(userId: 2, login: 'other', isFormerMember: false),
+        body: 'Texte de publication active assez long.',
+        status: 'active',
+        commentsEnabled: true,
+        commentCount: 2,
+      ),
+      onComments: () => commentsOpened = true,
+    );
+    expect(find.text('Commentaires désactivés'), findsNothing);
+    expect(socialCommentsIcon(tester).color, LuminaColors.light.textSecondary);
+    expect(
+      tester.widget<IconButton>(find.byKey(const ValueKey('community-comments-21'))).onPressed,
+      isNotNull,
+    );
+    await tester.tap(find.byKey(const ValueKey('community-comments-21')));
+    await tester.pump();
+    expect(commentsOpened, isTrue);
   });
 
   testWidgets('expired mine publications are historical and read only', (tester) async {

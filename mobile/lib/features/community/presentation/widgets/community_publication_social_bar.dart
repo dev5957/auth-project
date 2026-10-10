@@ -24,9 +24,15 @@ class CommunityPublicationSocialBar extends StatelessWidget {
   final bool favoriteEnabled;
   final bool showFavorite;
 
+  static const double commentsDisabledOpacity = 0.38;
+
   @override
   Widget build(BuildContext context) {
     final colors = context.luminaColors;
+    final commentsEnabled = publication.commentsEnabled;
+    final commentsColor = commentsEnabled
+        ? colors.textSecondary
+        : colors.textSecondary.withValues(alpha: commentsDisabledOpacity);
     return Row(
       children: [
         IconButton(
@@ -45,14 +51,17 @@ class CommunityPublicationSocialBar extends StatelessWidget {
         ),
         IconButton(
           key: ValueKey('community-comments-${publication.id}'),
-          tooltip: 'Commentaires',
-          onPressed: onComments,
-          icon: Icon(Icons.chat_bubble_outline, color: colors.textSecondary),
+          tooltip: commentsEnabled ? 'Commentaires' : 'Commentaires désactivés',
+          onPressed: commentsEnabled ? onComments : null,
+          icon: Icon(
+            Icons.chat_bubble_outline,
+            color: commentsColor,
+          ),
         ),
         Text(
           '${publication.commentCount}',
           key: ValueKey('community-comment-count-${publication.id}'),
-          style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
+          style: AppTextTheme.labelSmall.copyWith(color: commentsColor),
         ),
         if (showFavorite)
           IconButton(
@@ -76,16 +85,6 @@ class CommunityPublicationSocialBar extends StatelessWidget {
           key: ValueKey('community-favorite-count-${publication.id}'),
           style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
         ),
-        if (!publication.commentsEnabled) ...[
-          const SizedBox(width: 8),
-          Flexible(
-            child: Text(
-              'Commentaires désactivés',
-              key: ValueKey('community-comments-disabled-feed-${publication.id}'),
-              style: AppTextTheme.labelSmall.copyWith(color: colors.textSecondary),
-            ),
-          ),
-        ],
       ],
     );
   }
