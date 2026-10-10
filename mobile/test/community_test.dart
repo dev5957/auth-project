@@ -1919,14 +1919,18 @@ void main() {
   }
 
   Future<void> revealFeedButton(WidgetTester tester, Finder button) async {
-    await tester.scrollUntilVisible(
+    final feedScrollable = find.descendant(
+      of: find.byKey(const ValueKey('community-feed-scroll')),
+      matching: find.byType(Scrollable),
+    ).first;
+
+    await tester.dragUntilVisible(
       button,
-      200,
-      scrollable: find.descendant(
-        of: find.byKey(const ValueKey('community-feed-scroll')),
-        matching: find.byType(Scrollable),
-      ).first,
+      feedScrollable,
+      const Offset(0, -200),
     );
+
+    await tester.pumpAndSettle();
     expect(button.hitTestable(), findsOneWidget);
   }
 
