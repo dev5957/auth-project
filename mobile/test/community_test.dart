@@ -5025,10 +5025,13 @@ void main() {
     await openCommunityDetail(tester, api);
     await revealCommunityFeed(tester);
     expect(tester.widget<Text>(find.byKey(const ValueKey('community-like-count-21'))).data, '5');
-    await tester.tap(find.byKey(const ValueKey('community-like-21')));
+    final likeButton = find.byKey(const ValueKey('community-like-21'));
+    await tester.ensureVisible(likeButton);
+    await tester.tap(likeButton);
     await tester.pumpAndSettle();
     expect(tester.widget<Text>(find.byKey(const ValueKey('community-like-count-21'))).data, '6');
-    await tester.tap(find.byKey(const ValueKey('community-like-21')));
+    await tester.ensureVisible(likeButton);
+    await tester.tap(likeButton);
     await tester.pumpAndSettle();
     expect(tester.widget<Text>(find.byKey(const ValueKey('community-like-count-21'))).data, '5');
     expect(find.byIcon(Icons.favorite_border), findsWidgets);
@@ -5958,12 +5961,15 @@ void main() {
     final api = _FakeCommunityApi()..publications = [favoriteFeedPublication(favoriteCount: 5)];
     await openCommunityDetail(tester, api);
     await revealCommunityFeed(tester);
-    await tester.tap(find.byKey(const ValueKey('community-favorite-21')));
+    final favoriteButton = find.byKey(const ValueKey('community-favorite-21'));
+    await tester.ensureVisible(favoriteButton);
+    await tester.tap(favoriteButton);
     await tester.pumpAndSettle();
     expect(api.favoritedPublicationIds, [21]);
     expect(tester.widget<Text>(find.byKey(const ValueKey('community-favorite-count-21'))).data, '6');
     expect(tester.widget<Text>(find.byKey(const ValueKey('community-like-count-21'))).data, '0');
-    await tester.tap(find.byKey(const ValueKey('community-favorite-21')));
+    await tester.ensureVisible(favoriteButton);
+    await tester.tap(favoriteButton);
     await tester.pumpAndSettle();
     expect(api.unfavoritedPublicationIds, [21]);
     expect(tester.widget<Text>(find.byKey(const ValueKey('community-favorite-count-21'))).data, '5');
@@ -6024,8 +6030,25 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('home-user-avatar')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('home-my-favorites')));
-    await tester.pump();
+    var openedFavorites = false;
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+      if (find.byType(MyFavoritesScreen).evaluate().isNotEmpty) {
+        openedFavorites = true;
+        break;
+      }
+    }
+    expect(openedFavorites, isTrue);
+    expect(find.byType(MyFavoritesScreen), findsOneWidget);
     expect(find.byType(AppLoading), findsWidgets);
+    for (var i = 0; i < 10; i++) {
+      if (api.listMyFavoritesHolds.isNotEmpty) {
+        break;
+      }
+      await tester.pump();
+    }
+    expect(find.byType(AppLoading), findsWidgets);
+    expect(api.listMyFavoritesHolds.single.isCompleted, isFalse);
     api.listMyFavoritesHolds.single.complete(
       CommunityPublicationPage(items: api.myFavorites),
     );
@@ -6090,7 +6113,9 @@ void main() {
       ..publications = [favoriteFeedPublication().copyWith(likeCount: 4, likedByMe: true)];
     await openCommunityDetail(tester, api);
     await revealCommunityFeed(tester);
-    await tester.tap(find.byKey(const ValueKey('community-favorite-21')));
+    final favoriteButton = find.byKey(const ValueKey('community-favorite-21'));
+    await tester.ensureVisible(favoriteButton);
+    await tester.tap(favoriteButton);
     await tester.pumpAndSettle();
     expect(tester.widget<Text>(find.byKey(const ValueKey('community-like-count-21'))).data, '4');
     expect(tester.widget<Text>(find.byKey(const ValueKey('community-favorite-count-21'))).data, '3');
